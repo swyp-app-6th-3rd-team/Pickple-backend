@@ -9,8 +9,10 @@
 name: deploy-develop
 
 on:
-  push:
-    branches: [develop]
+  # develop 인프라가 destroy 된 상태라 자동 배포를 잠가 둔다.
+  # terraform apply 와 GitHub Variables 5건 등록을 마친 뒤 주석을 푼다(terraform/README.md).
+  # push:
+  #   branches: [develop]
   workflow_dispatch:
     inputs:
       image_tag:
