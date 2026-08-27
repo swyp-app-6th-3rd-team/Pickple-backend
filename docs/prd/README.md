@@ -15,3 +15,4 @@
 | [004](PRD-004-테스트.md) | 테스트와 아키텍처 규칙 | 완료 |
 | [005](PRD-005-관측성.md) | 관측성 (OpenTelemetry + Grafana) | 완료 |
 | [006](PRD-006-LLM문서서빙.md) | LLM 문서 서빙 (llms.txt) | 완료 |
+| [007](PRD-007-develop배포인프라.md) | develop 배포 인프라 (EC2 + Terraform) | 진행 중 |

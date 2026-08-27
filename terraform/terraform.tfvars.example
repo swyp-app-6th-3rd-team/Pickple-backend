@@ -1,0 +1,31 @@
+# 이 파일을 terraform.tfvars 로 복사해 값을 채운다.
+#   cp terraform.tfvars.example terraform.tfvars
+# terraform.tfvars 는 .gitignore 에 있다 — 커밋하지 않는다.
+#
+# 전부 기본값이 있으므로, 기본 구성 그대로 쓸 거면 terraform.tfvars 없이도 apply 된다.
+
+# ── 계정·리전 ───────────────────────────────────────────────
+# aws_account_id = "251128835262"
+# aws_profile    = "root_habin"
+# region         = "ap-northeast-2"
+
+# ── 인스턴스 ────────────────────────────────────────────────
+# 메모리가 부족하면(docker stats 로 확인) t4g.medium 으로 올린다.
+# instance_type         = "t4g.small"
+# instance_architecture = "arm64"
+
+# x86 으로 갈 경우 둘을 함께 바꾼다:
+# instance_type         = "t3.small"
+# instance_architecture = "x86_64"
+
+# ── 배포 ────────────────────────────────────────────────────
+# github_repository    = "swyp-app-6th-3rd-team/6th-buy-or-pass-backend"
+# github_deploy_branch = "develop"
+
+# OIDC AssumeRole 이 실패하면 워크플로 로그에 찍힌 실제 sub claim 을 여기에 넣는다.
+# (GitHub 이 2026-06-18 부터 신규 저장소에 immutable subject claims 를 적용 중)
+# github_oidc_subject = "repo:swyp-app-6th-3rd-team/6th-buy-or-pass-backend:ref:refs/heads/develop"
+
+# ── 비상용 ──────────────────────────────────────────────────
+# 평소에는 비워둔다. SSM 이 동작하지 않을 때만 임시로 자기 IP 를 넣는다.
+# ssh_allowed_cidr = "203.0.113.10/32"

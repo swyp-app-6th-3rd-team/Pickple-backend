@@ -29,3 +29,14 @@ logs/
 
 ### 생성 산출물 ###
 src/main/generated/
+
+### Terraform ###
+# .terraform/ 은 provider 바이너리(수백 MB), tfstate 는 리소스 ID·메타데이터가 담긴다.
+# .terraform.lock.hcl 은 provider 버전을 팀에 고정하므로 **커밋한다**(무시하지 않는다).
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+# 실제 변수값에는 계정 ID·CIDR 등이 들어간다. example 만 공유한다.
+*.tfvars
+!*.tfvars.example

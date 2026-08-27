@@ -1,0 +1,434 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Buy or Pass — develop 인프라",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1280,
+      640
+    ],
+    "views": [
+      {
+        "id": "request-path",
+        "label": "요청 경로",
+        "focus": [
+          "client",
+          "igw",
+          "caddy",
+          "app",
+          "mysql"
+        ],
+        "note": "인터넷에서 들어온 요청은 80번 하나만 통과해 Caddy 를 거쳐 앱에 닿는다."
+      },
+      {
+        "id": "deploy-path",
+        "label": "배포 경로",
+        "focus": [
+          "gha",
+          "oidc",
+          "deployrole",
+          "ecr",
+          "ssm",
+          "app"
+        ],
+        "note": "OIDC 로 단기 토큰을 받아 ECR 에 push 하고, SSH 가 아니라 SSM 으로 배포한다."
+      },
+      {
+        "id": "secret-path",
+        "label": "비밀 주입",
+        "focus": [
+          "secrets",
+          "instrole",
+          "app",
+          "mysql"
+        ],
+        "note": "EC2 가 부팅 시 스스로 비밀을 조회해 .env 를 만든다. 재생성돼도 자가 복구된다."
+      },
+      {
+        "id": "persistence",
+        "label": "데이터 영속성",
+        "focus": [
+          "mysql",
+          "datavol",
+          "rootvol"
+        ],
+        "note": "MySQL datadir 만 별도 EBS 에 둔다. 인스턴스를 교체해도 데이터가 살아남는다."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "client",
+      "type": "external",
+      "label": "클라이언트",
+      "sublabel": "브라우저 / 앱",
+      "pos": [
+        40,
+        292
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "gha",
+      "type": "external",
+      "label": "GitHub Actions",
+      "sublabel": "develop push",
+      "tag": "ubuntu-24.04-arm",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        140,
+        68
+      ]
+    },
+    {
+      "id": "oidc",
+      "type": "security",
+      "label": "OIDC Provider",
+      "sublabel": "token.actions.githubusercontent.com",
+      "tag": "장기 키 없음",
+      "pos": [
+        265,
+        60
+      ],
+      "size": [
+        175,
+        68
+      ]
+    },
+    {
+      "id": "deployrole",
+      "type": "security",
+      "label": "배포 역할",
+      "sublabel": "1시간 단기 토큰",
+      "tag": "sub = develop 브랜치 고정",
+      "pos": [
+        525,
+        60
+      ],
+      "size": [
+        175,
+        68
+      ]
+    },
+    {
+      "id": "ecr",
+      "type": "cloud",
+      "label": "ECR",
+      "sublabel": "develop-<run_id> + develop",
+      "tag": "lifecycle 10개 유지",
+      "pos": [
+        790,
+        60
+      ],
+      "size": [
+        175,
+        68
+      ]
+    },
+    {
+      "id": "ssm",
+      "type": "cloud",
+      "label": "SSM Run Command",
+      "sublabel": "SSH 키 불필요",
+      "tag": "인스턴스 ARN 으로 제한",
+      "pos": [
+        525,
+        172
+      ],
+      "size": [
+        175,
+        68
+      ]
+    },
+    {
+      "id": "secrets",
+      "type": "security",
+      "label": "Secrets Manager",
+      "sublabel": "DB · JWT · OAuth",
+      "tag": "값은 tfstate 밖",
+      "pos": [
+        40,
+        522
+      ],
+      "size": [
+        175,
+        68
+      ]
+    },
+    {
+      "id": "igw",
+      "type": "cloud",
+      "label": "Internet Gateway",
+      "sublabel": "무료 · NAT 없음",
+      "pos": [
+        265,
+        292
+      ],
+      "size": [
+        175,
+        64
+      ]
+    },
+    {
+      "id": "caddy",
+      "type": "backend",
+      "label": "Caddy",
+      "sublabel": ":80 리버스 프록시",
+      "pos": [
+        525,
+        292
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "app",
+      "type": "backend",
+      "label": "Spring Boot",
+      "sublabel": "app:8080 · 관리 :9090",
+      "tag": "ECR 이미지",
+      "pos": [
+        770,
+        292
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL 8.4",
+      "sublabel": "내부망 전용 · 포트 미노출",
+      "pos": [
+        770,
+        412
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "instrole",
+      "type": "security",
+      "label": "인스턴스 프로파일",
+      "sublabel": "SSM + 자기 비밀만",
+      "pos": [
+        290,
+        522
+      ],
+      "size": [
+        175,
+        68
+      ]
+    },
+    {
+      "id": "datavol",
+      "type": "database",
+      "label": "데이터 EBS",
+      "sublabel": "gp3 10GB → /data",
+      "tag": "prevent_destroy",
+      "pos": [
+        1030,
+        412
+      ],
+      "size": [
+        170,
+        68
+      ]
+    },
+    {
+      "id": "rootvol",
+      "type": "cloud",
+      "label": "루트 EBS",
+      "sublabel": "gp3 20GB · 교체 시 삭제",
+      "pos": [
+        1030,
+        292
+      ],
+      "size": [
+        170,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "VPC 10.0.0.0/16 · public subnet (ap-northeast-2)",
+      "wraps": [
+        "caddy",
+        "app",
+        "mysql",
+        "datavol",
+        "rootvol"
+      ],
+      "pad": 52
+    },
+    {
+      "kind": "security-group",
+      "label": "보안그룹 · ingress 80 only",
+      "wraps": [
+        "caddy",
+        "app",
+        "mysql"
+      ],
+      "pad": 30
+    }
+  ],
+  "connections": [
+    {
+      "id": "client-igw",
+      "from": "client",
+      "to": "igw",
+      "label": "HTTP :80",
+      "variant": "emphasis"
+    },
+    {
+      "id": "igw-caddy",
+      "from": "igw",
+      "to": "caddy",
+      "variant": "emphasis"
+    },
+    {
+      "id": "caddy-app",
+      "from": "caddy",
+      "to": "app",
+      "label": "proxy :8080",
+      "variant": "emphasis",
+      "labelDy": 32
+    },
+    {
+      "id": "app-mysql",
+      "from": "app",
+      "to": "mysql",
+      "label": "JDBC · compose 내부망",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "mysql-datavol",
+      "from": "mysql",
+      "to": "datavol",
+      "label": "datadir 바인드",
+      "variant": "emphasis"
+    },
+    {
+      "id": "app-rootvol",
+      "from": "app",
+      "to": "rootvol",
+      "label": "로그 · JFR",
+      "variant": "dashed"
+    },
+    {
+      "id": "gha-oidc",
+      "from": "gha",
+      "to": "oidc",
+      "label": "id-token 요청",
+      "variant": "security"
+    },
+    {
+      "id": "oidc-role",
+      "from": "oidc",
+      "to": "deployrole",
+      "label": "AssumeRole",
+      "variant": "security"
+    },
+    {
+      "id": "role-ecr",
+      "from": "deployrole",
+      "to": "ecr",
+      "label": "이미지 push"
+    },
+    {
+      "id": "role-ssm",
+      "from": "deployrole",
+      "to": "ssm",
+      "label": "SendCommand",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "ssm-app",
+      "from": "ssm",
+      "to": "app",
+      "label": "compose up",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -20
+    },
+    {
+      "id": "app-pull",
+      "from": "ecr",
+      "to": "app",
+      "label": "이미지 pull",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "inst-secrets",
+      "from": "instrole",
+      "to": "secrets",
+      "label": "부팅 시 조회",
+      "variant": "security",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "inst-app",
+      "from": "instrole",
+      "to": "mysql",
+      "label": ".env 생성",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "비용을 가른 선택",
+      "items": [
+        "NAT Gateway 없음 — public subnet + IGW 직결로 월 $45 제거",
+        "ALB 대신 Caddy, RDS 대신 컨테이너 MySQL",
+        "VPC · Subnet · IGW · 보안그룹은 과금 대상이 아니다",
+        "합계 월 약 $22 (프리티어 적용 시 약 $4)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "열려 있는 것과 막힌 것",
+      "items": [
+        "80 번만 개방 — 3306 · 8080 · 9090 · 22 는 규칙 자체가 없다",
+        "SSH 대신 SSM Session Manager (추가 요금 0)",
+        "actuator 는 /health 만 통과, 나머지는 Caddy 가 404",
+        "GitHub 에 저장된 비밀 0건 — OIDC 단기 토큰만 쓴다"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "인스턴스 교체를 견디는 법",
+      "items": [
+        "MySQL datadir 만 별도 EBS — 루트는 교체 시 삭제된다",
+        "user_data 는 blkid 로 기존 파일시스템을 확인한 뒤에만 포맷",
+        "mountpoint 검증 실패 시 중단 — 루트에 쌓이면 조용히 사라진다",
+        "taint → apply 로 실제 교체해 데이터 생존을 실측했다"
+      ]
+    }
+  ]
+}

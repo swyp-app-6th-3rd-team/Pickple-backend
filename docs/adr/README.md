@@ -21,3 +21,5 @@
 | [0009](0009-log-persistence.md) | 로그를 파일로 남기고 도커 볼륨에 영속화한다 | Accepted |
 | [0010](0010-observability-opentelemetry.md) | 관측성은 OpenTelemetry + Grafana 스택으로 한다 | Accepted |
 | [0011](0011-llms-txt-runtime-rendering.md) | API 문서를 LLM 친화 마크다운으로 런타임 렌더링한다 | Accepted |
+| [0012](0012-develop-infra-single-ec2.md) | develop 인프라는 단일 EC2 + docker-compose 로 간다 | Accepted |
+| [0013](0013-oidc-and-secrets-manager.md) | 배포 자격증명은 OIDC 로, 런타임 비밀은 Secrets Manager 로 가른다 | Accepted |

@@ -1,0 +1,197 @@
+#!/bin/bash
+# EC2 최초 부팅 스크립트 (Amazon Linux 2023).
+#
+# 하는 일:
+#   1. Docker + compose plugin 설치
+#   2. MySQL 데이터용 EBS 를 멱등하게 마운트  ← 가장 위험한 구간
+#   3. Secrets Manager 조회 스크립트 배치
+#   4. systemd 유닛 등록
+#
+# ⚠️ user_data 는 **최초 부팅 시 1회만** 실행된다. 그래서 비밀 조회 로직을 여기에
+#    인라인으로 넣지 않고 별도 스크립트로 떨어뜨린다(ADR-0013).
+set -euxo pipefail
+
+exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+# ── 1. Docker ──────────────────────────────────────────────
+dnf update -y
+dnf install -y docker jq
+# AL2023 은 compose plugin 을 별도 경로에 둔다.
+mkdir -p /usr/local/lib/docker/cli-plugins
+COMPOSE_ARCH="$(uname -m)"
+curl -fsSL \
+  "https://github.com/docker/compose/releases/download/v${compose_version}/docker-compose-linux-$${COMPOSE_ARCH}" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# ── 2. 데이터 EBS 마운트 (멱등) ────────────────────────────
+#
+# Nitro 인스턴스(t4g 포함)에서 EBS 는 NVMe 로 보이며, /dev/nvme<N>n1 의 N 은
+# **부팅 시 응답 순서**로 정해진다. 블록 디바이스 매핑 이름과 무관하다.
+# 따라서 장치를 찾는 순서를 다음과 같이 둔다.
+#   (a) AL2023 udev 심링크(/dev/sdf) — 있으면 이게 가장 단순하다
+#   (b) 없으면 볼륨 ID(시리얼 번호)로 직접 탐색
+#
+# ⚠️ 여기서 무조건 mkfs 를 돌리면 **재부팅마다 DB 를 스스로 지운다.**
+#    반드시 기존 파일시스템 유무를 먼저 확인한다.
+
+# ⚠️ 볼륨은 **인스턴스가 부팅된 뒤에** 붙는다.
+#    aws_volume_attachment 가 aws_instance 에 의존하므로, user_data 가 시작될 때
+#    볼륨이 아직 없는 것이 정상이다. 따라서 두 탐색 방법을 **매 시도마다 함께** 돌린다.
+#    (심링크만 먼저 한 번 보고 마는 구조면, 심링크가 늦게 생길 때 놓친다.)
+WANT_SERIAL="$(echo "${data_volume_id}" | tr -d '-')"
+DEVICE=""
+
+for _ in $(seq 1 60); do
+  # (a) AL2023 udev 심링크
+  if [ -e "${data_device_name}" ]; then
+    DEVICE="$(readlink -f "${data_device_name}")"
+    break
+  fi
+  # (b) 볼륨 ID 가 NVMe 시리얼로 노출된다 (vol-0abc… → vol0abc…)
+  while read -r name serial; do
+    if [ "$${serial}" = "$${WANT_SERIAL}" ]; then
+      DEVICE="/dev/$${name}"
+      break
+    fi
+  done < <(lsblk -dno NAME,SERIAL)
+  [ -n "$${DEVICE}" ] && break
+  sleep 2
+done
+
+if [ -z "$${DEVICE}" ]; then
+  # 여기서 죽으면 Docker 설치조차 안 돼 SSM 으로 들어가도 손쓸 게 없다.
+  # 볼륨 없이라도 인스턴스는 살려두고, 사람이 들어와 고칠 수 있게 한다.
+  echo "ERROR: 데이터 볼륨(${data_volume_id})을 2분 안에 찾지 못했습니다." >&2
+  echo "ERROR: MySQL 을 기동하면 루트 볼륨에 데이터가 쌓여 인스턴스 교체 시 사라집니다." >&2
+  echo "ERROR: 볼륨 연결을 확인한 뒤 이 스크립트를 다시 실행하십시오:" >&2
+  echo "ERROR:   sudo bash /var/lib/cloud/instance/user-data.txt" >&2
+  # 유닛은 아래에서 만들어진다. 여기서 죽으면 유닛 자체가 없으므로
+  # MySQL 이 엉뚱한 곳에 데이터를 쌓을 일도 없다.
+  exit 1
+fi
+
+# 파일시스템이 없을 때만 만든다. 이 분기가 데이터 보존의 전부다.
+if ! blkid "$${DEVICE}"; then
+  echo "새 볼륨입니다. xfs 로 포맷합니다: $${DEVICE}"
+  mkfs -t xfs "$${DEVICE}"
+else
+  echo "기존 파일시스템을 발견했습니다. 포맷하지 않습니다: $${DEVICE}"
+fi
+
+mkdir -p "${data_mount_point}"
+
+# fstab 에는 UUID 로 적는다. NVMe 이름은 재부팅 시 바뀔 수 있다.
+UUID="$(blkid -s UUID -o value "$${DEVICE}")"
+if ! grep -q "$${UUID}" /etc/fstab; then
+  # nofail: 볼륨이 없어도 인스턴스가 부팅되게 한다(SSM 으로 들어가 고칠 수 있어야 한다).
+  echo "UUID=$${UUID} ${data_mount_point} xfs defaults,nofail 0 2" >> /etc/fstab
+fi
+mount -a
+
+# ⚠️ 마운트 성공을 **반드시** 확인한다.
+#    fstab 에 nofail 을 줬으므로 마운트가 실패해도 부팅은 계속된다. 그 상태에서
+#    아래 mkdir/chown 을 하면 **루트 볼륨**에 디렉터리가 생기고, MySQL 이 거기에
+#    데이터를 쌓는다 → 인스턴스 교체 시 그대로 소실된다. 조용히 넘어가면 안 된다.
+if ! mountpoint -q "${data_mount_point}"; then
+  echo "ERROR: ${data_mount_point} 마운트에 실패했습니다($${DEVICE})." >&2
+  echo "ERROR: 이대로 두면 MySQL 데이터가 루트 볼륨에 쌓여 인스턴스 교체 시 사라집니다." >&2
+  echo "ERROR: 볼륨 상태를 확인한 뒤 이 스크립트를 다시 실행하십시오(멱등합니다):" >&2
+  echo "ERROR:   sudo bash /var/lib/cloud/instance/user-data.txt" >&2
+  exit 1
+fi
+
+# MySQL 컨테이너(uid 999)가 쓸 디렉터리.
+mkdir -p "${data_mount_point}/mysql"
+chown -R 999:999 "${data_mount_point}/mysql"
+
+# ── 3. 애플리케이션 디렉터리 ───────────────────────────────
+mkdir -p "${app_dir}"
+
+cat > /usr/local/bin/fetch-secrets.sh <<'FETCH_EOF'
+${fetch_secrets_script}
+FETCH_EOF
+chmod 700 /usr/local/bin/fetch-secrets.sh
+
+# compose 기동 래퍼.
+#
+# ⚠️ 첫 배포 전에는 compose 파일이 없다. 그때 유닛이 실패하면 systemd 가 유닛을
+#    "failed" 로 낙인찍고, 이후 배포로 컨테이너가 떠도 `systemctl stop` 이
+#    ExecStop 을 실행하지 않는다(이미 죽은 것으로 보므로). 컨테이너는
+#    restart:unless-stopped 로 살아 있는데 systemd 로는 제어가 안 되는 상태가 된다.
+#    실측으로 확인한 문제다.
+#
+#    그래서 "파일 없음"(정상, 배포 대기)과 "compose 실패"(진짜 오류)를 구분한다.
+#    SuccessExitStatus=1 로 뭉뚱그리면 진짜 실패까지 성공으로 덮인다.
+cat > /usr/local/bin/buyorpass-up.sh <<'UP_EOF'
+#!/bin/bash
+set -euo pipefail
+COMPOSE_FILE="${app_dir}/docker-compose-ec2.yml"
+if [ ! -f "$COMPOSE_FILE" ]; then
+  echo "compose 파일이 아직 없습니다. 첫 배포를 기다립니다: $COMPOSE_FILE"
+  exit 0
+fi
+exec /usr/bin/docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+UP_EOF
+chmod 755 /usr/local/bin/buyorpass-up.sh
+
+# ── 4. systemd 유닛 ────────────────────────────────────────
+#
+# ExecStartPre 로 비밀을 매 기동마다 다시 조회한다.
+# 덕분에 `systemctl restart buyorpass` 만으로 비밀이 갱신된다.
+cat > /etc/systemd/system/buyorpass.service <<'UNIT_EOF'
+[Unit]
+Description=Buy or Pass (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=${app_dir}
+
+# ⚠️ 첫 배포 전에는 compose 파일이 없다. 그때 유닛이 exit 14 로 실패하면
+#    systemd 가 유닛을 "failed" 로 낙인찍고, 이후 배포로 컨테이너가 떠도
+#    `systemctl stop` 이 ExecStop 을 실행하지 않는다(이미 죽은 것으로 보므로).
+#    그러면 컨테이너는 restart:unless-stopped 로 살아 있는데 systemd 로는
+#    제어가 안 되는 상태가 된다 — 실측으로 확인한 문제다.
+#    파일이 없으면 조용히 성공 처리해 유닛을 active 로 유지한다.
+ExecStartPre=/usr/local/bin/fetch-secrets.sh
+ExecStart=/usr/local/bin/buyorpass-up.sh
+ExecStop=/usr/bin/docker compose -f ${app_dir}/docker-compose-ec2.yml down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+
+# WorkingDirectory 의 ${app_dir} 는 templatefile 이 이미 치환했다.
+systemctl daemon-reload
+systemctl enable buyorpass.service
+
+# ── 5. SSM 에이전트 재시작 ─────────────────────────────────
+#
+# ⚠️ 이 단계가 없으면 인스턴스에 영영 못 들어간다. 실측으로 확인한 문제다.
+#
+# EIP 는 aws_eip 가 aws_instance 에 의존하므로 **부팅 뒤에** 붙는다. 그 순간
+# 자동할당 public IP 가 EIP 로 **교체**되면서 진행 중이던 TCP 연결이 전부 끊긴다.
+# 하필 그때 SSM 에이전트가 등록을 시도하면 이렇게 실패한다.
+#
+#   SSM Agent entering hibernation due to error: ... connection reset by peer
+#
+# "hibernation" 이 핵심이다 — 에이전트는 실패 후 재시도 간격을 수십 분으로 늘린다.
+# 그래서 네트워크가 정상으로 돌아와도 한참 동안 등록되지 않는다.
+# 보안 그룹에 22번이 없으므로(ADR-0012) 이 상태가 곧 **복구 경로 상실**이다.
+#
+# user_data 는 EIP 연결 이후에 이 지점에 도달하므로, 여기서 재시작하면 안정된
+# 네트워크로 다시 등록한다.
+systemctl restart amazon-ssm-agent || true
+systemctl is-active amazon-ssm-agent || echo "WARN: ssm-agent 비활성 — 콘솔 출력을 확인하십시오"
+
+# 아직 compose 파일과 이미지가 없다(첫 배포 전).
+# GitHub Actions 가 파일을 밀어넣고 기동시키므로 여기서는 start 하지 않는다.
+echo "user-data 완료. 첫 배포를 기다립니다."

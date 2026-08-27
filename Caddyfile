@@ -1,0 +1,47 @@
+# 리버스 프록시.
+#
+# 앱의 8080 을 직접 인터넷에 노출하지 않는 이유는 두 가지다.
+#   1. 보안 그룹에 8080 규칙을 만들 필요가 없다(compose 내부 네트워크로만 접근).
+#   2. 도메인이 생기면 아래 `:80` 을 도메인명으로 바꾸는 것만으로
+#      Let's Encrypt 인증서가 자동 발급·갱신된다. ALB(월 $22) + ACM 이 필요 없다.
+#
+#   예:  api.buyorpass.example.com {
+#            reverse_proxy app:8080
+#        }
+#   그 뒤 보안 그룹에 443 을 열면 끝난다.
+
+:80 {
+	encode gzip
+
+	# ── 헬스체크만 관리 포트로 통과시킨다 ──────────────────────
+	#
+	# application.yml 은 관리 엔드포인트를 **서비스 포트와 분리**해 9090 에 둔다.
+	# 인증 없이 열리는 /actuator/prometheus 로 JVM·DB 내부 지표가 새는 것을 막기 위해서다.
+	# 그 의도를 여기서 깨지 않도록, 외부에 여는 것은 /actuator/health 하나뿐이다.
+	#
+	# prometheus·metrics 를 봐야 하면 SSM 포트 포워딩으로 9090 에 붙는다:
+	#   aws ssm start-session --target <id> \
+	#     --document-name AWS-StartPortForwardingSession \
+	#     --parameters '{"portNumber":["9090"],"localPortNumber":["9090"]}'
+	handle /actuator/health {
+		reverse_proxy app:9090
+	}
+
+	# 나머지 actuator 경로는 외부에 열지 않는다.
+	handle /actuator/* {
+		respond "Not Found" 404
+	}
+
+	handle {
+		reverse_proxy app:8080 {
+			header_up X-Real-IP {remote_host}
+			# 앱 기동 중(start_period 90s)에는 502 대신 잠시 기다린다.
+			lb_try_duration 5s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
