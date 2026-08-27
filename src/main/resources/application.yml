@@ -96,47 +96,19 @@ app:
 management:
   # 관리 엔드포인트를 **서비스 포트와 분리**한다.
   #
-  # Prometheus 가 /actuator/prometheus 를 인증 없이 긁어야 하는데, 이를
-  # SecurityConfig 의 PUBLIC_GET(인증 없이 열리는 allowlist)에 넣으면
-  # JVM·DB 내부 지표가 외부에 공개된다. 관리 포트는 compose 네트워크 안에만
-  # 노출되므로(호스트 포트 매핑 없음) SecurityConfig 를 건드릴 필요가 없다.
-  #
-  # 로컬 개발에서는 http://localhost:9090/actuator/prometheus 로 확인한다.
+  # 관리 포트는 compose 네트워크 안에만 열린다(호스트 포트 매핑 없음).
+  # 서비스 포트로 actuator 를 노출하지 않으므로 내부 지표가 외부로 나가지 않는다.
+  # EC2 에서는 SSM 포트 포워딩으로 붙는다(terraform/README.md 참조).
   server:
     port: ${MANAGEMENT_PORT:9090}
 
   endpoints:
     web:
       exposure:
-        include: health, info, prometheus, metrics
+        include: health, info
   endpoint:
     health:
       show-details: when-authorized
-
-  metrics:
-    tags:
-      # Prometheus 가 여러 앱을 구분하는 라벨. 대시보드 변수로도 쓴다.
-      application: ${spring.application.name}
-    distribution:
-      percentiles-histogram:
-        # p95/p99 를 서버 측에서 계산할 수 있게 히스토그램을 낸다.
-        http.server.requests: true
-      slo:
-        # Pinpoint 액티브 스레드 뷰와 **같은 버킷**(1s / 3s / 5s).
-        # http.server.requests.active 는 LongTaskTimer 라 진행 중인 요청만 센다 —
-        # Pinpoint 의 fast/normal/slow/verySlow 히스토그램과 구조가 같다.
-        # 이 설정이 있어야 대시보드의 버킷 패널이 동작한다.
-        http.server.requests.active: 1s,3s,5s
-        http.server.requests: 100ms,500ms,1s,3s,5s
-
-  # 트레이스를 전수 수집한다.
-  #
-  # 샘플링을 낮추면 Tempo service graph 의 엣지 카운트가 과소 집계된다
-  # (Pinpoint 는 에이전트 측에서 세므로 샘플링과 무관하게 정확했다).
-  # 단일 홈서버 트래픽에서는 100% 가 현실적이며, 그 대가로 정확도를 얻는다.
-  tracing:
-    sampling:
-      probability: ${TRACE_SAMPLE_RATE:1.0}
 
 springdoc:
   swagger-ui:
