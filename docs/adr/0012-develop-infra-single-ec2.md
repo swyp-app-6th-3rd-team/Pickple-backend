@@ -166,24 +166,36 @@ SCP 가 없는 지금 **이것이 유일한 자동 방어선**이므로, "실제
   develop 환경이라 수용하되, 실사용자를 받는 순간 재검토한다.
 - **자동 백업.** RDS 의 자동 스냅샷·PITR 이 없다. EBS 분리로 인스턴스 교체에는 견디지만
   **논리적 삭제(`DROP TABLE`)에는 무방비**다. DLM 일 1회 스냅샷을 옵션으로 남긴다.
-- **수직 확장 여유.** 2GB 에 JVM 과 MySQL 이 함께 산다. 관측성 스택
-  (Grafana·Tempo·Loki·Prometheus)을 이 인스턴스에 올릴 수 없다 — [ADR-0010](0010-observability-opentelemetry.md) 참조.
+- **수직 확장 여유.** 2GB 에 JVM 과 MySQL 이 함께 산다. 관측성 백엔드
+  (Grafana·Tempo·Loki·Prometheus)를 이 인스턴스에 올릴 수 없다.
 - **HTTPS.** 도메인이 없어 HTTP 로 시작한다. 도메인이 생기면 Caddyfile 한 줄로 전환된다.
 - **계정 격리.** 위 "계정 축" 참조.
 
-### ADR-0010 (관측성) 과의 관계
+### 관측성
 
-ADR-0010 은 OpenTelemetry + Grafana 스택을 도입했다. 이 ADR 은 **그 결정을 뒤집지 않는다.**
-적용 범위를 환경별로 가를 뿐이다.
+**이 문단은 사후 갱신됐다.** 최초 작성 시점에는 ADR-0010(OpenTelemetry + Grafana 스택)이
+유효했고, 이 ADR 은 그 스택을 "로컬·홈서버에서는 유지하되 2GB EC2 에서만 제외"하는 것으로
+적용 범위를 갈랐다. 이후 **관측성 스택 자체를 저장소에서 제거**했으므로(ADR-0010 폐기,
+`observability/` · `docker-compose-otel.yml` · OTel 에이전트 배선 삭제) 그 구분이 무의미해졌다.
+단일 EC2 라는 이 ADR 의 결정 자체는 바뀌지 않았다.
 
-| 환경 | 관측성 스택 |
+현재 develop 의 진단 수단은 다음 둘이다.
+
+| 수단 | 내용 |
 |---|---|
-| 로컬 / 홈서버 | ADR-0010 그대로 유효 |
-| **develop EC2 (2GB)** | **제외** — 4개 컨테이너를 얹을 메모리가 없다 |
+| JFR 상시 녹화 | 6시간 롤링 링버퍼. JDK 내장이라 에이전트가 필요 없다 |
+| 레벨별 파일 로깅 | [ADR-0009](0009-log-persistence.md). EBS 볼륨에 영속화 |
 
-앱의 JFR 상시 녹화(6시간 롤링)와 레벨별 파일 로깅([ADR-0009](0009-log-persistence.md))은 EC2 에서도 유지되므로
-사후 진단 능력 자체는 남는다. `OTEL_ENABLED=false` 가 기본값이라 별도 조치 없이 제외된다.
-develop 에 관측성이 필요해지면 인스턴스를 키우거나 관리형(Grafana Cloud 무료 티어)을 검토한다.
+둘 다 EC2 에서 그대로 동작하므로 **사후 진단 능력은 남는다.**
+헬스 상태는 관리 포트(9090)의 `/actuator/health` 로 확인한다 —
+인터넷에 열려 있지 않으므로 SSM 포트 포워딩으로 붙는다(`terraform/README.md`).
+**앞으로의 방향은 CloudWatch 다.** 자체 관측성 백엔드를 2GB 인스턴스에 얹는 대신
+AWS 관리형으로 간다 — 인스턴스 메모리를 쓰지 않고, EC2 role 에 권한만 주면 되며,
+이미 SSM·Secrets Manager 로 AWS 에 붙어 있으므로 새 자격증명이 필요 없다.
+
+> **미구현.** 현재 저장소에 CloudWatch 배선은 없다 — 로그 그룹·IAM `logs:*` 권한·
+> compose `awslogs` 드라이버 모두 미작성이다. 붙이는 작업은 별도 PR 로 진행하며,
+> 그때 이 문단을 갱신하거나 새 ADR 로 대체한다.
 
 ## 검토한 대안
 

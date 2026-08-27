@@ -124,7 +124,7 @@ sudo systemctl restart buyorpass
 
 ### 관리 포트(9090) 보기
 
-`/actuator/prometheus` 는 인터넷에 열려 있지 않다. 포트 포워딩으로 붙는다.
+`/actuator/health` 는 인터넷에 열려 있지 않다. 포트 포워딩으로 붙는다.
 
 ```bash
 aws ssm start-session --target "$(terraform output -raw instance_id)" \
@@ -132,6 +132,8 @@ aws ssm start-session --target "$(terraform output -raw instance_id)" \
   --parameters '{"portNumber":["9090"],"localPortNumber":["9090"]}' \
   --region ap-northeast-2 --profile root_habin
 ```
+
+포워딩이 열리면 `curl -s localhost:9090/actuator/health` 로 확인한다.
 
 ### MySQL 접속
 

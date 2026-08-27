@@ -29,7 +29,7 @@
 
 - prod 환경 — 배포 결정 시점에 별도 사이클로
 - HTTPS / 도메인 / ALB / ACM / Route53 — 도메인 미보유
-- 관측성 스택(Grafana·Tempo·Loki·Prometheus) — 2GB 인스턴스에 올릴 수 없다 ([ADR-0012](../adr/0012-develop-infra-single-ec2.md) 참조)
+- 관측성 백엔드 — 자체 스택은 2GB 인스턴스에 올릴 수 없다. CloudWatch 로 가되 별도 사이클 ([ADR-0012](../adr/0012-develop-infra-single-ec2.md) 참조)
 - 자동 백업(DLM 스냅샷) — 옵션으로만 기술
 - CI 테스트 — `ci.yml` 이 이미 담당. 배포 워크플로는 빌드·배포만 한다
 
@@ -68,7 +68,7 @@
 
 | 문제 | 원인 | 조치 |
 |---|---|---|
-| `/actuator/health` 가 8080 에 없다 | `application.yml` 이 관리 엔드포인트를 **의도적으로** 9090 으로 분리했다. `/actuator/prometheus` 가 인증 없이 열려 JVM·DB 지표가 새는 것을 막기 위해서다 | compose healthcheck 를 9090 으로 고치고, Caddy 는 `/actuator/health` 만 9090 으로 통과시킨 뒤 나머지 `/actuator/*` 는 404 로 막았다. 앱의 보안 의도를 인프라가 깨지 않게 한다 |
+| `/actuator/health` 가 8080 에 없다 | `application.yml` 이 관리 엔드포인트를 **의도적으로** 9090 으로 분리했다. actuator 가 JVM·DB 내부 상태를 드러내므로 서비스 포트로는 열지 않는다 | compose healthcheck 를 9090 으로 고치고, Caddy 는 `/actuator/health` 만 9090 으로 통과시킨 뒤 나머지 `/actuator/*` 는 404 로 막았다. 앱의 보안 의도를 인프라가 깨지 않게 한다 |
 | Nitro 인스턴스에서 EBS 장치명이 어긋난다 | t4g 는 Nitro 라 `/dev/sdf` 로 요청해도 커널엔 `/dev/nvme<N>n1` 로 보이고, N 은 **부팅 시 응답 순서**로 정해져 매핑 이름과 무관하다 | user_data 가 (a) AL2023 udev 심링크 → (b) 볼륨 ID 시리얼 탐색 순으로 장치를 찾고, fstab 엔 UUID 로 적는다 |
 | compose 오버레이로는 EC2 배포가 안 된다 | `build:` 와 `image:` 가 함께 있으면 compose 는 "그 이름으로 빌드"로 해석한다. EC2 에서 Gradle 빌드가 돌아 2GB 인스턴스가 OOM 된다 | 오버레이 대신 `docker-compose-ec2.yml` 을 완결형으로 분리. 기존 `docker-compose-prod.yml` 은 건드리지 않는다 |
 | **첫 배포 전 부팅이 유닛을 영구 failed 로 만든다** (실측) | 부팅 시 compose 파일이 아직 없어 유닛이 exit 14 로 실패하면 systemd 가 "failed" 로 낙인찍는다. 이후 배포로 컨테이너가 떠도 `systemctl stop` 이 ExecStop 을 실행하지 않아(이미 죽은 것으로 봄), 컨테이너는 `restart:unless-stopped` 로 살아 있는데 systemd 제어가 안 되는 상태가 된다 | `buyorpass-up.sh` 래퍼가 "파일 없음"(exit 0, 배포 대기)과 "compose 실패"(진짜 오류)를 구분. `SuccessExitStatus=1` 로 뭉뚱그리면 진짜 실패까지 덮이므로 쓰지 않았다 |

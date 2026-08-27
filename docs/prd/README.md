@@ -8,11 +8,5 @@
 
 | # | 제목 | 상태 |
 |---|---|---|
-| [000](PRD-000-빌드골격과컨테이너.md) | 빌드 골격과 컨테이너 | 완료 |
-| [001](PRD-001-DDD골격과참조구현.md) | DDD 골격과 참조 구현 | 완료 |
-| [002](PRD-002-Sakila엔티티.md) | Sakila 엔티티 | 완료 |
-| [003](PRD-003-인증.md) | OAuth2 + JWT 인증 | 완료 |
-| [004](PRD-004-테스트.md) | 테스트와 아키텍처 규칙 | 완료 |
-| [005](PRD-005-관측성.md) | 관측성 (OpenTelemetry + Grafana) | 완료 |
 | [006](PRD-006-LLM문서서빙.md) | LLM 문서 서빙 (llms.txt) | 완료 |
 | [007](PRD-007-develop배포인프라.md) | develop 배포 인프라 (EC2 + Terraform) | 진행 중 |

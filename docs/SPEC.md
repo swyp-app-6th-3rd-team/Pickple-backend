@@ -3,8 +3,6 @@
 무엇을 만드는가 — API · 스키마 · 처리 규칙. **계속 갱신한다.**
 결정이 바뀌면 항목을 고치고 맨 아래 변경 이력에 남긴다.
 
-진행 표기: ☑ 완료 · ◐ 진행중 · ☐ 미착수
-
 ---
 
 ## 1. 기술 스택
@@ -21,13 +19,10 @@
 | springdoc | 3.1.0 | 2.x 는 Boot 4 비호환 |
 | Testcontainers | 1.21.3 | `testcontainers-bom` 으로 버전 관리 |
 | ArchUnit | 1.4.1 | |
-| OpenTelemetry Java Agent | 2.30.0 | 옵트인. 아키텍처 독립적 단일 jar |
-| Micrometer Prometheus Registry | Boot 4.1 관리 | `/actuator/prometheus` (관리 포트) |
-| Grafana / Tempo / Prometheus / Loki | 12.3.1 / 2.9.0 / v3.7.3 / 3.5.7 | 독립 스택. 전부 arm64 네이티브 |
 
 ---
 
-## 2. 패키지 구조 ☑
+## 2. 패키지 구조
 
 비즈니스 축으로 먼저 자르고, 그 안에서 계층을 나눈다.
 
@@ -38,16 +33,6 @@ com/example/sakila/
 ├── config/          ClockConfig · QuerydslConfig · ScalarConfig
 ├── docs/            LlmsTxtController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
-│
-├── rental/          ★ DDD 참조 구현 (남길 것)
-│   ├── domain/      Rental · RentalStore · RentalSearchCondition
-│   ├── service/     RentalService · RentalQueryService · RentalCommand
-│   ├── infra/       RentalEntity · RentalRepository(package-private)
-│   │                JpaRentalStore · RentalQueryRepositoryImpl
-│   └── controller/  RentalController + dto/
-│
-├── sakila/          ★ 예제 (새 프로젝트에서 지울 것)
-│   └── infra/       15개 엔티티 + 리포지토리 + 컨버터
 │
 └── auth/            OAuth2 + JWT
     ├── domain/      User · Role · SocialProvider · UserStore · RefreshTokenStore
@@ -62,6 +47,10 @@ com/example/sakila/
     └── controller/  AuthController
 ```
 
+> **도메인 패키지가 아직 없다.** 템플릿의 참조 구현(`rental`)과 예제(`sakila`)를 걷어낸 뒤
+> Buy-or-Pass 도메인을 아직 세우지 않았다. 현재 있는 것은 인증과 공통 골격뿐이다.
+> 도메인 모델링은 별도 사이클에서 다룬다.
+
 ---
 
 ## 3. API
@@ -72,7 +61,7 @@ com/example/sakila/
 { "code": "OK", "message": "정상 처리되었습니다.", "returnObject": { } }
 ```
 
-### 3.1 인증 ☑
+### 3.1 인증
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
@@ -86,23 +75,7 @@ com/example/sakila/
 - 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
 - 리프레시 토큰 — **HttpOnly 쿠키만**. 본문에도 URL 에도 담지 않는다
 
-### 3.2 대여 ☑
-
-| Method | Path | 설명 |
-|---|---|---|
-| POST | `/api/rentals` | 대여 시작 (201) |
-| POST | `/api/rentals/{id}/return` | 반납 |
-| GET | `/api/rentals/{id}` | 단건 조회 |
-| GET | `/api/rentals` | 목록 — 번호 페이징 |
-| GET | `/api/rentals/scroll` | 목록 — 무한 스크롤 |
-| GET | `/api/rentals/outstanding` | 미반납 목록 (오래된 순) |
-
-**목록 조회 파라미터**: `customerId` · `staffId` · `inventoryId` · `returned` ·
-`rentedFrom` · `rentedTo` · `page` · `size`(최대 100) · `sort`
-
-**스크롤 파라미터**: `cursor`(비우면 첫 조각) · `limit`(기본 20, 최대 100)
-
-### 3.3 문서 ☑
+### 3.2 문서
 
 | Path | 설명 |
 |---|---|
@@ -115,15 +88,7 @@ com/example/sakila/
 
 ## 4. 스키마
 
-### 4.1 Sakila 16개 ☑
-
-`actor` · `address` · `category` · `city` · `country` · `customer` · `film` ·
-`film_actor` · `film_category` · `film_text` · `inventory` · `language` ·
-`payment` · `rental` · `staff` · `store`
-
-원본에서 변경한 것은 [ADR-0005](adr/0005-sakila-schema-modifications.md) 참조.
-
-### 4.2 인증 2개 ☑
+### 4.1 인증 2개
 
 ```sql
 users(id, provider, provider_id, email, name, role, state, created_at, updated_at,
@@ -135,7 +100,7 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
 ```
 
-### 4.3 마이그레이션 ☑
+### 4.2 마이그레이션
 
 | 파일 | location | 로드 시점 |
 |---|---|---|
@@ -145,14 +110,15 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 
 ## 5. 처리 규칙
 
-### 5.1 시간 ☑
+### 5.1 시간
 
 - 모든 시간 필드는 `LocalDateTime`. `Instant` 를 쓰지 않는다.
-- `Clock` 빈은 **초 단위로 끊는다** — Sakila 컬럼이 `datetime(0)` 이라 정밀도를 맞춘다.
+- `Clock` 빈은 **초 단위로 끊는다** — DB 의 `datetime(0)` 과 정밀도를 맞춘다.
+  나노초를 그대로 두면 keyset 스크롤에서 행이 누락된다(변경 이력 참조).
 - 도메인·Store 는 `LocalDateTime.now()` 를 직접 부르지 않고 `Clock` 을 주입받는다.
 - 근거: [ADR-0003](adr/0003-localdatetime-over-instant.md)
 
-### 5.2 페이징 ☑
+### 5.2 페이징
 
 - 계층 내부는 Spring Data 타입 직접 사용 — `Pageable`/`Page`/`ScrollPosition`/`Window`
 - **응답 경계에서만** `PageResponse`/`ScrollResponse` 로 변환
@@ -161,7 +127,7 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 - 정렬 필드는 허용 목록 방식. 모르는 필드는 무시한다
 - 근거: [ADR-0004](adr/0004-spring-data-paging-types.md)
 
-### 5.3 도메인 ☑
+### 5.3 도메인
 
 - 도메인은 JPA·Spring·Lombok·검증 애노테이션에 의존하지 않는다
 - 생성자가 불변식을 강제. 복원은 `restore(...)` 정적 팩터리로 분리
@@ -170,7 +136,7 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 - Spring Data 리포지토리는 **package-private**
 - 근거: [ADR-0008](adr/0008-domain-entity-separation.md)
 
-### 5.4 인증 ☑
+### 5.4 인증
 
 - 액세스 토큰은 클레임만으로 인가 판단. **요청마다 DB 를 조회하지 않는다**
 - 리프레시 토큰은 SHA-256 해시로 저장. 사용자당 한 행, 재발급 시 갱신
@@ -179,7 +145,7 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 - 리다이렉트 URI 는 호스트 화이트리스트 검증 (오픈 리다이렉트 방지)
 - 근거: [ADR-0006](adr/0006-auth-hardening.md)
 
-### 5.5 로깅 ☑
+### 5.5 로깅
 
 - 레벨별 디렉터리로 분리 — `${LOG_DIR}/{error,warn,info}/`
   - `error`·`warn` 은 `LevelFilter` 로 **그 레벨만**
@@ -198,37 +164,41 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 | `local` | ✅ | ✅ |
 | `prod` | ✅ | ✅ |
 
-### 5.6 에러 응답 ☑
+### 5.6 에러 응답
 
 | 상황 | 코드 | HTTP |
 |---|---|---|
+| 성공 | `OK` / `CREATED` | 200 / 201 |
 | 요청 값 오류 · 도메인 불변식 위반 | `INVALID_REQUEST` | 400 |
 | 미인증 · 토큰 오류 | `UNAUTHORIZED` / `INVALID_TOKEN` / `EXPIRED_TOKEN` | 401 |
 | 권한 없음 | `FORBIDDEN` | 403 |
-| 대상 없음 | `NOT_FOUND` / `RENTAL_NOT_FOUND` | 404 |
-| 이미 반납됨 | `RENTAL_ALREADY_RETURNED` | 409 |
+| 대상 없음 | `NOT_FOUND` | 404 |
 | 그 외 | `SYSTEM_ERROR` | 500 |
 
 ---
 
-## 6. 아키텍처 규칙 ☑
+## 6. 아키텍처 규칙
 
-`ArchitectureTest` 18개. 규칙을 추가할 때는 **일부러 위반하는 코드를 넣어
-해당 규칙만 실패하는지 확인한 뒤** 커밋한다.
+`ArchitectureTest` 17개. 규칙을 추가할 때는 **일부러 위반하는 코드를 넣어
+해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
+지킨다는 증거가 되지 않는다([ADR-0008](adr/0008-domain-entity-separation.md)).
 
-상세: [PRD-004](prd/PRD-004-테스트.md#아키텍처-규칙-18개)
+| 그룹 | 규칙 수 | 내용 |
+|---|---|---|
+| 도메인 순수성 | 6 | JPA·검증·Lombok·infra·web·부동소수점 의존 금지 |
+| 계층 경계 | 8 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / infra→service 금지 |
+| API 응답 계약 | 2 | 컨트롤러가 `Page`·`Window` 를 그대로 반환 금지 |
+| DI | 1 | `@Autowired` 필드 주입 금지 |
 
 ---
 
-## 7. 테스트 ☑
+## 7. 테스트
 
-**108건 통과 / 0 실패**
-
-| 계층 | 건수 | 컨테이너 |
-|---|---|---|
-| 도메인·어댑터·서비스 단위 | 60 | 불필요 |
-| 아키텍처 | 18 | 불필요 |
-| 통합 (인프라·API) | 38 | 필요 |
+| 계층 | 컨테이너 |
+|---|---|
+| 단위 (도메인·어댑터·서비스) | 불필요 |
+| 아키텍처 (ArchUnit) | 불필요 |
+| 통합 (인프라·API) | 필요 — Testcontainers MySQL |
 
 ---
 
