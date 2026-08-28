@@ -69,7 +69,7 @@ resource "aws_route_table_association" "public" {
 # 443 은 도메인을 확보한 뒤 Caddy 자동 HTTPS 와 함께 연다.
 resource "aws_security_group" "app" {
   name        = "${local.name_prefix}-app"
-  description = "Buy or Pass application host"
+  description = "Pickple application host"
   vpc_id      = aws_vpc.main.id
 
   tags = { Name = "${local.name_prefix}-app" }

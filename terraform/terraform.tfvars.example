@@ -19,12 +19,12 @@
 # instance_architecture = "x86_64"
 
 # ── 배포 ────────────────────────────────────────────────────
-# github_repository    = "swyp-app-6th-3rd-team/6th-buy-or-pass-backend"
+# github_repository    = "swyp-app-6th-3rd-team/Pickple-backend"
 # github_deploy_branch = "develop"
 
 # OIDC AssumeRole 이 실패하면 워크플로 로그에 찍힌 실제 sub claim 을 여기에 넣는다.
 # (GitHub 이 2026-06-18 부터 신규 저장소에 immutable subject claims 를 적용 중)
-# github_oidc_subject = "repo:swyp-app-6th-3rd-team/6th-buy-or-pass-backend:ref:refs/heads/develop"
+# github_oidc_subject = "repo:swyp-app-6th-3rd-team/Pickple-backend:ref:refs/heads/develop"
 
 # ── 비상용 ──────────────────────────────────────────────────
 # 평소에는 비워둔다. SSM 이 동작하지 않을 때만 임시로 자기 IP 를 넣는다.

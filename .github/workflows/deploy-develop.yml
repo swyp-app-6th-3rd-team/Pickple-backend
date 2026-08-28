@@ -109,7 +109,7 @@ jobs:
             --timeout-seconds 600 \
             --parameters commands="[
               \"set -euxo pipefail\",
-              \"cd /opt/buyorpass\",
+              \"cd /opt/pickple\",
               \"echo $COMPOSE_B64 | base64 -d > docker-compose-ec2.yml\",
               \"echo $CADDY_B64 | base64 -d > Caddyfile\",
               \"/usr/local/bin/fetch-secrets.sh\",
