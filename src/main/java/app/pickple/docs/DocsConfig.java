@@ -23,7 +23,7 @@ public class DocsConfig {
      * Swagger UI 와 Scalar 는 제목이 필요하다.
      */
     @Bean
-    public OpenAPI buyOrPassOpenAPI() {
+    public OpenAPI pickpleOpenAPI() {
         return new OpenAPI().info(new Info()
                 .title("Pickple API")
                 .description("중고 거래 판단 서비스 API")

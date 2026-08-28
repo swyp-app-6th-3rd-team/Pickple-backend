@@ -21,7 +21,7 @@ app:
     secret-key: test-secret-key-for-integration-tests-only-32bytes+
     access-token-validity: PT30M
     refresh-token-validity: P14D
-    issuer: sakila-ddd-template-test
+    issuer: pickple-test
 
 management:
   # 운영에서는 관리 엔드포인트를 별도 포트로 분리한다(메트릭 외부 노출 방지).

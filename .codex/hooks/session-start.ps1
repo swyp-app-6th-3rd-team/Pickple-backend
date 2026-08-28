@@ -64,7 +64,7 @@ try {
     $workingTree = if ($changes.Count -eq 0) { 'clean' } else { "$($changes.Count) changed path(s)" }
 
     Write-Output @"
-Buy or Pass backend repository context:
+Pickple backend repository context:
 - Session source: $source
 - Git root: $script:repoRoot
 - Current branch: $branch
@@ -79,6 +79,6 @@ Buy or Pass backend repository context:
     exit 0
 }
 catch {
-    Write-Output 'Buy or Pass session context could not be loaded. Review the local hook script and Git access.'
+    Write-Output 'Pickple session context could not be loaded. Review the local hook script and Git access.'
     exit 0
 }
