@@ -13,7 +13,7 @@ public record AuthProperties(Jwt jwt, Auth auth, Cors cors) {
             String secretKey,
             @DefaultValue("PT30M") Duration accessTokenValidity,
             @DefaultValue("P14D") Duration refreshTokenValidity,
-            @DefaultValue("sakila-ddd-template") String issuer) {
+            @DefaultValue("pickple") String issuer) {
 
         public Jwt {
             // HS256 은 최소 256비트(32바이트) 키를 요구한다.

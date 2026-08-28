@@ -25,7 +25,7 @@ public class DocsConfig {
     @Bean
     public OpenAPI buyOrPassOpenAPI() {
         return new OpenAPI().info(new Info()
-                .title("Buy or Pass API")
+                .title("Pickple API")
                 .description("중고 거래 판단 서비스 API")
                 .version("v1"));
     }

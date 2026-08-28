@@ -30,7 +30,7 @@ public class ContainerConfig {
     @SuppressWarnings("resource")
     public MySQLContainer<?> mysqlContainer() {
         return new MySQLContainer<>(IMAGE)
-                .withDatabaseName("sakila")
+                .withDatabaseName("pickple")
                 .withCommand(
                         "--character-set-server=utf8mb4",
                         "--collation-server=utf8mb4_0900_ai_ci",

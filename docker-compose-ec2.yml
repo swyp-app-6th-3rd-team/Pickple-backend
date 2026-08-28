@@ -8,18 +8,18 @@
 #   2. 포트 정책이 정반대다 — 로컬은 DB 를 노출하고 EC2 는 막는다.
 #   3. 관측성 스택을 제외해야 한다(ADR-0012).
 #
-# 이 파일은 GitHub Actions 가 SSM 으로 EC2 의 /opt/buyorpass 에 배치한다.
+# 이 파일은 GitHub Actions 가 SSM 으로 EC2 의 /opt/pickple 에 배치한다.
 # .env 는 fetch-secrets.sh 가 Secrets Manager 에서 만든다.
 
 services:
   mysql:
     image: mysql:8.4
-    container_name: ${COMPOSE_PROJECT_NAME:-buyorpass}-mysql
+    container_name: ${COMPOSE_PROJECT_NAME:-pickple}-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?fetch-secrets.sh 가 .env 를 만들지 못했습니다}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-buyorpass}
-      MYSQL_USER: ${MYSQL_USER:-buyorpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pickple}
+      MYSQL_USER: ${MYSQL_USER:-pickple}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?fetch-secrets.sh 가 .env 를 만들지 못했습니다}
       TZ: ${TZ:-Asia/Seoul}
     # ports 매핑이 없다. 3306 은 compose 내부 네트워크에서만 보인다.
@@ -49,15 +49,15 @@ services:
     # 빌드하지 않는다. GitHub Actions 가 만든 이미지를 ECR 에서 받는다.
     # IMAGE_TAG 는 배포 시 SSM 이 불변 태그(develop-<run_id>)를 넘긴다 → 태그 지정만으로 롤백된다.
     image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG:-develop}
-    container_name: ${COMPOSE_PROJECT_NAME:-buyorpass}-app
+    container_name: ${COMPOSE_PROJECT_NAME:-pickple}-app
     restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-buyorpass}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-buyorpass}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-pickple}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-pickple}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY 가 비어 있습니다}
       # ⚠️ :- 는 변수가 "미설정"일 때만 발동한다. .env 에 빈 값이 있으면 빈 문자열이
@@ -90,7 +90,7 @@ services:
 
   caddy:
     image: caddy:2-alpine
-    container_name: ${COMPOSE_PROJECT_NAME:-buyorpass}-caddy
+    container_name: ${COMPOSE_PROJECT_NAME:-pickple}-caddy
     restart: unless-stopped
     depends_on:
       - app
@@ -104,8 +104,8 @@ services:
 
 volumes:
   app_log:
-    name: ${COMPOSE_PROJECT_NAME:-buyorpass}-log
+    name: ${COMPOSE_PROJECT_NAME:-pickple}-log
   caddy_data:
-    name: ${COMPOSE_PROJECT_NAME:-buyorpass}-caddy-data
+    name: ${COMPOSE_PROJECT_NAME:-pickple}-caddy-data
   caddy_config:
-    name: ${COMPOSE_PROJECT_NAME:-buyorpass}-caddy-config
+    name: ${COMPOSE_PROJECT_NAME:-pickple}-caddy-config
