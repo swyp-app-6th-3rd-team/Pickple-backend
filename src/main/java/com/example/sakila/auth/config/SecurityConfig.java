@@ -66,11 +66,12 @@ public class SecurityConfig {
      * 관리 포트(management.server.port) 전용 체인.
      *
      * <p>포트를 분리해도 Spring Security 필터 체인은 그대로 적용된다 — 그래서
-     * Prometheus 가 {@code /actuator/prometheus} 를 긁으면 401 이 난다.
+     * 관리 포트로 {@code /actuator/health} 를 긁어도 401 이 난다.
+     * compose healthcheck 와 배포 파이프라인이 이 경로를 쓰므로 통과시켜야 한다.
      *
      * <p>이 체인을 {@code @Order} 로 먼저 등록해 관리 포트 요청만 가로챈다.
      * 서비스 포트(8080)의 보안 규칙은 아래 {@link #filterChain} 이 그대로 담당하므로
-     * {@code PUBLIC_GET} 에 메트릭 경로를 넣을 때처럼 외부에 노출되지 않는다.
+     * {@code PUBLIC_GET} 에 actuator 경로를 넣을 때처럼 외부에 노출되지 않는다.
      *
      * <p>관리 포트는 compose 네트워크 안에만 열린다(호스트 포트 매핑 없음).
      */

@@ -41,14 +41,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    // 메트릭을 Prometheus 포맷으로 노출한다(/actuator/prometheus).
-    // actuator 가 micrometer-core·observation 을 이미 가져오지만 **레지스트리는 없다** —
-    // 레지스트리가 없으면 메트릭이 메모리에만 쌓이고 아무데도 나가지 않는다.
-    //
-    // 주의: OTel Java Agent 를 쓰므로 spring-boot-starter-opentelemetry 는 넣지 않는다.
-    // 둘을 함께 쓰면 같은 메트릭이 두 경로로 집계된다.
-    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
-
     // Security / OAuth2
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'

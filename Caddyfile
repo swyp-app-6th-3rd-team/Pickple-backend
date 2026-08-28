@@ -16,10 +16,10 @@
 	# ── 헬스체크만 관리 포트로 통과시킨다 ──────────────────────
 	#
 	# application.yml 은 관리 엔드포인트를 **서비스 포트와 분리**해 9090 에 둔다.
-	# 인증 없이 열리는 /actuator/prometheus 로 JVM·DB 내부 지표가 새는 것을 막기 위해서다.
+	# actuator 가 JVM·DB 내부 상태를 드러내므로 서비스 포트로는 열지 않는다.
 	# 그 의도를 여기서 깨지 않도록, 외부에 여는 것은 /actuator/health 하나뿐이다.
 	#
-	# prometheus·metrics 를 봐야 하면 SSM 포트 포워딩으로 9090 에 붙는다:
+	# 나머지 actuator 를 봐야 하면 SSM 포트 포워딩으로 9090 에 붙는다:
 	#   aws ssm start-session --target <id> \
 	#     --document-name AWS-StartPortForwardingSession \
 	#     --parameters '{"portNumber":["9090"],"localPortNumber":["9090"]}'
