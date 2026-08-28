@@ -169,7 +169,7 @@
             <appender-ref ref="ASYNC_WARN"/>
             <appender-ref ref="ASYNC_INFO"/>
         </root>
-        <logger name="com.example.sakila" level="DEBUG"/>
+        <logger name="app.pickple" level="DEBUG"/>
     </springProfile>
 
     <!--

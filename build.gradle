@@ -5,7 +5,7 @@ plugins {
     id 'jacoco'
 }
 
-group = 'com.example'
+group = 'app.pickple'
 version = '0.0.1-SNAPSHOT'
 
 java {

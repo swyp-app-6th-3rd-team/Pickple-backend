@@ -38,5 +38,5 @@ management:
 logging:
   level:
     root: WARN
-    com.example.sakila: INFO
+    app.pickple: INFO
     org.testcontainers: INFO

@@ -135,4 +135,4 @@ llms-txt:
 logging:
   level:
     root: INFO
-    com.example.sakila: DEBUG
+    app.pickple: DEBUG
