@@ -5,7 +5,7 @@
 #   2. 도메인이 생기면 아래 `:80` 을 도메인명으로 바꾸는 것만으로
 #      Let's Encrypt 인증서가 자동 발급·갱신된다. ALB(월 $22) + ACM 이 필요 없다.
 #
-#   예:  api.buyorpass.example.com {
+#   예:  api.pickple.app {
 #            reverse_proxy app:8080
 #        }
 #   그 뒤 보안 그룹에 443 을 열면 끝난다.

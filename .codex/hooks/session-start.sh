@@ -31,7 +31,7 @@ else
 fi
 
 printf '%s\n' \
-    'Buy or Pass backend repository context:' \
+    'Pickple backend repository context:' \
     "- Session source: $source_name" \
     "- Git root: $repo_root" \
     "- Current branch: $branch" \

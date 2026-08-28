@@ -5,7 +5,7 @@
 
 resource "aws_secretsmanager_secret" "app" {
   name        = "${local.name_prefix}/app"
-  description = "Buy or Pass ${var.env} runtime secrets"
+  description = "Pickple ${var.env} runtime secrets"
 
   # 기본값은 30일 유예 삭제다. 6주 프로젝트에서 teardown 후 같은 이름으로 다시 만들면
   # "삭제 예정인 이름과 충돌"로 실패하므로 즉시 삭제로 둔다.

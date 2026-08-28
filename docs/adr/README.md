@@ -21,3 +21,4 @@
 | [0011](0011-llms-txt-runtime-rendering.md) | API 문서를 LLM 친화 마크다운으로 런타임 렌더링한다 | Accepted |
 | [0012](0012-develop-infra-single-ec2.md) | develop 인프라는 단일 EC2 + docker-compose 로 간다 | Accepted |
 | [0013](0013-oidc-and-secrets-manager.md) | 배포 자격증명은 OIDC 로, 런타임 비밀은 Secrets Manager 로 가른다 | Accepted |
+| [0014](0014-rename-to-pickple.md) | 이름을 `pickple` 로 통일한다 | Accepted |

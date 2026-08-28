@@ -1,7 +1,7 @@
 variable "project" {
   description = "리소스 이름·태그 접두어"
   type        = string
-  default     = "buyorpass"
+  default     = "pickple"
 }
 
 variable "env" {
@@ -106,7 +106,7 @@ variable "data_volume_size" {
 variable "github_repository" {
   description = "OIDC 신뢰 대상 저장소 (owner/repo)"
   type        = string
-  default     = "swyp-app-6th-3rd-team/6th-buy-or-pass-backend"
+  default     = "swyp-app-6th-3rd-team/Pickple-backend"
 }
 
 variable "github_deploy_branch" {

@@ -126,7 +126,7 @@ chmod 700 /usr/local/bin/fetch-secrets.sh
 #
 #    그래서 "파일 없음"(정상, 배포 대기)과 "compose 실패"(진짜 오류)를 구분한다.
 #    SuccessExitStatus=1 로 뭉뚱그리면 진짜 실패까지 성공으로 덮인다.
-cat > /usr/local/bin/buyorpass-up.sh <<'UP_EOF'
+cat > /usr/local/bin/pickple-up.sh <<'UP_EOF'
 #!/bin/bash
 set -euo pipefail
 COMPOSE_FILE="${app_dir}/docker-compose-ec2.yml"
@@ -136,15 +136,15 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 exec /usr/bin/docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 UP_EOF
-chmod 755 /usr/local/bin/buyorpass-up.sh
+chmod 755 /usr/local/bin/pickple-up.sh
 
 # ── 4. systemd 유닛 ────────────────────────────────────────
 #
 # ExecStartPre 로 비밀을 매 기동마다 다시 조회한다.
-# 덕분에 `systemctl restart buyorpass` 만으로 비밀이 갱신된다.
-cat > /etc/systemd/system/buyorpass.service <<'UNIT_EOF'
+# 덕분에 `systemctl restart pickple` 만으로 비밀이 갱신된다.
+cat > /etc/systemd/system/pickple.service <<'UNIT_EOF'
 [Unit]
-Description=Buy or Pass (docker compose)
+Description=Pickple (docker compose)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -161,7 +161,7 @@ WorkingDirectory=${app_dir}
 #    제어가 안 되는 상태가 된다 — 실측으로 확인한 문제다.
 #    파일이 없으면 조용히 성공 처리해 유닛을 active 로 유지한다.
 ExecStartPre=/usr/local/bin/fetch-secrets.sh
-ExecStart=/usr/local/bin/buyorpass-up.sh
+ExecStart=/usr/local/bin/pickple-up.sh
 ExecStop=/usr/bin/docker compose -f ${app_dir}/docker-compose-ec2.yml down
 TimeoutStartSec=600
 
@@ -171,7 +171,7 @@ UNIT_EOF
 
 # WorkingDirectory 의 ${app_dir} 는 templatefile 이 이미 치환했다.
 systemctl daemon-reload
-systemctl enable buyorpass.service
+systemctl enable pickple.service
 
 # ── 5. SSM 에이전트 재시작 ─────────────────────────────────
 #

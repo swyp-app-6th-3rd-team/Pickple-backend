@@ -115,11 +115,11 @@ aws ssm start-session --target "$(terraform output -raw instance_id)" \
   --region ap-northeast-2 --profile root_habin
 
 # 상태 확인
-sudo systemctl status buyorpass
-cd /opt/buyorpass && sudo docker compose -f docker-compose-ec2.yml ps
+sudo systemctl status pickple
+cd /opt/pickple && sudo docker compose -f docker-compose-ec2.yml ps
 
 # 비밀 갱신 후 반영 (인스턴스 재생성 불필요)
-sudo systemctl restart buyorpass
+sudo systemctl restart pickple
 ```
 
 ### 관리 포트(9090) 보기
@@ -140,7 +140,7 @@ aws ssm start-session --target "$(terraform output -raw instance_id)" \
 3306 은 외부에 열려 있지 않다. SSM 으로 들어가 컨테이너에서 붙는다.
 
 ```bash
-sudo docker exec -it buyorpass-mysql mysql -u root -p
+sudo docker exec -it pickple-mysql mysql -u root -p
 ```
 
 ### 롤백
@@ -160,7 +160,7 @@ INSTANCE=$(terraform output -raw instance_id)
 # 1) 앱과 DB 를 정상 종료한다 (이 단계를 건너뛰면 crash recovery 에 의존하게 된다)
 aws ssm send-command --instance-ids "$INSTANCE" \
   --document-name AWS-RunShellScript \
-  --parameters 'commands=["systemctl stop buyorpass"]' \
+  --parameters 'commands=["systemctl stop pickple"]' \
   --region ap-northeast-2 --profile root_habin
 
 # 2) 교체
@@ -170,7 +170,7 @@ terraform apply
 # 3) 데이터 생존 확인
 aws ssm start-session --target "$(terraform output -raw instance_id)" \
   --region ap-northeast-2 --profile root_habin
-#   sudo docker exec buyorpass-mysql mysql -uroot -p -e "SELECT COUNT(*) FROM ..."
+#   sudo docker exec pickple-mysql mysql -uroot -p -e "SELECT COUNT(*) FROM ..."
 ```
 
 ⚠️ 볼륨 자체는 `prevent_destroy` 로 보호되므로 교체 과정에서 삭제되지 않는다.

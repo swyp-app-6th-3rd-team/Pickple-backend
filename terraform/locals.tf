@@ -1,5 +1,5 @@
 locals {
-  # 모든 리소스 이름의 접두어. 예: buyorpass-dev-app
+  # 모든 리소스 이름의 접두어. 예: pickple-dev-app
   name_prefix = "${var.project}-${var.env}"
 
   account_id = data.aws_caller_identity.current.account_id
@@ -21,7 +21,7 @@ locals {
   data_mount_point = "/data"
 
   # 배포 산출물이 EC2 에 놓이는 위치.
-  app_dir = "/opt/buyorpass"
+  app_dir = "/opt/pickple"
 
   # OIDC subject. 변수로 덮어쓰지 않으면 표준 형식을 만든다.
   github_oidc_subject = coalesce(

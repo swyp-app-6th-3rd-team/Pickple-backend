@@ -27,7 +27,7 @@
 비즈니스 축으로 먼저 자르고, 그 안에서 계층을 나눈다.
 
 ```
-com/example/sakila/
+app/pickple/
 ├── common/          ApiResponse · ResponseCode · PageResponse · ScrollResponse
 │                    CursorCodec · CorrelationIdFilter
 ├── config/          ClockConfig · QuerydslConfig · ScalarConfig
@@ -48,7 +48,7 @@ com/example/sakila/
 ```
 
 > **도메인 패키지가 아직 없다.** 템플릿의 참조 구현(`rental`)과 예제(`sakila`)를 걷어낸 뒤
-> Buy-or-Pass 도메인을 아직 세우지 않았다. 현재 있는 것은 인증과 공통 골격뿐이다.
+> Pickple 도메인을 아직 세우지 않았다. 현재 있는 것은 인증과 공통 골격뿐이다.
 > 도메인 모델링은 별도 사이클에서 다룬다.
 
 ---

@@ -1,12 +1,12 @@
 services:
   mysql:
     image: mysql:8.4
-    container_name: ${COMPOSE_PROJECT_NAME:-sakila}-mysql
+    container_name: ${COMPOSE_PROJECT_NAME:-pickple}-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD 를 .env 에 설정하세요}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-sakila}
-      MYSQL_USER: ${MYSQL_USER:-sakila}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pickple}
+      MYSQL_USER: ${MYSQL_USER:-pickple}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD 를 .env 에 설정하세요}
       TZ: ${TZ:-Asia/Seoul}
     ports:
@@ -14,7 +14,7 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
-      # Sakila 스키마와 JPA 엔티티가 모두 소문자 테이블명을 쓴다.
+      # 초기 스키마와 JPA 엔티티가 모두 소문자 테이블명을 쓴다.
       # 온프레미스 리눅스 호스트는 기본값이 0(대소문자 구분)이라 명시한다.
       - --lower_case_table_names=0
       # 시간 컬럼을 LocalDateTime 으로 다루므로 서버 타임존을 고정한다.
@@ -38,15 +38,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ${COMPOSE_PROJECT_NAME:-sakila}-app
+    container_name: ${COMPOSE_PROJECT_NAME:-pickple}-app
     restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-sakila}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-sakila}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-pickple}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-pickple}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY 를 .env 에 설정하세요}
       # 빈 문자열이 아니라 자리표시자를 넘긴다.
@@ -89,7 +89,7 @@ services:
 
 volumes:
   mysql_data:
-    name: ${COMPOSE_PROJECT_NAME:-sakila}_mysql_data
+    name: ${COMPOSE_PROJECT_NAME:-pickple}_mysql_data
 
   # 로그 볼륨.
   #
@@ -101,7 +101,7 @@ volumes:
   # 호스트에서 찾을 때 이름이 예측 가능하다.
   #
   # 볼륨을 별도 수명주기로 관리하고 싶다면(예: 여러 compose 파일이 공유)
-  #   docker volume create --name sakila-log
+  #   docker volume create --name pickple-log
   # 로 만든 뒤 아래를 `external: true` 로 바꾼다.
   app_log:
-    name: ${COMPOSE_PROJECT_NAME:-sakila}-log
+    name: ${COMPOSE_PROJECT_NAME:-pickple}-log

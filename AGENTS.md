@@ -1,4 +1,4 @@
-# Buy or Pass Backend 작업 규칙
+# Pickple Backend 작업 규칙
 
 ## 적용 원칙
 
@@ -11,7 +11,7 @@
 ## 프로젝트 기준
 
 - Java 25, Spring Boot 4.1, Gradle Wrapper를 사용한다.
-- 현재 기본 패키지와 애플리케이션 이름에는 템플릿 시절의 `sakila` 표기가 남아 있다. 별도 요청 없이 하네스 작업이나 기능 수정에 일괄 이름 변경을 섞지 않는다.
+- 기본 패키지는 `app.pickple` 이다(도메인 `pickple.app` 의 역순 DNS). 새 클래스는 이 아래에 둔다.
 - 데이터베이스 변경은 Flyway 마이그레이션으로 관리하고, JPA 스키마 자동 변경에 의존하지 않는다.
 - QueryDSL은 현재 `build.gradle`에 선언된 OpenFeign 포크와 APT 설정을 유지한다.
 - 통합 테스트는 MySQL Testcontainers를 사용하므로 로컬 Docker 사용 가능 여부를 먼저 구분한다.

@@ -1,5 +1,5 @@
 {
-  "description": "Buy or Pass repository hooks",
+  "description": "Pickple repository hooks",
   "hooks": {
     "SessionStart": [
       {
@@ -9,7 +9,7 @@
             "type": "command",
             "command": "sh \"$(git -c 'safe.directory=*' rev-parse --show-toplevel)/.codex/hooks/session-start.sh\"",
             "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"& { $repoRoot = (& git -c 'safe.directory=*' rev-parse --show-toplevel).Trim(); & (Join-Path $repoRoot '.codex/hooks/session-start.ps1') }\"",
-            "statusMessage": "Loading Buy or Pass repository context",
+            "statusMessage": "Loading Pickple repository context",
             "additionalContextLimit": 1200,
             "timeout": 10
           }

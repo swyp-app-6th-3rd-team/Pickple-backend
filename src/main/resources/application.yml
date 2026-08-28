@@ -1,10 +1,10 @@
 spring:
   application:
-    name: buy-or-pass
+    name: pickple
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13307/buyorpass?characterEncoding=UTF-8&serverTimezone=Asia/Seoul}
-    username: ${SPRING_DATASOURCE_USERNAME:buyorpass}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13307/pickple?characterEncoding=UTF-8&serverTimezone=Asia/Seoul}
+    username: ${SPRING_DATASOURCE_USERNAME:pickple}
     password: ${SPRING_DATASOURCE_PASSWORD:change-me-app}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
@@ -83,7 +83,7 @@ app:
     secret-key: ${JWT_SECRET_KEY}
     access-token-validity: PT30M
     refresh-token-validity: P14D
-    issuer: buy-or-pass
+    issuer: pickple
   auth:
     # 소셜 로그인 성공 후 프런트로 돌려보낼 주소.
     # 액세스 토큰은 쿼리파라미터, 리프레시 토큰은 HttpOnly 쿠키로 전달한다.
@@ -123,7 +123,7 @@ scalar:
   enabled: true
   url: /v3/api-docs
   path: /scalar
-  page-title: Buy or Pass API
+  page-title: Pickple API
   dark-mode: true
   telemetry: false
 
@@ -135,4 +135,4 @@ llms-txt:
 logging:
   level:
     root: INFO
-    com.example.sakila: DEBUG
+    app.pickple: DEBUG

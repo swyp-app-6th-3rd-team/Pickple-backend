@@ -1,0 +1,152 @@
+package app.pickple.auth.config;
+
+import app.pickple.auth.oauth.CustomOAuth2UserService;
+import app.pickple.auth.oauth.HttpCookieOAuth2AuthorizationRequestRepository;
+import app.pickple.auth.oauth.OAuth2FailureHandler;
+import app.pickple.auth.oauth.OAuth2SuccessHandler;
+import app.pickple.auth.security.JwtAuthenticationFilter;
+import app.pickple.auth.security.RestAccessDeniedHandler;
+import app.pickple.auth.security.RestAuthenticationEntryPoint;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Spring Security 설정.
+ *
+ * <p><b>Spring Security 7 대응</b> — {@code MvcRequestMatcher}/{@code AntPathRequestMatcher} 와
+ * {@code HandlerMappingIntrospector} 가 제거되어 {@link PathPatternRequestMatcher} 를 쓴다.
+ * Security 6.x 의 matcher 헬퍼를 그대로 가져오면 컴파일되지 않는다.
+ */
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+@RequiredArgsConstructor
+@EnableConfigurationProperties(AuthProperties.class)
+public class SecurityConfig {
+
+    // 문서 경로는 한 덩어리로 둔다. 나중에 운영에서 문서를 잠글 때
+    // /llms.txt 만 남아 공개되는 일이 없도록 같은 자리에서 관리한다.
+    private static final String[] PUBLIC_GET = {
+            "/", "/error", "/favicon.ico",
+            "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/scalar/**", "/scalar",
+            "/llms.txt", "/llms.md",
+            "/actuator/health/**"
+    };
+
+    private final CustomOAuth2UserService oAuth2UserService;
+    private final OAuth2SuccessHandler successHandler;
+    private final OAuth2FailureHandler failureHandler;
+    private final HttpCookieOAuth2AuthorizationRequestRepository authorizationRequestRepository;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RestAuthenticationEntryPoint authenticationEntryPoint;
+    private final RestAccessDeniedHandler accessDeniedHandler;
+    private final AuthProperties properties;
+
+    /**
+     * 관리 포트(management.server.port) 전용 체인.
+     *
+     * <p>포트를 분리해도 Spring Security 필터 체인은 그대로 적용된다 — 그래서
+     * 관리 포트로 {@code /actuator/health} 를 긁어도 401 이 난다.
+     * compose healthcheck 와 배포 파이프라인이 이 경로를 쓰므로 통과시켜야 한다.
+     *
+     * <p>이 체인을 {@code @Order} 로 먼저 등록해 관리 포트 요청만 가로챈다.
+     * 서비스 포트(8080)의 보안 규칙은 아래 {@link #filterChain} 이 그대로 담당하므로
+     * {@code PUBLIC_GET} 에 actuator 경로를 넣을 때처럼 외부에 노출되지 않는다.
+     *
+     * <p>관리 포트는 compose 네트워크 안에만 열린다(호스트 포트 매핑 없음).
+     */
+    @Bean
+    @Order(1)
+    public SecurityFilterChain managementFilterChain(HttpSecurity http) throws Exception {
+        return http
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
+                .csrf(csrf -> csrf.disable())
+                .httpBasic(basic -> basic.disable())
+                .formLogin(form -> form.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .build();
+    }
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        PathPatternRequestMatcher.Builder mvc = PathPatternRequestMatcher.withDefaults();
+
+        return http
+                .csrf(csrf -> csrf.disable())          // 토큰 기반이라 세션 CSRF 가 없다
+                .httpBasic(basic -> basic.disable())   // 켜두면 401 에 브라우저 팝업이 뜬다
+                .formLogin(form -> form.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(mvc.matcher(HttpMethod.GET, "/")).permitAll()
+                        .requestMatchers(toMatchers(mvc, PUBLIC_GET)).permitAll()
+                        .requestMatchers(mvc.matcher("/oauth2/**"), mvc.matcher("/login/oauth2/**")).permitAll()
+                        .requestMatchers(mvc.matcher("/api/auth/refresh"), mvc.matcher("/api/auth/logout")).permitAll()
+                        .anyRequest().authenticated())
+
+                .oauth2Login(oauth -> oauth
+                        .authorizationEndpoint(endpoint ->
+                                endpoint.authorizationRequestRepository(authorizationRequestRepository))
+                        .userInfoEndpoint(endpoint -> endpoint.userService(oAuth2UserService))
+                        .successHandler(successHandler)
+                        .failureHandler(failureHandler))
+
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
+
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+
+    private RequestMatcher[] toMatchers(PathPatternRequestMatcher.Builder mvc, String[] patterns) {
+        return Arrays.stream(patterns)
+                .map(mvc::matcher)
+                .toArray(RequestMatcher[]::new);
+    }
+
+    /**
+     * CORS.
+     *
+     * <p>{@code allowedOriginPatterns("*")} 에 {@code allowCredentials(true)} 를 함께 켜면
+     * 쿠키를 아무 출처에나 실어 보낼 수 있게 되므로 위험하다.
+     * 여기서는 설정으로 받은 출처만 허용한다.
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(properties.cors().allowedOrigins());
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id"));
+        configuration.setExposedHeaders(List.of("X-Request-Id"));
+        configuration.setAllowCredentials(true);   // 리프레시 토큰 쿠키 때문에 필요하다
+        configuration.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+}
