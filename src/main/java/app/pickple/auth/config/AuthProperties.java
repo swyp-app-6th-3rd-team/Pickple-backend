@@ -23,6 +23,12 @@ public record AuthProperties(Jwt jwt, Auth auth, Cors cors) {
                         "JWT_SECRET_KEY 는 32바이트 이상이어야 합니다. `openssl rand -base64 48` 로 생성하세요.");
             }
         }
+
+        @Override
+        public String toString() {
+            return "Jwt[secretKey=redacted, accessTokenValidity=" + accessTokenValidity
+                    + ", refreshTokenValidity=" + refreshTokenValidity + ", issuer=" + issuer + "]";
+        }
     }
 
     public record Auth(

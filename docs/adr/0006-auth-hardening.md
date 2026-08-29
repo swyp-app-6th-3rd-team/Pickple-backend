@@ -65,9 +65,10 @@ OAuth2 + JWT 인증은 예제가 흔하다. 문제는 널리 퍼진 예제 상�
 | 액세스↔리프레시 혼용 | `typ` 클레임으로 차단 |
 | 복합키 | 같은 `providerId` 라도 provider 가 다르면 별개 사용자 |
 
-**포기한 것**
-- Apple 로그인을 지원하지 않는다. `id_token` JWKS 검증·`.p8` EC 키·ES256 client secret
-  5분마다 재서명이 필요해 템플릿에 과하다.
+**후속 확장**
+- Apple 네이티브 로그인은 브라우저 `OAuth2UserInfo` 어댑터가 아니라 별도 credential 검증 흐름으로
+  추가했다. client secret의 최대 수명은 약 6개월이며, 5분 제한은 authorization code에 적용된다.
+  상세 결정은 [ADR-0015](0015-native-sign-in-with-apple.md)에 있다.
 - 액세스 토큰이 stateless 라 **즉시 무효화가 불가능하다.** 로그아웃해도 이미 발급된
   액세스 토큰은 만료(30분)까지 유효하다. 즉시 차단이 필요하면 블랙리스트(Redis 등)가 필요한데,
   측정 없이 미들웨어를 들이지 않는다는 원칙에 따라 v1 범위 밖으로 둔다.

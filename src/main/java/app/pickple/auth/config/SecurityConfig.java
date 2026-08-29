@@ -41,7 +41,7 @@ import java.util.List;
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
-@EnableConfigurationProperties(AuthProperties.class)
+@EnableConfigurationProperties({AuthProperties.class, AppleProperties.class})
 public class SecurityConfig {
 
     // 문서 경로는 한 덩어리로 둔다. 나중에 운영에서 문서를 잠글 때
@@ -104,7 +104,11 @@ public class SecurityConfig {
                         .requestMatchers(mvc.matcher(HttpMethod.GET, "/")).permitAll()
                         .requestMatchers(toMatchers(mvc, PUBLIC_GET)).permitAll()
                         .requestMatchers(mvc.matcher("/oauth2/**"), mvc.matcher("/login/oauth2/**")).permitAll()
-                        .requestMatchers(mvc.matcher("/api/auth/refresh"), mvc.matcher("/api/auth/logout")).permitAll()
+                        .requestMatchers(
+                                mvc.matcher(HttpMethod.POST, "/api/auth/apple"),
+                                mvc.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                                mvc.matcher(HttpMethod.POST, "/api/auth/mobile/refresh"),
+                                mvc.matcher(HttpMethod.POST, "/api/auth/logout")).permitAll()
                         .anyRequest().authenticated())
 
                 .oauth2Login(oauth -> oauth

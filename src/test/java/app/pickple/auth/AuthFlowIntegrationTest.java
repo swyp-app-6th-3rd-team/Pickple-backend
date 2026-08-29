@@ -13,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -113,6 +114,25 @@ class AuthFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("모바일 재발급 — 본문의 리프레시 토큰을 회전해 두 토큰을 JSON으로 반환한다")
+    void refreshesMobileTokenInResponseBody() throws Exception {
+        AuthService.TokenPair tokens = authService.issueTokens(user);
+
+        MvcResult result = mockMvc.perform(post("/api/auth/mobile/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + tokens.refreshToken() + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.returnObject.refreshToken").isNotEmpty())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andReturn();
+
+        String rotated = com.jayway.jsonpath.JsonPath.read(
+                result.getResponse().getContentAsString(), "$.returnObject.refreshToken");
+        assertThat(rotated).isNotEqualTo(tokens.refreshToken());
+    }
+
+    @Test
     @DisplayName("재발급 — 회전된 옛 토큰은 거부된다")
     void rejectsRotatedOldToken() throws Exception {
         AuthService.TokenPair first = authService.issueTokens(user);
@@ -153,6 +173,33 @@ class AuthFlowIntegrationTest {
     void redirectsToProvider() throws Exception {
         mockMvc.perform(get("/oauth2/authorization/google"))
                 .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
+    @DisplayName("Apple 로그인 API는 공개되어 있고 키가 없으면 명확한 503을 반환한다")
+    void appleLoginIsPublicAndUnavailableWithoutKey() throws Exception {
+        mockMvc.perform(post("/api/auth/apple")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "authorizationCode": "authorization-code",
+                                  "identityToken": "identity-token",
+                                  "rawNonce": "raw-nonce-at-least-16-characters",
+                                  "name": "홍길동"
+                                }
+                                """))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("APPLE_LOGIN_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("Apple 로그인 요청의 깨진 JSON은 민감값을 로그로 넘기지 않고 400으로 처리한다")
+    void rejectsMalformedAppleLoginJson() throws Exception {
+        mockMvc.perform(post("/api/auth/apple")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"authorizationCode\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test

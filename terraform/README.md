@@ -99,13 +99,59 @@ aws secretsmanager put-secret-value \
     \"oauth_kakao_client_id\": \"not-configured\",
     \"oauth_kakao_client_secret\": \"not-configured\",
     \"oauth_naver_client_id\": \"not-configured\",
-    \"oauth_naver_client_secret\": \"not-configured\"
+    \"oauth_naver_client_secret\": \"not-configured\",
+    \"oauth_apple_enabled\": \"false\",
+    \"oauth_apple_team_id\": \"not-configured\",
+    \"oauth_apple_key_id\": \"not-configured\",
+    \"oauth_apple_client_id\": \"not-configured\",
+    \"oauth_apple_private_key_base64\": \"not-configured\",
+    \"oauth_apple_token_encryption_keys\": \"not-configured\",
+    \"oauth_apple_token_active_key_id\": \"not-configured\"
   }"
 ```
 
 ⚠️ OAuth 값을 **빈 문자열로 두지 않는다.** compose 의 `${VAR:-기본값}` 은 변수가
 "미설정"일 때만 발동하므로, 빈 값이 있으면 그대로 전달돼 Spring 이
 `Client id must not be empty` 로 기동을 거부한다. 안 쓰는 프로바이더는 `not-configured` 로 둔다.
+
+#### Apple provider token 암호화 키는 지금 생성 가능
+
+이 값은 Apple에서 받는 키가 아니다. `.p8`, `jwt_secret_key`와 별도로 32바이트를 생성한다.
+값은 화면·채팅·Git에 남기지 말고 Secrets Manager에 바로 저장한다.
+
+```bash
+APPLE_TOKEN_AES_KEY="$(openssl rand -base64 32 | tr -d '\n')"
+# Secret JSON에는 oauth_apple_token_encryption_keys = "k1=$APPLE_TOKEN_AES_KEY",
+# oauth_apple_token_active_key_id = "k1" 형태로 병합한다.
+```
+
+PowerShell은 [Apple 로그인 Runbook](../docs/apple-sign-in-runbook.md)의 생성 명령을 사용한다.
+
+#### Apple 키를 받은 뒤
+
+`AuthKey_XXXX.p8` PEM 원문은 개행 때문에 `.env`를 깨뜨린다. 파일 전체를 한 줄 Base64로 바꿔
+`oauth_apple_private_key_base64`에 저장한다. PowerShell에서는 다음처럼 값만 만든다.
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('AuthKey_XXXX.p8'))
+```
+
+기존 Secret JSON을 먼저 내려받고 **MySQL/JWT/다른 OAuth 값을 모두 보존한 채** 다음 Apple 필드를
+병합한다. `put-secret-value`는 일부 필드 수정이 아니라 JSON 전체 교체다.
+
+```text
+oauth_apple_enabled=true
+oauth_apple_team_id=<Team ID>
+oauth_apple_key_id=<Key ID>
+oauth_apple_client_id=<iOS Bundle ID>
+oauth_apple_private_key_base64=<위에서 만든 한 줄 값>
+oauth_apple_token_encryption_keys=k1=<별도로 생성한 32바이트 AES 키의 Base64>
+oauth_apple_token_active_key_id=k1
+```
+
+Apple `client_secret`은 Secrets Manager에 저장하지 않는다. 앱이 `.p8`로 짧은 수명의 JWT를 만든다.
+Terraform은 `secret_string` 변경을 무시하므로 `terraform apply`만 실행해서는 기존 Secret 값이
+갱신되지 않는다. 반영 뒤 `sudo systemctl restart pickple`로 컨테이너 환경변수를 다시 읽힌다.
 
 ⚠️ MySQL 패스워드는 **최초 기동 시에만** 적용된다. 이미 초기화된 뒤에 바꾸려면
 Secrets Manager 값만이 아니라 `ALTER USER` 도 실행해야 한다.

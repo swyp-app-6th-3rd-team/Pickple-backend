@@ -1,6 +1,7 @@
 package app.pickple.auth.service;
 
 import app.pickple.auth.config.AuthProperties;
+import app.pickple.auth.apple.AppleIdentity;
 import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.SocialProvider;
@@ -45,6 +46,8 @@ class AuthServiceTest {
     private UserStore userStore;
     @Mock
     private RefreshTokenStore refreshTokenStore;
+    @Mock
+    private RefreshTokenRevocationService refreshTokenRevocationService;
 
     private AuthService authService;
     private JwtService jwtService;
@@ -57,7 +60,8 @@ class AuthServiceTest {
                 new AuthProperties.Auth("http://localhost:3000/cb", java.util.List.of("localhost"), false),
                 new AuthProperties.Cors(java.util.List.of("http://localhost:3000")));
         jwtService = new JwtService(properties, clock);
-        authService = new AuthService(userStore, refreshTokenStore, jwtService, clock);
+        authService = new AuthService(
+                userStore, refreshTokenStore, jwtService, clock, refreshTokenRevocationService);
     }
 
     private OAuth2UserInfo googleUser(String sub) {
@@ -95,6 +99,22 @@ class AuthServiceTest {
         assertThat(result.name()).isEqualTo("홍길동");
     }
 
+    @DisplayName("Apple 재로그인 — 앱이 보낸 이름으로 기존 이름을 덮어쓰지 않는다")
+    @Test
+    void doesNotOverwriteAppleNameOnRelogin() {
+        User existing = User.restore(8L, SocialProvider.APPLE, "apple-sub",
+                "old@example.com", "최초이름", Role.ROLE_USER, User.State.ACTIVE);
+        given(userStore.findByProviderAndProviderId(SocialProvider.APPLE, "apple-sub"))
+                .willReturn(Optional.of(existing));
+        given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
+
+        User result = authService.loginOrRegister(
+                new AppleIdentity("apple-sub", "new@example.com", "변조된이름"));
+
+        assertThat(result.email()).isEqualTo("new@example.com");
+        assertThat(result.name()).isEqualTo("최초이름");
+    }
+
     @DisplayName("로그인 — 탈퇴한 계정은 거부한다")
     @Test
     void rejectsWithdrawnUser() {
@@ -106,6 +126,19 @@ class AuthServiceTest {
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code())
                 .isEqualTo(ResponseCode.FORBIDDEN);
+    }
+
+    @DisplayName("내 정보 — 탈퇴한 계정은 기존 access token이 있어도 거부한다")
+    @Test
+    void rejectsWithdrawnUserLookup() {
+        User withdrawn = User.restore(9L, SocialProvider.GOOGLE, "sub-1",
+                null, null, Role.ROLE_USER, User.State.INACTIVE);
+        given(userStore.findById(9L)).willReturn(Optional.of(withdrawn));
+
+        assertThatThrownBy(() -> authService.getById(9L))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code())
+                .isEqualTo(ResponseCode.UNAUTHORIZED);
     }
 
     @DisplayName("토큰 발급 — 리프레시는 해시로 저장한다")
@@ -123,6 +156,9 @@ class AuthServiceTest {
                 org.mockito.ArgumentMatchers.eq(1L),
                 org.mockito.ArgumentMatchers.eq(JwtService.hash(tokens.refreshToken())),
                 any(LocalDateTime.class));
+        assertThat(tokens.toString())
+                .isEqualTo("TokenPair[redacted]")
+                .doesNotContain(tokens.accessToken(), tokens.refreshToken());
     }
 
     @DisplayName("재발급 — 저장된 해시와 일치하면 새 토큰을 준다")
@@ -159,7 +195,7 @@ class AuthServiceTest {
                 .isEqualTo(ResponseCode.INVALID_TOKEN);
 
         // 탈취 가능성이 있으므로 저장된 토큰을 지워 재로그인을 강제한다.
-        verify(refreshTokenStore).deleteByUserId(1L);
+        verify(refreshTokenRevocationService).revokeAllForUser(1L);
     }
 
     @DisplayName("재발급 — 저장된 토큰이 만료됐으면 거부한다")
@@ -177,7 +213,7 @@ class AuthServiceTest {
                 .extracting(e -> ((ApiException) e).code())
                 .isEqualTo(ResponseCode.EXPIRED_TOKEN);
 
-        verify(refreshTokenStore).deleteByUserId(1L);
+        verify(refreshTokenRevocationService).revokeAllForUser(1L);
     }
 
     @DisplayName("재발급 — 토큰이 없으면 거부한다")

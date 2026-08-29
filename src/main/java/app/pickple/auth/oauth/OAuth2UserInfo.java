@@ -1,5 +1,6 @@
 package app.pickple.auth.oauth;
 
+import app.pickple.auth.domain.SocialIdentity;
 import app.pickple.auth.domain.SocialProvider;
 
 import java.util.Map;
@@ -15,7 +16,7 @@ import java.util.Map;
  * </ul>
  * 이 차이를 어댑터가 흡수하므로 상위 계층은 프로바이더를 구분하지 않는다.
  */
-public interface OAuth2UserInfo {
+public interface OAuth2UserInfo extends SocialIdentity {
 
     SocialProvider provider();
 
@@ -32,6 +33,7 @@ public interface OAuth2UserInfo {
             case GOOGLE -> new GoogleUserInfo(attributes);
             case KAKAO -> new KakaoUserInfo(attributes);
             case NAVER -> new NaverUserInfo(attributes);
+            case APPLE -> throw new IllegalArgumentException("Apple 로그인은 네이티브 API를 사용합니다.");
         };
     }
 }

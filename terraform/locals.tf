@@ -45,5 +45,12 @@ locals {
     "oauth_kakao_client_secret",
     "oauth_naver_client_id",
     "oauth_naver_client_secret",
+    "oauth_apple_enabled",
+    "oauth_apple_team_id",
+    "oauth_apple_key_id",
+    "oauth_apple_client_id",
+    "oauth_apple_private_key_base64",
+    "oauth_apple_token_encryption_keys",
+    "oauth_apple_token_active_key_id",
   ]
 }
