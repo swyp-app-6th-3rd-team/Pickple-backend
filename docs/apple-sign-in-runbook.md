@@ -197,7 +197,8 @@ iPhone 없이도 백엔드 구현 대부분은 검증 가능하지만, Apple cre
 - Apple 장애 시 동기 revoke가 실패하면 503으로 탈퇴를 완료하지 않는다. 장애와 무관하게 즉시 로컬 탈퇴를
   허용하려면 암호화 token을 보존하는 outbox와 재시도 worker를 후속 도입해야 한다.
 - 이미 발급된 stateless access token은 최대 30분 동안 남을 수 있다. 즉시 차단이 필요하면 별도 정책이 필요하다.
-- 실제 Apple 키, Apple JWKS 네트워크, AWS 반영, TestFlight/실기기 결과는 현재 로컬 테스트가 증명하지 않는다.
+- 실제 `.p8` 형식·실 Bundle ID 설정 기동·Apple JWKS와 token/revoke endpoint 연결은 확인했다.
+- AWS 반영과 유효한 iOS authorization code를 사용한 TestFlight/실기기 로그인·탈퇴 결과는 아직 증명하지 않는다.
 
 ## 9. Apple 공식 문서
 

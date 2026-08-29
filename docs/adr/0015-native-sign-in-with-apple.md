@@ -6,7 +6,8 @@
 
 iOS의 Sign in with Apple은 기존 Google·Kakao·Naver 브라우저 리다이렉트와 다르다.
 앱이 `authorizationCode`, `identityToken`, nonce를 받은 뒤 백엔드가 Apple 서버와 통신해
-신원을 다시 검증해야 한다. `.p8` 키는 아직 발급되지 않았으므로 키가 없어도 서버는 기동해야 한다.
+신원을 다시 검증해야 한다. 키를 주입하지 않는 로컬·테스트 환경도 있으므로 서버는 Apple 로그인을
+비활성화한 상태로 정상 기동할 수 있어야 한다.
 
 ## 결정
 
@@ -44,11 +45,12 @@ iOS의 Sign in with Apple은 기존 Google·Kakao·Naver 브라우저 리다이�
 ## 결과
 
 - 테스트용 EC 키와 가짜 decoder로 키 발급 전에도 client secret, claim, nonce, 로그인 조율을 검증할 수 있다.
-- 실제 Apple JWKS·token endpoint, 실 Bundle ID와 기기 로그인의 종단간 검증은 키 수령 뒤 수행해야 한다.
+- 실제 `.p8` 형식, 실 Bundle ID 설정 기동, Apple JWKS와 token/revoke endpoint 연결은 확인했다.
+  유효한 iOS authorization code와 provider refresh token을 이용한 로그인·revoke 종단간 검증은 남아 있다.
 - 현재 refresh token 저장소는 사용자당 한 행이라 웹과 iOS에서 재로그인하면 이전 기기의 refresh token이
   무효화된다. 다중 기기 세션이 필요하면 token-family 스키마를 별도로 도입한다.
-- provider token 암호화·복호화, keyring 교체 호환, revoke HTTP 계약과 탈퇴 조율은 Apple 키 없이 검증한다.
-  실제 Apple revoke 종단간 검증은 키 수령 뒤 수행해야 한다.
+- provider token 암호화·복호화, keyring 교체 호환, revoke HTTP 계약과 탈퇴 조율은 자동 테스트로 검증한다.
+  실제 Apple revoke 종단간 검증에는 iOS에서 발급한 유효한 credential이 필요하다.
 - 현재 탈퇴는 `users.state=INACTIVE`인 소프트 탈퇴다. 개인정보 익명화/삭제와 재가입 정책은 제품·법무
   기준을 정한 뒤 별도로 확장해야 한다.
 
