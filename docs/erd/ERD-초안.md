@@ -87,7 +87,7 @@ CREATE TABLE users (
 | 14 | 등급은 누적 포인트 **와** 투표 횟수로 승급 (정책표 §2) | `users.point`, `users.vote_count`, `grade` |
 | 15 | 뱃지 8종 — 누적/일일/연속 투표 (정책표 §3) | `badge`, `user_badge` |
 | 16 | 하루 20·30개, 7·30일 연속 투표 판정 (정책표 §3) | `user_daily_activity` |
-| 17 | 인기순 = 투표 인원 수 + 댓글 인원 수 (정책표 §6) | `post.vote_count`, `post.comment_count` |
+| 17 | 인기순 = 투표 인원 수 + 댓글 인원 수 (정책표 §6) | `post.vote_count`, `post.commenter_count` |
 | 18 | TOP 피커 랭킹, 동점자는 가입일 빠른 순 (명세서 3.1) | `users.point` + 인덱스 |
 
 ### 2.1 게스트에 대하여
@@ -162,6 +162,8 @@ erDiagram
     POST_PRODUCT |o--o| POST_OPTION : "선택지가 가리킨다"
 
     POST_OPTION ||--o{ VOTE : "선택된다"
+    POST ||--o{ POST_COMMENTER : "댓글 인원"
+    USER ||--o{ POST_COMMENTER : "참여한다"
     BADGE ||--o{ USER_BADGE : "부여된다"
 
     USER {
@@ -193,7 +195,8 @@ erDiagram
         문자열 description "300자"
         식별자 picked_comment_id FK "원픽, 게시글당 1개"
         정수 vote_count "집계"
-        정수 comment_count "집계"
+        정수 commenter_count "댓글 인원 수"
+        정수 comment_count "댓글 건수"
         정수 popularity_score "인기순 = 투표+댓글"
         시각 deleted_at
         시각 created_at
@@ -235,6 +238,12 @@ erDiagram
         시각 deleted_at
         시각 created_at
     }
+    POST_COMMENTER {
+        식별자 id PK
+        식별자 post_id FK "게시글당 1인 1행"
+        식별자 user_id FK
+        시각 created_at "첫 댓글 시각"
+    }
     POINT_HISTORY {
         식별자 id PK
         식별자 user_id FK
@@ -270,7 +279,7 @@ erDiagram
 
 | 컬럼 | 성격 | 근거 |
 |---|---|---|
-| `post.vote_count`, `post.comment_count` | 파생 집계 | [8.4](#84-집계-비정규화는-성능-튜닝이-아니라-정렬-키-문제다) |
+| `post.vote_count`, `post.commenter_count`, `post.comment_count` | 파생 집계 | [8.4](#84-집계-비정규화는-성능-튜닝이-아니라-정렬-키-문제다) |
 | `post.popularity_score` | 생성 컬럼(두 카운터의 합) | 인기순 정렬 키. DB가 자동 유지하므로 어긋날 수 없다 |
 | `post_option.vote_count` | 파생 집계 | 투표율(%) 표시 |
 | `users.point` | 원장의 합계 | 랭킹 정렬 키 |
@@ -329,13 +338,16 @@ erDiagram
     post_option  ||--o{ vote : "fk_vote_option (id,post_id)"
     comment      ||--o| post : "fk_post_picked_comment (id,post_id)"
 
+    post ||--o{ post_commenter : "fk_commenter_post"
+    users ||--o{ post_commenter : "fk_commenter_user"
     badge ||--o{ user_badge : "fk_user_badge_badge"
 
     users {
         BIGINT id PK
         VARCHAR_20 provider UK "uk_users_provider"
         VARCHAR_255 provider_id UK "uk_users_provider"
-        VARCHAR_5 nickname "idx_users_nickname"
+        VARCHAR_5 nickname
+        VARCHAR_5 active_nickname UK "uk_users_active_nickname, GENERATED"
         VARCHAR_500 profile_image_url
         BIGINT grade_id FK
         INT_UNSIGNED point "idx_users_ranking"
@@ -360,6 +372,7 @@ erDiagram
         VARCHAR_300 description
         BIGINT picked_comment_id FK "UK, 복합FK comment(id,post_id)"
         INT_UNSIGNED vote_count
+        INT_UNSIGNED commenter_count
         INT_UNSIGNED comment_count
         INT_UNSIGNED popularity_score "GENERATED STORED"
         DATETIME deleted_at
@@ -405,12 +418,18 @@ erDiagram
         DATETIME created_at
         BIGINT uk_id_post UK "uk_comment_id_post"
     }
+    post_commenter {
+        BIGINT id PK
+        BIGINT post_id FK "UK uk_commenter_post_user"
+        BIGINT user_id FK "UK uk_commenter_post_user"
+        DATETIME created_at
+    }
     point_history {
         BIGINT id PK
         BIGINT user_id FK
         INT amount "+10 | +5"
         VARCHAR_30 reason UK "uk_point_idem"
-        BIGINT source_post_id UK "uk_point_idem"
+        BIGINT source_post_id FK "UK uk_point_idem, NOT NULL"
         DATETIME created_at
     }
     badge {
@@ -487,10 +506,15 @@ ALTER TABLE users
 
     ADD COLUMN deleted_at        DATETIME     DEFAULT NULL COMMENT '탈퇴 시각. NULL이면 활성',
 
+    -- 활성 회원만 유일. 탈퇴하면 NULL이 되어 닉네임이 풀린다.
+    -- MySQL 유니크 키는 NULL을 서로 다르게 취급하므로, 탈퇴자끼리는 충돌하지 않는다.
+    -- 일반 인덱스만 두면 동시 가입 두 건이 모두 통과한다 (8.5 참조).
+    ADD COLUMN active_nickname   VARCHAR(5)
+        GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN nickname END) STORED,
+
     ADD CONSTRAINT fk_users_grade FOREIGN KEY (grade_id) REFERENCES grade (id),
 
-    -- 탈퇴자가 닉네임을 영구 점유하지 않도록 UNIQUE를 쓰지 않는다 (8.5 참조)
-    ADD KEY idx_users_nickname (nickname),
+    ADD UNIQUE KEY uk_users_active_nickname (active_nickname),
 
     -- TOP 피커 랭킹: 포인트 내림차순, 동점자는 가입일 빠른 순 (명세서 3.1)
     ADD KEY idx_users_ranking (point DESC, created_at);
@@ -515,14 +539,16 @@ CREATE TABLE post (
     picked_comment_id BIGINT       DEFAULT NULL,
 
     -- 인기순 정렬 키 (8.4 참조)
-    vote_count        INT UNSIGNED NOT NULL DEFAULT 0,
-    comment_count     INT UNSIGNED NOT NULL DEFAULT 0,
+    -- 정책표 §6은 "투표 인원 수 + 댓글 인원 수"다. 둘 다 건수가 아니라 **사람 수**다.
+    vote_count        INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '투표한 사람 수 (1인 1표라 건수와 같다)',
+    commenter_count   INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '댓글을 단 사람 수. 건수가 아니다',
 
-    -- 정책표 §6의 인기순은 "투표 인원 수 + 댓글 인원 수", 즉 두 값의 합이다.
-    -- (vote_count, comment_count)로 정렬하면 사전식이 되어 정책과 다른 순서가 나온다.
-    -- 생성 컬럼으로 두어 두 카운터와 항상 일치시킨다. (8.4 참조)
+    -- 화면 표시용 댓글 건수. 정렬에는 쓰지 않는다.
+    comment_count     INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '댓글 건수 (표시용)',
+
+    -- 두 "인원 수"의 합. 사전식으로 정렬하면 정책과 다른 순서가 나온다 (8.4 참조).
     popularity_score  INT UNSIGNED
-                      GENERATED ALWAYS AS (vote_count + comment_count) STORED,
+                      GENERATED ALWAYS AS (vote_count + commenter_count) STORED,
 
     deleted_at        DATETIME     DEFAULT NULL,
     created_at        DATETIME     NOT NULL,
@@ -701,6 +727,31 @@ CREATE TABLE comment (
     KEY idx_comment_user (user_id, deleted_at, created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------
+-- 게시글별 댓글 작성자 (순 인원)
+--
+-- 정책표 §6의 인기순은 "댓글 인원 수"다. 한 사람이 댓글을 열 번 달아도 1이다.
+-- comment 를 세면 건수가 되어 혼자 순위를 올릴 수 있다 (8.4 참조).
+-- 첫 댓글에서만 행이 생기고, UNIQUE 가 중복을 거부한다.
+-- ---------------------------------------------------------
+CREATE TABLE post_commenter (
+    id         BIGINT   NOT NULL AUTO_INCREMENT,
+    post_id    BIGINT   NOT NULL,
+    user_id    BIGINT   NOT NULL,
+
+    created_at DATETIME NOT NULL COMMENT '이 사람의 첫 댓글 시각',
+
+    PRIMARY KEY (id),
+
+    -- INSERT ... ON DUPLICATE KEY UPDATE 로 첫 댓글만 걸러낸다.
+    -- 영향 행이 1이면 새 작성자이므로 post.commenter_count 를 올린다.
+    UNIQUE KEY uk_commenter_post_user (post_id, user_id),
+
+    CONSTRAINT fk_commenter_post FOREIGN KEY (post_id) REFERENCES post (id) ON DELETE CASCADE,
+    CONSTRAINT fk_commenter_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
 -- 원픽 FK는 comment 생성 이후에 건다 (순환 참조).
 --
 -- (picked_comment_id, id) → comment(id, post_id) 복합 참조다.
@@ -744,7 +795,9 @@ CREATE TABLE point_history (
     amount         INT          NOT NULL COMMENT '+10 | +5. 회수 대비 부호 있는 정수',
     reason         VARCHAR(30)  NOT NULL COMMENT 'PICKED(내 댓글이 원픽됨) | PICKING(내가 픽함)',
 
-    source_post_id BIGINT       DEFAULT NULL COMMENT '멱등키 구성 요소',
+    -- NOT NULL 이어야 멱등키가 성립한다.
+    -- nullable 이면 MySQL 유니크 키가 NULL 을 서로 다르게 취급해 중복 적립이 뚫린다 (8.3 참조).
+    source_post_id BIGINT       NOT NULL COMMENT '멱등키 구성 요소. 어느 게시글의 원픽인가',
 
     created_at     DATETIME     NOT NULL,
 
@@ -755,6 +808,10 @@ CREATE TABLE point_history (
     UNIQUE KEY uk_point_idem (source_post_id, user_id, reason),
 
     CONSTRAINT fk_point_user FOREIGN KEY (user_id) REFERENCES users (id),
+
+    -- 존재하지 않는 게시글을 출처로 적는 것을 막는다.
+    CONSTRAINT fk_point_post FOREIGN KEY (source_post_id) REFERENCES post (id),
+
     CONSTRAINT ck_point_reason CHECK (reason IN ('PICKED', 'PICKING')),
 
     KEY idx_point_user_created (user_id, created_at DESC)
@@ -986,8 +1043,10 @@ FOREIGN KEY (picked_comment_id, id)    REFERENCES comment      (id, post_id)
 | `type` | `VS`(찬반) / `AB` / `GENERAL`(일반) |
 | `title` | 유형별로 의미가 다르다. 찬반=상품명, A·B=주제, 일반=제목. 셋 다 30자라 한 컬럼으로 받는다 |
 | `picked_comment_id` | 원픽된 댓글. `NULL`이면 아직 없음. 한번 채워지면 **바뀌지 않는다**(취소 불가) |
-| `vote_count` / `comment_count` | 투표·댓글 수 캐시. 원본은 `vote`·`comment` |
-| `popularity_score` | **생성 컬럼**(`vote_count + comment_count`). 인기순 정렬 키. 정책표 §6이 합을 요구하므로 두 컬럼으로 정렬하면 안 된다([8.4](#84-집계-비정규화는-성능-튜닝이-아니라-정렬-키-문제다)) |
+| `vote_count` | 투표한 **사람 수**. 1인 1표라 건수와 같다 |
+| `commenter_count` | 댓글을 단 **사람 수**. 원본은 `post_commenter` |
+| `comment_count` | 댓글 **건수**. 화면 표시용이며 정렬에 쓰지 않는다 |
+| `popularity_score` | **생성 컬럼**(`vote_count + commenter_count`). 인기순 정렬 키. 정책표 §6은 **인원 수의 합**이라 건수를 쓰거나 두 컬럼으로 정렬하면 안 된다([8.4](#84-집계-비정규화는-성능-튜닝이-아니라-정렬-키-문제다)) |
 
 ### `post_option`
 
@@ -1120,9 +1179,34 @@ UNIQUE KEY uk_point_idem (source_post_id, user_id, reason)
 DB가 거부한다. 동시에 두 번 클릭해도 한쪽이 중복 키로 실패한다.
 **낙관적 락도 보상 트랜잭션도 필요 없다.** 취소 가능한 설계였다면 이야기가 완전히 달라졌을 것이다.
 
+#### 멱등키가 `NULL`을 허용하면 멱등하지 않다 — 이종 리뷰로 발견
+
+위 문단은 초안에서 **사실이 아니었다.** `source_post_id`를 `DEFAULT NULL`로 두었기 때문이다.
+
+MySQL 유니크 키는 **`NULL`을 서로 다른 값으로 취급한다.**
+따라서 `source_post_id`가 `NULL`인 행은 같은 `(user_id, reason)` 조합이어도 몇 번이든 들어간다.
+재시도나 잘못된 쓰기가 **되돌릴 수 없는 포인트를 반복 지급**할 수 있었다.
+
+```sql
+-- 아래 두 INSERT 가 모두 성공한다 (NULL != NULL)
+INSERT INTO point_history (user_id, amount, reason, source_post_id, ...) VALUES (2,10,'PICKED',NULL,...);
+INSERT INTO point_history (user_id, amount, reason, source_post_id, ...) VALUES (2,10,'PICKED',NULL,...);
+```
+
+FK도 없어 **존재하지 않는 게시글 ID**를 출처로 적어도 통과했다.
+
+그래서 `source_post_id`를 **`NOT NULL` + `post(id)` FK**로 바꿨다.
+현재 정의된 두 사유(`PICKED`·`PICKING`)는 모두 게시글에서 비롯되므로 출처가 없을 수 없다.
+게시글과 무관한 적립 사유가 생기면 **그 사유의 멱등키를 따로 설계**하고,
+이 제약을 느슨하게 만들지 않는다.
+
+**이 결함을 1차 검증이 놓친 이유**는 `source_post_id=1`처럼 값이 있는 경우만 주입했기 때문이다.
+같은 문서 8.5에서 "`NULL`은 유니크 검사에서 서로 다르게 취급된다"며 B안을 기각해 놓고,
+바로 옆 테이블에서 같은 함정을 밟았다. **경계값(`NULL`)을 주입 대상에 넣지 않은 것**이 원인이다.
+
 ### 8.4 집계 비정규화는 성능 튜닝이 아니라 정렬 키 문제다
 
-`post.vote_count`·`comment_count`는 파생값이라 원칙적으로 두면 안 된다.
+`post.vote_count`·`commenter_count`·`comment_count`는 파생값이라 원칙적으로 두면 안 된다.
 그럼에도 두는 이유는 추측성 최적화가 아니라 **구조적 귀결**이다.
 
 정책표 §6의 인기순 정의는
@@ -1158,14 +1242,62 @@ ORDER BY (SELECT COUNT(*) FROM vote WHERE post_id = p.id)
 
 ```sql
 popularity_score INT UNSIGNED
-    GENERATED ALWAYS AS (vote_count + comment_count) STORED
+    GENERATED ALWAYS AS (vote_count + commenter_count) STORED
 ```
+
+(이 시점에는 `comment_count`를 더했다. 그것이 남은 오류였고 바로 아래에서 다시 고친다.)
 
 `STORED`라 인덱스를 걸 수 있고, 두 카운터가 바뀌면 MySQL이 **자동으로** 다시 계산한다.
 애플리케이션이 합을 따로 갱신하지 않으므로 **어긋날 여지 자체가 없다.**
 (`VIRTUAL`은 저장하지 않아 인덱스 갱신 시점이 달라지고, 여기서는 이점이 없다.)
 
 정렬은 `ORDER BY popularity_score DESC, id DESC` 하나로 끝난다.
+
+#### "인원 수"는 건수가 아니다 — 같은 문장을 두 번 잘못 읽었다
+
+합으로 고친 뒤에도 여전히 틀린 곳이 남아 있었다. 정책표 §6을 다시 보면
+
+> 인기순 = 투표 **인원 수** + 댓글 **인원 수**
+
+둘 다 **사람 수**다. 그런데 `comment_count`(댓글 건수)를 더하고 있었다.
+투표는 `uk_vote_post_user` 덕분에 1인 1표라 건수와 인원이 같지만,
+**댓글은 한 사람이 몇 개든 달 수 있다.** 혼자 댓글 열 개를 달면 점수가 10 올라간다.
+사용자가 **순위를 마음대로 올릴 수 있는** 구멍이다.
+
+그래서 순 인원을 따로 센다.
+
+```sql
+commenter_count INT UNSIGNED NOT NULL DEFAULT 0   -- 댓글을 단 사람 수
+comment_count   INT UNSIGNED NOT NULL DEFAULT 0   -- 댓글 건수 (표시용)
+
+popularity_score GENERATED ALWAYS AS (vote_count + commenter_count) STORED
+```
+
+두 값을 **분리해서 둔다.** 화면은 "댓글 12개"를 보여줘야 하므로 건수도 필요하고,
+정렬은 인원 수를 써야 하기 때문이다. 하나로 합치면 둘 중 하나가 틀린다.
+
+유지는 `post_commenter(post_id, user_id)` 관계 테이블로 한다.
+
+```sql
+INSERT INTO post_commenter (post_id, user_id, created_at)
+VALUES (:postId, :userId, :now)
+ON DUPLICATE KEY UPDATE id = id;   -- 이미 있으면 아무것도 하지 않는다
+
+-- 영향 행이 1이면 이 사람의 첫 댓글이다
+UPDATE post SET commenter_count = commenter_count + 1 WHERE id = :postId;
+```
+
+`UNIQUE (post_id, user_id)`가 **DB 차원에서 중복을 거부**하므로,
+동시에 같은 사람의 첫 댓글 두 건이 들어와도 한쪽만 카운터를 올린다.
+애플리케이션에서 `SELECT`로 먼저 확인하는 방식은 이 경합에서 뚫린다.
+
+관계 테이블을 두는 대가는 행 하나와 인덱스 하나다.
+얻는 것은 **언제든 재계산 가능한 원본**이다 — 카운터가 어긋나면
+`SELECT COUNT(*) FROM post_commenter WHERE post_id = ?`로 복구한다.
+
+**같은 한 줄을 두 번 잘못 읽었다.** 1차에서는 "합이냐 사전식이냐"만 고치고
+"인원 수"라는 단어는 그대로 지나쳤다. 요구사항 문구는 연산자뿐 아니라
+**세는 단위까지** 대조해야 한다는 것이 이 사례의 교훈이다.
 
 #### 무한 스크롤 중 순위가 변한다는 문제는 남는다
 
@@ -1207,12 +1339,42 @@ popularity_score INT UNSIGNED
 |---|---|---|
 | A | `UNIQUE (nickname)` | 탈퇴자가 점유. 부적절 |
 | B | `UNIQUE (nickname, deleted_at)` | `NULL`은 유니크 검사에서 서로 다르게 취급돼 **활성 회원 중복을 못 막는다.** 오답 |
-| C | 탈퇴 시 닉네임을 `NULL`로 비움 + 일반 인덱스 | 단순. 탈퇴 이력에서 닉네임이 사라진다 |
-| D | 생성 컬럼 + 함수 인덱스 | `UNIQUE ((CASE WHEN deleted_at IS NULL THEN nickname END))`로 활성 회원만 유일 |
+| C | 탈퇴 시 닉네임을 `NULL`로 비움 + 일반 인덱스 | **유니크 제약이 없어 동시 가입 두 건이 모두 통과한다.** 오답 |
+| D | 생성 컬럼 + 유니크 인덱스 | `CASE WHEN deleted_at IS NULL THEN nickname END`로 활성 회원만 유일 |
 
-**C를 채택**하고 `idx_users_nickname`을 일반 인덱스로 둔다.
-탈퇴 회원의 닉네임은 보존할 이유가 없고(개인정보 최소화 관점에서 오히려 지우는 편이 낫다),
-D는 MySQL 8.4에서 동작하지만 인덱스 정의가 복잡해져 팀 전체의 이해 비용이 올라간다.
+**D를 채택한다.**
+
+```sql
+active_nickname VARCHAR(5)
+    GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN nickname END) STORED,
+UNIQUE KEY uk_users_active_nickname (active_nickname)
+```
+
+활성 회원은 `nickname` 값이 그대로 들어가 유일성이 강제되고,
+탈퇴하면 `NULL`이 되어 **닉네임이 즉시 풀린다.**
+MySQL 유니크 키는 `NULL`을 서로 다르게 취급하므로 탈퇴자끼리는 충돌하지 않는다.
+B안을 무너뜨린 바로 그 `NULL` 성질이 여기서는 정확히 필요한 동작이 된다.
+
+#### 처음에 C를 골랐던 것이 오류였다 — 이종 리뷰로 발견
+
+초안은 C를 채택하고 "D는 인덱스 정의가 복잡해 팀 이해 비용이 올라간다"고 적었다.
+**정합성을 가독성과 맞바꾼 잘못된 판단이었다.**
+
+C에는 유니크 제약이 아예 없다. 그래서 동시에 두 사람이 같은 닉네임으로 가입하면
+둘 다 애플리케이션의 중복 검사를 통과하고 커밋된다.
+
+```
+T1: SELECT ... WHERE nickname='가나다'  → 없음
+T2: SELECT ... WHERE nickname='가나다'  → 없음   (T1 커밋 전)
+T1: INSERT → 성공
+T2: INSERT → 성공                                ← 활성 회원 둘이 같은 닉네임
+```
+
+게다가 **사후 복구가 어렵다.** 이미 두 계정 모두 활성이라 어느 쪽을 바꿔야 할지 정할 근거가 없다.
+
+"탈퇴자 점유 문제"를 푸는 데 집중하다가 **본래 목적인 중복 방지를 잃어버린 것**이 원인이다.
+정책표 §4의 "실시간 중복 검사"는 **입력 단계 피드백**을 말하며,
+DB 제약을 대신하지 못한다. 애플리케이션 검사는 조기 피드백용으로만 남긴다.
 
 **주의**: MySQL 8.0+의 기본 콜레이션 `utf8mb4_0900_ai_ci`는 **대소문자와 악센트를 무시한다.**
 따라서 `Pick`과 `pick`은 **같은 닉네임으로 취급된다.** 이것이 의도인지 확인이 필요하다
@@ -1333,6 +1495,28 @@ UPDATE post_option
 중복 INSERT는 유니크 키에서 거부되므로 **재시도가 표를 두 번 넣지 않는다.**
 카운터도 트랜잭션 단위로 롤백되므로 부분 적용이 남지 않는다.
 
+#### 댓글 쓰기도 같은 규율을 따른다
+
+댓글은 투표보다 단순하지만 **순 인원 카운터** 때문에 순서가 필요하다.
+
+```
+1. comment          (INSERT)
+2. post_commenter   (INSERT ... ON DUPLICATE KEY UPDATE — 첫 댓글 판별)
+3. post             (comment_count +1, 첫 댓글이면 commenter_count 도 +1)
+```
+
+`post_commenter`의 `UNIQUE (post_id, user_id)`가 **판별과 직렬화를 동시에** 맡는다.
+영향 행이 1이면 새 작성자이므로 `commenter_count`를 올리고, 0이면 올리지 않는다.
+
+애플리케이션에서 `SELECT`로 기존 댓글 여부를 먼저 확인하는 방식은
+**동시 첫 댓글 두 건이 모두 "없음"을 보고 각각 +1** 하는 경합에 뚫린다.
+판별을 DB 제약에 맡기는 이유가 이것이다.
+
+댓글 삭제는 `comment_count`만 줄이고 **`commenter_count`와 `post_commenter`는 건드리지 않는다.**
+남은 댓글이 있는지 확인해야 정확한데, 그 비용이 크고
+"댓글을 단 적 있는 사람"이라는 사실 자체는 삭제로 뒤집히지 않는다고 봤다.
+정확한 값이 필요하면 `post_commenter`와 활성 `comment`를 대조해 재계산한다.
+
 #### 경합 한계는 아직 측정하지 않았다
 
 인기 게시글 하나에 투표가 몰리면 `post` 행 하나에 락이 집중된다.
@@ -1421,6 +1605,34 @@ block  (id, blocker_id, blocked_user_id, created_at)  -- UNIQUE(blocker_id, bloc
 **21번은 2차 검증 자체가 새로 잡은 것이다.** 재투표의 "이전 선택지 -1"이
 `UNSIGNED` 언더플로로 트랜잭션을 통째로 실패시켰다.
 
+**3차 검증 — 2차 이종 리뷰 지적 반영 후** (`mysql:8.4`, 새 컨테이너에 처음부터 재적용):
+
+| # | 주입한 위반 | 관련 규칙 | 결과 |
+|---|---|---|---|
+| 22 | 활성 회원과 **같은 닉네임으로 신규 가입** | 정책표 §4 | ✅ 거부 (`uk_users_active_nickname`) |
+| 23 | 탈퇴 후 그 닉네임을 다른 사람이 사용 | 8.5 | ✅ 허용 (막히면 안 됨) |
+| 24 | 탈퇴자 2명이 같은 닉네임 보유 | 8.5 | ✅ 허용 (`NULL`끼리 충돌 없음) |
+| 25 | `source_post_id`를 **`NULL`로** 포인트 적립 | R-13 | ✅ 거부 (`NOT NULL`) |
+| 26 | **존재하지 않는 게시글**을 출처로 적립 | R-13 | ✅ 거부 (`fk_point_post`) |
+| 27 | 한 사람이 **댓글 3개**를 단 뒤 인기 점수 | 정책표 §6 | ✅ `commenter_count=1`, 점수 1 (건수 3과 분리) |
+| 28 | 다른 사람이 댓글을 달면 인원 증가 | 정책표 §6 | ✅ `commenter_count=2`, 점수 2 |
+| 29 | `commenter_count`를 원본과 대조 | 8.4 | ✅ 저장값 2 = `post_commenter` 2행 |
+| 30 | `active_nickname` 직접 UPDATE | — | ✅ 거부 (생성 컬럼) |
+| 31 | 기존 제약 8건 회귀 확인 | R-04·05·09·10 등 | ✅ 전부 거부 유지 |
+| 32 | 트리거 R-06 회귀 확인 | R-06 | ✅ 최초 지정 허용, 취소 거부 |
+
+**22·25·27번이 2차 이종 리뷰의 수확이다.** 셋 다 **내가 "검증 완료"라고 적은 영역**에서 나왔다.
+
+- **22번**: 8.5에서 C안(일반 인덱스)을 고르며 **유일성 자체를 잃었다.**
+  "탈퇴자 점유"를 푸는 데 몰두하다 본래 목적인 중복 방지를 놓쳤다.
+- **25번**: 8.3이 "DB가 거부한다"고 **단언했으나 사실이 아니었다.**
+  `NULL` 경계값을 주입 대상에 넣지 않아 1·2차 검증 모두 통과했다.
+- **27번**: 정책표 §6의 "**인원 수**"를 건수로 읽었다. 1차에서 같은 문장의
+  연산자(합/사전식)만 고치고 **세는 단위는 두 번 다 놓쳤다.**
+
+세 건의 공통 원인은 **주입 케이스를 내가 예상한 실패 경로로만 구성한 것**이다.
+경계값(`NULL`)·동시성·요구사항 문구 정밀 대조가 빠져 있었다.
+
 **3·4번이 이 검증의 수확이다.** 설계 시점에는 `UNIQUE` 하나가 R-05와 R-06을 함께
 지켜 줄 것이라 여겼으나, 실제로 돌려 보니 R-06은 뚫려 있었다([8.2](#82-원픽은-댓글의-속성이-아니라-게시글의-속성이다)).
 읽어서는 발견되지 않았을 결함이다.
@@ -1432,14 +1644,17 @@ block  (id, blocker_id, blocked_user_id, created_at)  -- UNIQUE(blocker_id, bloc
 
 | 항목 | 상태 |
 |---|---|
-| DDL 문법·제약 동작 | ✅ MySQL 8.4.11에서 **21건** 위반 주입으로 검증 |
+| DDL 문법·제약 동작 | ✅ MySQL 8.4.11에서 **32건** 위반 주입으로 검증 |
 | 교차 게시글 소유권 | ✅ 복합 FK 3종으로 차단 확인 (13~15번) |
-| 인기순 정렬 의미 | ✅ 정책표 §6과 일치 확인 (17번) |
+| 인기순 정렬 의미 | ✅ 합 연산(17번) + **인원 수 단위**(27~29번) 확인 |
+| 닉네임 유일성 | ✅ 활성 중복 거부, 탈퇴 후 해제 (22~24번) |
+| 포인트 멱등성 | ✅ `NULL` 경계·잘못된 FK 포함 (25~26번) |
 | 인덱스 실효성 | ✅ 10만 행 `EXPLAIN` — filesort 제거, 12ms → 0.26ms |
 | 요구사항 커버리지 | ✅ 기능명세서 32p + 정책 요약표 3p + 플로우차트 4종 대조 |
-| 이종 리뷰 | ✅ Codex 적대적 리뷰 1회, high 3건 전부 반영 |
+| 이종 리뷰 | ✅ Codex 적대적 리뷰 **2회**, high 6건 전부 반영 |
 | 화면설계서 | ⚠️ **2/4장만 대조** — 온보딩(94-475), 마이페이지(97-750) 미확인 |
 | 동시성 부하 한계 | ❌ **미측정** — 인기 게시글 락 경합 임계치 ([8.8](#88-투표-쓰기-트랜잭션-프로토콜)) |
+| 동시 쓰기 경합 실측 | ❌ **미측정** — 닉네임·첫 댓글 동시 삽입은 제약으로 막히는 것만 확인, 실제 병렬 부하는 미실시 |
 
 **동시성은 프로토콜만 정하고 한계는 재지 않았다.** [8.8](#88-투표-쓰기-트랜잭션-프로토콜)의
 락 순서·재시도·재투표 의미는 정의했고 재투표 동작은 확인했으나(20·21번),
