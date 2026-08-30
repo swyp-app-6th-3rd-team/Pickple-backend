@@ -93,7 +93,7 @@ develop            이동 — 최신을 가리킴
 Secrets Manager (JSON)
   → EC2 instance profile 로 GetSecretValue
   → /usr/local/bin/fetch-secrets.sh 가 .env 생성
-  → docker compose 가 .env를 보간하고 environment에 명시된 값만 컨테이너로 전달
+  → docker compose 가 env_file 로 주입
 ```
 
 `fetch-secrets.sh` 를 **user_data 에 인라인으로 넣지 않는다.** user_data 는 부팅 시 1회만

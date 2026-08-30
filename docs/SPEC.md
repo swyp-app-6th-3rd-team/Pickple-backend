@@ -168,7 +168,8 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 - 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
 - 회원 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 같은 트랜잭션에서 기록한다
 - authorization code·identity token·`.p8`·access/refresh token은 로그에 남기지 않는다
-- 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md)
+- 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
+  [ADR-0016](adr/0016-refresh-token-rotation-cas.md)
 - 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md)
 
 ### 5.5 로깅

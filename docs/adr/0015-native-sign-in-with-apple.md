@@ -9,6 +9,8 @@ iOS의 Sign in with Apple은 기존 Google·Kakao·Naver 브라우저 리다이�
 신원을 다시 검증해야 한다. 키를 주입하지 않는 로컬·테스트 환경도 있으므로 서버는 Apple 로그인을
 비활성화한 상태로 정상 기동할 수 있어야 한다.
 
+이 ADR은 [ADR-0006](0006-auth-hardening.md)의 `Apple 로그인을 지원하지 않는다`는 범위 결정을 대체한다.
+
 ## 결정
 
 - `POST /api/auth/apple`은 `authorizationCode`, `identityToken`, `rawNonce`, 선택적 `name`을 받는다.
@@ -55,9 +57,7 @@ iOS의 Sign in with Apple은 기존 Google·Kakao·Naver 브라우저 리다이�
   유효한 iOS authorization code와 provider refresh token을 이용한 로그인·revoke 종단간 검증은 남아 있다.
 - 현재 refresh token 저장소는 사용자당 한 행이라 웹과 iOS에서 재로그인하면 이전 기기의 refresh token이
   무효화된다. 다중 기기 세션이 필요하면 token-family 스키마를 별도로 도입한다.
-- refresh token 회전은 제출된 해시를 조건으로 한 CAS 갱신으로 직렬화한다. 경합에서 진 요청이나 늦게 도착한
-  이전 token은 401로 거부하되, 이미 저장된 승자 token은 삭제하지 않는다. 단일 행 구조만으로는 악의적
-  재사용과 정상적인 지연 요청을 구분할 수 없으므로 token-family 도입 전까지는 이 보수적인 정책을 따른다.
+- 서비스 refresh token의 동시 회전 정책은 [ADR-0016](0016-refresh-token-rotation-cas.md)을 따른다.
 - provider token 암호화·복호화, keyring 교체 호환, revoke HTTP 계약과 탈퇴 조율은 자동 테스트로 검증한다.
   실제 Apple revoke 종단간 검증에는 iOS에서 발급한 유효한 credential이 필요하다.
 - 현재 탈퇴는 `users.state=INACTIVE`인 소프트 탈퇴다. 개인정보 익명화/삭제와 재가입 정책은 제품·법무

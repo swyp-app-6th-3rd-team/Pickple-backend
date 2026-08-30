@@ -23,6 +23,8 @@
 | [0013](0013-oidc-and-secrets-manager.md) | 배포 자격증명은 OIDC 로, 런타임 비밀은 Secrets Manager 로 가른다 | Accepted |
 | [0014](0014-rename-to-pickple.md) | 이름을 `pickple` 로 통일한다 | Accepted |
 | [0015](0015-native-sign-in-with-apple.md) | Apple은 네이티브 credential을 서버에서 검증하고 서비스 JWT를 발급한다 | Accepted |
+| [0016](0016-refresh-token-rotation-cas.md) | refresh token 회전은 CAS로 직렬화하고 현재 token을 보존한다 | Accepted |
+| [0017](0017-compose-secret-environment-allowlist.md) | Compose는 `.env`를 보간하고 명시한 비밀만 컨테이너에 전달한다 | Accepted |
 | [0018](0018-onepick-as-behavior.md) | 원픽을 행위로 모델링한다 | Accepted (유일성 범위는 0020 이 갱신) |
 | [0019](0019-policy-belongs-above-infrastructure.md) | 정책 판단을 인프라에서 걷어낸다 | Accepted |
 | [0020](0020-onepick-uniqueness-scope.md) | 원픽의 유일성 범위는 게시글이다 | Accepted |
