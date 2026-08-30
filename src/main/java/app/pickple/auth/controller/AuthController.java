@@ -99,16 +99,20 @@ public class AuthController {
 
     @Operation(summary = "회원 탈퇴",
             description = "Apple 사용자는 저장된 provider refresh token으로 Apple 연결을 해제한 뒤 계정을 비활성화한다. "
-                    + "Apple 일시 장애 시 로컬 상태를 변경하지 않고 503을 반환하므로 재시도할 수 있다.")
+                    + "Apple 일시 장애 시 로컬 상태를 변경하지 않고 503을 반환하므로 재시도할 수 있다. "
+                    + "저장된 provider token이 없으면 로컬 탈퇴를 완료하고 수동 연결 해제가 필요한 성공 코드를 반환한다.")
     @DeleteMapping("/me")
     public ApiResponse<Void> withdraw(@Parameter(hidden = true) @CurrentUser Long userId,
                                       HttpServletResponse response) {
         if (userId == null) {
             throw new ApiException(ResponseCode.UNAUTHORIZED);
         }
-        accountWithdrawalService.withdraw(userId);
+        AccountWithdrawalService.WithdrawalOutcome outcome = accountWithdrawalService.withdraw(userId);
         expireRefreshTokenCookie(response);
         preventTokenCaching(response);
+        if (outcome == AccountWithdrawalService.WithdrawalOutcome.COMPLETED_REQUIRES_MANUAL_APPLE_REVOCATION) {
+            return ApiResponse.of(ResponseCode.APPLE_MANUAL_REVOCATION_REQUIRED, null);
+        }
         return ApiResponse.success(null);
     }
 

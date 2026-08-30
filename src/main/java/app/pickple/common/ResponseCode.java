@@ -11,6 +11,9 @@ public enum ResponseCode {
     // 성공
     OK(HttpStatus.OK, "정상 처리되었습니다."),
     CREATED(HttpStatus.CREATED, "생성되었습니다."),
+    APPLE_MANUAL_REVOCATION_REQUIRED(
+            HttpStatus.OK,
+            "회원 탈퇴는 완료되었습니다. Apple 계정 설정에서 Pickple 연결을 직접 해제해 주세요."),
 
     // 요청 오류
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),

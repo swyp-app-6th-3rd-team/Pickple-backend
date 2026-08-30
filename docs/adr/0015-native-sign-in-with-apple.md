@@ -14,8 +14,10 @@ iOS의 Sign in with Apple은 기존 Google·Kakao·Naver 브라우저 리다이�
 - `POST /api/auth/apple`은 `authorizationCode`, `identityToken`, `rawNonce`, 선택적 `name`을 받는다.
 - iOS는 로그인마다 암호학적으로 안전한 새 `rawNonce`를 만들고 재사용하지 않는다.
   Apple 요청에는 `lowercase hex SHA-256(rawNonce)`를 넣는다. 백엔드는 같은 인코딩을 만든 뒤
-  ID token의 `nonce`와 상수 시간 비교한다. 현재 nonce 저장소는 두지 않으므로 일회성 생성은 앱의 책임이며,
-  authorization code의 일회성 교환과 두 ID token의 `sub` 일치 검증을 함께 적용한다.
+  ID token의 `nonce`와 상수 시간 비교한다. 백엔드는 nonce를 발급하거나 사용 여부를 저장하지 않는다.
+  동일 credential 묶음의 재전송 방어는 authorization code의 일회성 교환에 의존한다. 따라서 묶음을
+  탈취한 공격자가 정상 앱보다 먼저 code를 교환하는 선점 공격은 현재 범위에서 방어하지 않는다.
+  이를 막으려면 서버 발급 nonce를 로그인 세션 또는 기기에 바인딩한 일회용 저장소가 필요하다.
 - 백엔드는 앱이 보낸 ID token을 먼저 검증하고, code를 Apple `/auth/token`에서 교환한 뒤
   응답의 ID token도 검증한다. 두 token의 `sub`가 같아야 한다.
 - 사용자 키는 이메일이 아니라 `(APPLE, sub)`다. 이메일은 검증된 ID token 값만 사용한다.
@@ -36,11 +38,15 @@ iOS의 Sign in with Apple은 기존 Google·Kakao·Naver 브라우저 리다이�
 - 외부 Apple 검증/교환은 DB 트랜잭션 밖에서 수행하고, 성공 뒤 사용자 저장·provider token 저장·
   서비스 token 저장만 하나의 로컬 트랜잭션으로 완료한다.
 - Apple code 교환으로 provider refresh token을 받은 뒤 ID token 불일치나 로컬 완료가 실패하면 해당 token을
-  즉시 보상 revoke한다. 보상 revoke 실패가 원래 로그인 실패를 덮지는 않으며 token·sub·외부 응답은 로그에 남기지 않는다.
+  즉시 보상 revoke한다. 보상 revoke 실패가 원래 로그인 실패를 덮지는 않는다. 실패 횟수는
+  `pickple.auth.apple.login.compensation.revoke.failures` counter로 기록하고 WARN 로그의 `correlationId`로
+  요청을 추적한다. token·sub·외부 응답은 로그에 남기지 않는다.
 - 인증된 `DELETE /api/auth/me`에서 Apple 사용자의 provider refresh token을 복호화해 `/auth/revoke`를
   먼저 호출한다. 성공 뒤 계정 비활성화와 두 종류의 refresh token 삭제를 원자적으로 반영한다.
-  외부 장애 시 로컬 상태와 token을 보존하고 503을 반환해 재시도할 수 있게 한다.
-- provider token이 저장되기 전에 존재한 Apple 사용자는 revoke할 token이 없더라도 로컬 탈퇴를 허용한다.
+  외부 장애 시 로컬 상태와 token을 보존하고 503을 반환해 재시도할 수 있게 한다. revoke 성공 뒤
+  로컬 트랜잭션이 실패하면 저장 token이 남으므로 같은 탈퇴 요청이 revoke부터 다시 시도할 수 있다.
+- provider token이 저장되기 전에 존재한 Apple 사용자는 로컬 탈퇴를 막지 않는다. 대신 성공 응답 코드
+  `APPLE_MANUAL_REVOCATION_REQUIRED`로 Apple 계정 설정에서 Pickple 연결을 직접 해제해야 함을 알린다.
 
 ## 결과
 
@@ -49,10 +55,17 @@ iOS의 Sign in with Apple은 기존 Google·Kakao·Naver 브라우저 리다이�
   유효한 iOS authorization code와 provider refresh token을 이용한 로그인·revoke 종단간 검증은 남아 있다.
 - 현재 refresh token 저장소는 사용자당 한 행이라 웹과 iOS에서 재로그인하면 이전 기기의 refresh token이
   무효화된다. 다중 기기 세션이 필요하면 token-family 스키마를 별도로 도입한다.
+- refresh token 회전은 제출된 해시를 조건으로 한 CAS 갱신으로 직렬화한다. 경합에서 진 요청이나 늦게 도착한
+  이전 token은 401로 거부하되, 이미 저장된 승자 token은 삭제하지 않는다. 단일 행 구조만으로는 악의적
+  재사용과 정상적인 지연 요청을 구분할 수 없으므로 token-family 도입 전까지는 이 보수적인 정책을 따른다.
 - provider token 암호화·복호화, keyring 교체 호환, revoke HTTP 계약과 탈퇴 조율은 자동 테스트로 검증한다.
   실제 Apple revoke 종단간 검증에는 iOS에서 발급한 유효한 credential이 필요하다.
 - 현재 탈퇴는 `users.state=INACTIVE`인 소프트 탈퇴다. 개인정보 익명화/삭제와 재가입 정책은 제품·법무
   기준을 정한 뒤 별도로 확장해야 한다.
+- 회원 활성 여부의 정본은 `users.state`다. 도메인 V3에서 `deleted_at`이 추가되면 탈퇴 시각 감사값으로
+  사용하고 `state=INACTIVE`와 같은 트랜잭션에서 갱신한다. 활성 닉네임 제약도 `state=ACTIVE`를 기준으로 한다.
+- 보상 revoke 실패 counter와 `correlationId`는 탐지 수단이지 자동 복구 수단은 아니다. 완전한 자동 복구에는
+  provider refresh token을 별도 키로 암호화한 compensation outbox와 재시도 worker가 필요하다.
 
 ## 검토한 대안
 

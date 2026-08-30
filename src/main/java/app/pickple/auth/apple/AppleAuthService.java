@@ -4,6 +4,7 @@ import app.pickple.auth.config.AppleProperties;
 import app.pickple.auth.service.AuthService;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,11 +16,14 @@ import org.springframework.stereotype.Service;
 public class AppleAuthService {
 
     private static final int MAX_NAME_LENGTH = 100;
+    static final String COMPENSATION_REVOKE_FAILURE_METRIC =
+            "pickple.auth.apple.login.compensation.revoke.failures";
 
     private final AppleProperties properties;
     private final AppleIdTokenVerifier idTokenVerifier;
     private final AppleTokenClient tokenClient;
     private final AppleLoginCompletionService loginCompletionService;
+    private final MeterRegistry meterRegistry;
 
     public AuthService.TokenPair login(String authorizationCode,
                                        String identityToken,
@@ -83,6 +87,7 @@ public class AppleAuthService {
             tokenClient.revokeRefreshToken(refreshToken);
         } catch (RuntimeException revokeFailure) {
             // 원래 로그인 실패를 보존한다. token·sub·외부 오류 본문은 로그에 남기지 않는다.
+            meterRegistry.counter(COMPENSATION_REVOKE_FAILURE_METRIC).increment();
             log.warn("Apple 로그인 로컬 완료 실패 후 provider token 보상 revoke에 실패했습니다.");
         }
     }

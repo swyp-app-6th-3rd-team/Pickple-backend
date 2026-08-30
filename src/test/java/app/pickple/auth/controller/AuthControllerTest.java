@@ -104,10 +104,29 @@ class AuthControllerTest {
     @Test
     void withdrawsAuthenticatedUserAndExpiresWebCookie() {
         MockHttpServletResponse response = new MockHttpServletResponse();
+        given(accountWithdrawalService.withdraw(7L))
+                .willReturn(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
 
         controller.withdraw(7L, response);
 
         verify(accountWithdrawalService).withdraw(7L);
+        assertThat(response.getCookie("refresh_token")).isNotNull();
+        assertThat(response.getCookie("refresh_token").getMaxAge()).isZero();
+        assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store");
+    }
+
+    @Test
+    void returnsManualAppleRevocationCodeAfterLocalWithdrawal() {
+        given(accountWithdrawalService.withdraw(7L))
+                .willReturn(AccountWithdrawalService.WithdrawalOutcome
+                        .COMPLETED_REQUIRES_MANUAL_APPLE_REVOCATION);
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        var result = controller.withdraw(7L, response);
+
+        verify(accountWithdrawalService).withdraw(7L);
+        assertThat(result.code()).isEqualTo("APPLE_MANUAL_REVOCATION_REQUIRED");
+        assertThat(result.message()).contains("Apple 계정 설정");
         assertThat(response.getCookie("refresh_token")).isNotNull();
         assertThat(response.getCookie("refresh_token").getMaxAge()).isZero();
         assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store");

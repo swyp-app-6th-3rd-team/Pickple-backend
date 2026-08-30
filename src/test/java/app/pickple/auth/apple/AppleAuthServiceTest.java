@@ -4,6 +4,7 @@ import app.pickple.auth.config.AppleProperties;
 import app.pickple.auth.service.AuthService;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +33,7 @@ class AppleAuthServiceTest {
     private AppleLoginCompletionService loginCompletionService;
 
     private AppleAuthService appleAuthService;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
@@ -43,7 +45,9 @@ class AppleAuthServiceTest {
                 "https://appleid.apple.com/auth/revoke",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10));
-        appleAuthService = new AppleAuthService(properties, verifier, tokenClient, loginCompletionService);
+        meterRegistry = new SimpleMeterRegistry();
+        appleAuthService = new AppleAuthService(
+                properties, verifier, tokenClient, loginCompletionService, meterRegistry);
     }
 
     @Test
@@ -125,6 +129,8 @@ class AppleAuthServiceTest {
                 "authorization-code", "client-id-token", "raw-nonce-value-1234", null))
                 .isSameAs(forbidden);
         verify(tokenClient).revokeRefreshToken("apple-refresh");
+        assertThat(meterRegistry.get(AppleAuthService.COMPENSATION_REVOKE_FAILURE_METRIC)
+                .counter().count()).isEqualTo(1.0);
     }
 
     @Test
@@ -138,7 +144,7 @@ class AppleAuthServiceTest {
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10));
         AppleAuthService service = new AppleAuthService(
-                disabled, verifier, tokenClient, loginCompletionService);
+                disabled, verifier, tokenClient, loginCompletionService, meterRegistry);
 
         assertThatThrownBy(() -> service.login("code", "token", "raw-nonce-value-1234", null))
                 .isInstanceOf(ApiException.class)

@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -171,16 +172,27 @@ class AuthServiceTest {
         given(refreshTokenStore.findByUserId(1L)).willReturn(Optional.of(
                 new RefreshTokenStore.StoredRefreshToken(1L, JwtService.hash(refreshToken), NOW.plusDays(14))));
         given(userStore.findById(1L)).willReturn(Optional.of(user));
+        given(refreshTokenStore.rotateIfMatches(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(JwtService.hash(refreshToken)),
+                anyString(),
+                any(LocalDateTime.class))).willReturn(true);
 
         AuthService.TokenPair result = authService.refresh(refreshToken);
 
         assertThat(result.accessToken()).isNotBlank();
         assertThat(result.refreshToken()).isNotBlank();
+        verify(refreshTokenStore).rotateIfMatches(
+                1L,
+                JwtService.hash(refreshToken),
+                JwtService.hash(result.refreshToken()),
+                jwtService.refreshTokenExpiresAt());
+        verify(refreshTokenStore, never()).store(anyLong(), anyString(), any(LocalDateTime.class));
     }
 
-    @DisplayName("재발급 — 해시가 다르면 저장된 토큰을 폐기하고 거부한다")
+    @DisplayName("재발급 — 해시가 다르면 현재 토큰을 보존하고 제출 요청만 거부한다")
     @Test
-    void revokesOnHashMismatch() {
+    void rejectsHashMismatchWithoutRevokingCurrentToken() {
         User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
                 Role.ROLE_USER, User.State.ACTIVE);
         String submitted = jwtService.createRefreshToken(user);
@@ -194,8 +206,34 @@ class AuthServiceTest {
                 .extracting(e -> ((ApiException) e).code())
                 .isEqualTo(ResponseCode.INVALID_TOKEN);
 
-        // 탈취 가능성이 있으므로 저장된 토큰을 지워 재로그인을 강제한다.
-        verify(refreshTokenRevocationService).revokeAllForUser(1L);
+        verify(refreshTokenRevocationService, never()).revokeAllForUser(1L);
+        verify(refreshTokenStore, never()).rotateIfMatches(anyLong(), anyString(), anyString(), any());
+    }
+
+    @DisplayName("재발급 — CAS 경합에서 진 요청은 승자의 현재 토큰을 폐기하지 않는다")
+    @Test
+    void rejectsLostRotationRaceWithoutRevokingWinner() {
+        User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
+                Role.ROLE_USER, User.State.ACTIVE);
+        String submitted = jwtService.createRefreshToken(user);
+        String submittedHash = JwtService.hash(submitted);
+
+        given(refreshTokenStore.findByUserId(1L)).willReturn(Optional.of(
+                new RefreshTokenStore.StoredRefreshToken(1L, submittedHash, NOW.plusDays(14))));
+        given(userStore.findById(1L)).willReturn(Optional.of(user));
+        given(refreshTokenStore.rotateIfMatches(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(submittedHash),
+                anyString(),
+                any(LocalDateTime.class))).willReturn(false);
+
+        assertThatThrownBy(() -> authService.refresh(submitted))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code())
+                .isEqualTo(ResponseCode.INVALID_TOKEN);
+
+        verify(refreshTokenRevocationService, never()).revokeAllForUser(1L);
+        verify(refreshTokenStore, never()).deleteByUserId(1L);
     }
 
     @DisplayName("재발급 — 저장된 토큰이 만료됐으면 거부한다")

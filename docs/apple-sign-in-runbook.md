@@ -121,7 +121,8 @@ Content-Type: application/json
 
 액세스 토큰은 `Authorization: Bearer ...`로 사용한다. 만료 시 Keychain의 refresh token으로
 `POST /api/auth/mobile/refresh`를 호출하고, 응답의 access/refresh token **둘 다** 새 값으로 교체한다.
-이전 refresh token은 회전 즉시 무효다.
+이전 refresh token은 회전 즉시 무효다. 서버는 제출된 해시를 조건으로 CAS 회전하므로 동시 요청 중
+하나만 성공한다. 늦은 요청은 401이지만 먼저 성공한 응답의 새 refresh token은 삭제되지 않는다.
 
 ## 5. 백엔드가 검증하는 것
 
@@ -140,6 +141,10 @@ Content-Type: application/json
 Apple authorization code는 한 번만 쓸 수 있고 약 5분 동안 유효하다. 이 구현의 client secret은
 요청 시 생성하며 10분 동안 유효하다. 5분 제한과 client secret 수명을 혼동하지 않는다.
 
+백엔드는 nonce를 직접 발급하거나 사용 여부를 저장하지 않는다. 따라서 동일 credential 묶음의 재전송은
+authorization code의 일회성 교환으로 막지만, 탈취자가 정상 앱보다 먼저 교환하는 선점 공격은 현재 범위 밖이다.
+서버 발급 nonce를 로그인 세션이나 기기에 묶는 저장소가 필요해지면 별도 설계한다.
+
 ## 6. 키 없이 가능한 테스트와 키 수령 뒤 테스트
 
 키·iPhone 없이 가능한 것:
@@ -151,6 +156,8 @@ Apple authorization code는 한 번만 쓸 수 있고 약 5분 동안 유효하�
 - provider refresh token AES-GCM 왕복·랜덤 IV·AAD/위변조 거부·keyring 교체 호환
 - `/auth/revoke` form/오류 매핑과 Apple/비-Apple 탈퇴 분기 확인
 - `(APPLE, sub)` 가입/로그인, 자체 JWT 발급, 모바일 refresh 회전 확인
+- 동시 refresh 중 하나만 CAS 회전에 성공하고, 늦은 요청이 현재 token을 삭제하지 않는지 확인
+- provider token 누락 사용자의 로컬 탈퇴 완료와 수동 Apple 연결 해제 응답 확인
 
 키 수령 뒤 반드시 할 종단간 테스트:
 
@@ -164,6 +171,7 @@ Apple authorization code는 한 번만 쓸 수 있고 약 5분 동안 유효하�
 8. mobile refresh 회전 후 옛 refresh token 거부
 9. TestFlight 또는 실기기 배포 빌드에서 다시 확인
 10. `DELETE /api/auth/me`가 Apple 연결을 revoke하고 재로그인을 거부하는지 확인
+11. provider token이 없는 기존 계정은 `APPLE_MANUAL_REVOCATION_REQUIRED`를 받고 iOS가 수동 해제를 안내하는지 확인
 
 iPhone 없이도 백엔드 구현 대부분은 검증 가능하지만, Apple credential 발급부터 서버 교환까지의
 진짜 종단간 검증은 iOS 앱 실행 환경과 Apple 계정이 필요하다. 시뮬레이터 확인만으로 배포 빌드를
@@ -188,19 +196,41 @@ iPhone 없이도 백엔드 구현 대부분은 검증 가능하지만, Apple cre
 4. 기존 행 재암호화 도구는 아직 없으므로 k1 행이 남아 있는 동안 이전 키를 제거하면 안 된다.
 5. 이전 키 제거가 필요하면 DB의 `encryption_key_id` 잔존 건수를 확인하고 재암호화 작업을 별도 수행한다.
 
-## 8. 현재 범위 밖이지만 출시 전에 결정할 것
+## 8. 보상 revoke 실패 관측
+
+로그인 로컬 완료 실패 뒤 보상 revoke까지 실패하면
+`pickple.auth.apple.login.compensation.revoke.failures`가 증가한다. 같은 시각의 WARN 로그는
+`correlationId`로 조회한다. `trace_id`와 `span_id`는 OTel agent가 활성화된 환경에서만 채워지므로
+현재 develop 환경의 복구 식별자로 가정하지 않는다. token, sub, Apple 응답 본문은 기록하지 않는다.
+
+EC2에서는 관리 포트에서 다음처럼 확인한다.
+
+```bash
+cd /opt/pickple
+sudo docker compose -f docker-compose-ec2.yml exec -T app \
+  wget -qO- http://localhost:9090/actuator/metrics/pickple.auth.apple.login.compensation.revoke.failures
+```
+
+이 counter는 프로세스 재시작 시 초기화되는 수동 진단 지표다. 영속 보관·자동 알림·실패 token 자동 정리는
+metrics 수집기와 암호화 compensation outbox/재시도 worker를 도입하는 후속 범위다.
+
+## 9. 현재 범위 밖이지만 출시 전에 결정할 것
 
 - `user_refresh_token`은 사용자당 한 행이라 새 로그인은 기존 웹/다른 기기의 refresh token을 무효화한다.
   다중 기기 동시 로그인이 필요하면 세션/token-family 스키마가 필요하다.
 - 현재 회원 탈퇴는 계정을 `INACTIVE`로 만드는 소프트 탈퇴다. 이메일·이름 등 개인정보의 익명화/삭제,
   게시물 보존, 재가입 허용 정책은 출시 전에 제품·법무 기준으로 확정해야 한다.
+- 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 추가하고 탈퇴 트랜잭션에서
+  `state=INACTIVE`와 함께 기록한다. 활성 닉네임 유일성은 `state=ACTIVE`를 기준으로 계산한다.
 - Apple 장애 시 동기 revoke가 실패하면 503으로 탈퇴를 완료하지 않는다. 장애와 무관하게 즉시 로컬 탈퇴를
   허용하려면 암호화 token을 보존하는 outbox와 재시도 worker를 후속 도입해야 한다.
+- Apple provider token이 없는 기존 사용자는 로컬 탈퇴를 완료하되 `APPLE_MANUAL_REVOCATION_REQUIRED`를
+  반환한다. iOS는 Apple 계정 설정에서 Pickple 연결을 직접 해제하도록 안내한다.
 - 이미 발급된 stateless access token은 최대 30분 동안 남을 수 있다. 즉시 차단이 필요하면 별도 정책이 필요하다.
 - 실제 `.p8` 형식·실 Bundle ID 설정 기동·Apple JWKS와 token/revoke endpoint 연결은 확인했다.
 - AWS 반영과 유효한 iOS authorization code를 사용한 TestFlight/실기기 로그인·탈퇴 결과는 아직 증명하지 않는다.
 
-## 9. Apple 공식 문서
+## 10. Apple 공식 문서
 
 - [Generate and validate tokens](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens)
 - [Revoke tokens](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)

@@ -29,6 +29,15 @@ public class JpaRefreshTokenStore implements RefreshTokenStore {
     }
 
     @Override
+    public boolean rotateIfMatches(Long userId,
+                                   String expectedTokenHash,
+                                   String newTokenHash,
+                                   LocalDateTime newExpiresAt) {
+        return repository.rotateIfMatches(
+                userId, expectedTokenHash, newTokenHash, newExpiresAt, LocalDateTime.now(clock)) == 1;
+    }
+
+    @Override
     public Optional<StoredRefreshToken> findByUserId(Long userId) {
         return repository.findByUserId(userId)
                 .map(e -> new StoredRefreshToken(e.getUserId(), e.getTokenHash(), e.getExpiresAt()));

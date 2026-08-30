@@ -65,11 +65,10 @@ public class AuthService {
      */
     @Transactional
     public TokenPair issueTokens(User user) {
-        String accessToken = jwtService.createAccessToken(user);
-        String refreshToken = jwtService.createRefreshToken(user);
-
-        refreshTokenStore.store(user.id(), JwtService.hash(refreshToken), jwtService.refreshTokenExpiresAt());
-        return new TokenPair(accessToken, refreshToken);
+        TokenPair tokens = createTokenPair(user);
+        refreshTokenStore.store(
+                user.id(), JwtService.hash(tokens.refreshToken()), jwtService.refreshTokenExpiresAt());
+        return tokens;
     }
 
     /**
@@ -86,14 +85,14 @@ public class AuthService {
 
         Long userId = jwtService.parseRefreshTokenSubject(refreshToken);
 
+        String submittedHash = JwtService.hash(refreshToken);
         RefreshTokenStore.StoredRefreshToken stored = refreshTokenStore.findByUserId(userId)
                 .orElseThrow(() -> new ApiException(ResponseCode.INVALID_TOKEN, "저장된 리프레시 토큰이 없습니다."));
 
-        if (!stored.matches(JwtService.hash(refreshToken))) {
-            // 이미 회전된 옛 토큰이거나 위조된 토큰이다.
-            // 탈취 가능성이 있으므로 저장된 토큰을 지워 재로그인을 강제한다.
-            log.warn("리프레시 토큰 불일치. 저장된 토큰을 폐기한다: userId={}", userId);
-            refreshTokenRevocationService.revokeAllForUser(userId);
+        if (!stored.matches(submittedHash)) {
+            // 단일행 저장소만으로는 늦게 도착한 동시 요청과 실제 재사용 공격을 구분할 수 없다.
+            // 현재 유효한 토큰을 지우면 정상 클라이언트까지 재로그인되므로 제출 요청만 거부한다.
+            log.warn("리프레시 토큰 불일치. 현재 토큰은 보존한다: userId={}", userId);
             throw new ApiException(ResponseCode.INVALID_TOKEN);
         }
         if (stored.isExpired(LocalDateTime.now(clock))) {
@@ -106,7 +105,19 @@ public class AuthService {
         if (!user.isActive()) {
             throw new ApiException(ResponseCode.FORBIDDEN, "탈퇴한 계정입니다.");
         }
-        return issueTokens(user);
+
+        TokenPair rotated = createTokenPair(user);
+        boolean wonRotation = refreshTokenStore.rotateIfMatches(
+                userId,
+                submittedHash,
+                JwtService.hash(rotated.refreshToken()),
+                jwtService.refreshTokenExpiresAt());
+        if (!wonRotation) {
+            // 다른 요청이 먼저 같은 토큰을 회전했다. 승자의 현재 토큰은 폐기하지 않는다.
+            log.warn("리프레시 토큰 회전 경합. 현재 토큰은 보존한다: userId={}", userId);
+            throw new ApiException(ResponseCode.INVALID_TOKEN);
+        }
+        return rotated;
     }
 
     @Transactional
@@ -122,6 +133,12 @@ public class AuthService {
             throw new ApiException(ResponseCode.UNAUTHORIZED);
         }
         return user;
+    }
+
+    private TokenPair createTokenPair(User user) {
+        return new TokenPair(
+                jwtService.createAccessToken(user),
+                jwtService.createRefreshToken(user));
     }
 
     public record TokenPair(String accessToken, String refreshToken) {

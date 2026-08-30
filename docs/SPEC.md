@@ -73,7 +73,7 @@ app/pickple/
 | POST | `/api/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/api/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/api/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/api/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴 |
+| DELETE | `/api/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
@@ -81,6 +81,7 @@ app/pickple/
 - iOS 토큰 — HTTPS JSON으로 access/refresh를 받고 Keychain에 저장한다. URL·로그에 담지 않는다
 - iOS nonce — 로그인마다 안전한 새 `rawNonce`를 만든다. Apple 요청에는
   `lowercase hex SHA-256(rawNonce)`를 넣고 `/api/auth/apple`에는 원문 `rawNonce`를 보낸다
+- 백엔드는 nonce를 발급·저장하지 않는다. 재전송 방어는 Apple authorization code의 일회성 교환에 의존한다
 
 ### 3.2 문서
 
@@ -151,8 +152,8 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 ### 5.4 인증
 
 - 액세스 토큰은 클레임만으로 인가 판단. **요청마다 DB 를 조회하지 않는다**
-- 리프레시 토큰은 SHA-256 해시로 저장. 사용자당 한 행, 재발급 시 갱신
-- 해시 불일치 시 저장 토큰을 폐기하고 재로그인을 강제한다 (재사용 탐지)
+- 리프레시 토큰은 SHA-256 해시로 저장. 사용자당 한 행, 제출 해시를 조건으로 CAS 회전
+- 동시 회전의 패자나 옛 토큰은 401로 거부하되 현재 저장된 승자 token은 삭제하지 않는다
 - `typ` 클레임으로 액세스/리프레시를 구분해 혼용을 막는다
 - 리다이렉트 URI 는 호스트 화이트리스트 검증 (오픈 리다이렉트 방지)
 - Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
@@ -162,7 +163,10 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 - Apple code 교환 뒤 ID token 불일치나 로컬 로그인 완료가 실패하면, 새로 발급된 provider refresh token을
   보상 revoke해 로컬에서 소유하지 않는 Apple 세션이 남지 않게 한다
 - Apple 회원 탈퇴는 provider refresh token으로 `/auth/revoke`에 성공한 뒤 로컬 계정을 비활성화하고
-  서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다. Apple 일시 장애 시 503으로 재시도한다
+  서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다. Apple 일시 장애 시 503으로 재시도한다.
+  token이 없는 기존 계정은 로컬 탈퇴 후 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+- 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
+- 회원 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 같은 트랜잭션에서 기록한다
 - authorization code·identity token·`.p8`·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md)
 - 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md)
@@ -197,6 +201,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 대상 없음 | `NOT_FOUND` | 404 |
 | Apple 키 미설정·Apple 서버 일시 장애 | `APPLE_LOGIN_UNAVAILABLE` | 503 |
 | Apple 회원 탈퇴 연결 해제 일시 장애 | `APPLE_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
+| Apple token 없는 기존 계정의 로컬 탈퇴 완료 | `APPLE_MANUAL_REVOCATION_REQUIRED` | 200 |
 | 그 외 | `SYSTEM_ERROR` | 500 |
 
 ---
@@ -242,3 +247,4 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 2026-08-22 | `OpenAPI` 빈으로 스펙 제목 지정 | 기본값 "OpenAPI definition" 이 그대로 노출되고 있었음 |
 | 2026-08-29 | Apple 네이티브 로그인과 모바일 JWT 회전 API 추가 | iOS Sign in with Apple 지원 |
 | 2026-08-30 | Apple provider RT 암호화 저장과 회원 탈퇴 시 revoke 추가 | 계정 삭제 시 Apple 연결 해제 필요 |
+| 2026-08-30 | refresh CAS·Apple 수동 해제 응답·보상 실패 관측 추가 | PR #12 리뷰 반영 |

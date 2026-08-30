@@ -17,8 +17,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,8 +51,9 @@ class AccountWithdrawalServiceTest {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
 
-        service.withdraw(7L);
+        AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
+        assertThat(outcome).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
         InOrder order = inOrder(appleTokenClient, persistenceService);
         order.verify(appleTokenClient).revokeRefreshToken("provider-refresh");
         order.verify(persistenceService).complete(7L);
@@ -71,22 +74,46 @@ class AccountWithdrawalServiceTest {
     }
 
     @Test
-    void missingLegacyAppleTokenDoesNotBlockWithdrawal() {
+    void missingAppleTokenCompletesLocallyAndRequestsManualRevocation() {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.empty());
 
-        service.withdraw(7L);
+        AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
+        assertThat(outcome).isEqualTo(
+                AccountWithdrawalService.WithdrawalOutcome.COMPLETED_REQUIRES_MANUAL_APPLE_REVOCATION);
         verifyNoInteractions(appleTokenClient);
         verify(persistenceService).complete(7L);
+    }
+
+    @Test
+    void retriesIdempotentAppleRevokeWhenLocalCompletionFailed() {
+        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
+        given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
+        doThrow(new IllegalStateException("temporary db failure"))
+                .doNothing()
+                .when(persistenceService).complete(7L);
+
+        assertThatThrownBy(() -> service.withdraw(7L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("temporary db failure");
+
+        assertThat(service.withdraw(7L))
+                .isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
+        InOrder order = inOrder(appleTokenClient, persistenceService);
+        order.verify(appleTokenClient).revokeRefreshToken("provider-refresh");
+        order.verify(persistenceService).complete(7L);
+        order.verify(appleTokenClient).revokeRefreshToken("provider-refresh");
+        order.verify(persistenceService).complete(7L);
     }
 
     @Test
     void nonAppleUserSkipsAppleSystems() {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.GOOGLE)));
 
-        service.withdraw(7L);
+        AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
+        assertThat(outcome).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
         verifyNoInteractions(providerTokenService, appleTokenClient);
         verify(persistenceService).complete(7L);
     }

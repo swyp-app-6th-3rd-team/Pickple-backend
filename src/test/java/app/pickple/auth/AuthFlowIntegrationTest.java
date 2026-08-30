@@ -136,13 +136,16 @@ class AuthFlowIntegrationTest {
     @DisplayName("재발급 — 회전된 옛 토큰은 거부된다")
     void rejectsRotatedOldToken() throws Exception {
         AuthService.TokenPair first = authService.issueTokens(user);
-        authService.refresh(first.refreshToken());     // 회전 발생
+        AuthService.TokenPair winner = authService.refresh(first.refreshToken());     // 회전 발생
 
         // 옛 토큰을 다시 내밀면 저장된 해시와 다르므로 거부된다.
         mockMvc.perform(post("/api/auth/refresh")
                         .cookie(new Cookie(OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, first.refreshToken())))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
+
+        // 늦은 옛 토큰 요청이 경합 승자의 현재 토큰까지 폐기해서는 안 된다.
+        assertThat(authService.refresh(winner.refreshToken()).refreshToken()).isNotBlank();
     }
 
     @Test
