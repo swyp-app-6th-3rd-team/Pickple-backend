@@ -63,8 +63,9 @@ Long pickId = pickStore.saveIfAbsent(pick)
         .orElseThrow(() -> new DuplicatePickException(commentId, pickerId));
 ```
 
-**무결성 위반은 제약 이름으로 가른다.** 잡은 예외의 원인 사슬에서
-제약 이름(`uk_pick_user_comment`)을 확인하고, 그 외의 위반은 그대로 올린다.
+**무결성 위반을 뭉뚱그리지 않는다.** 중복인지 FK 위반인지에 따라 원인이 다르므로,
+같은 예외로 바꾸면 디버깅 때 엉뚱한 곳을 본다. 유일성만 사전 확인으로 가르고
+나머지 위반은 그대로 올린다.
 
 **행 개수 규칙은 저장 경로에 붙박는다.** `CHECK`는 다른 행을 셀 수 없어
 R-02(상품 수)·R-04(선택지 수)를 스키마가 막지 못한다. 도메인 검증이 유일한 방어선인데
@@ -106,9 +107,11 @@ rollback-only 로 표시한다. 예외를 삼켜 `Optional.empty()` 를 돌려�
 
 ## 검증
 
-- `JpaOnePickStoreIT` — 다른 게시글의 댓글을 픽할 때 `DuplicatePickException`이 아니라
-  `DataIntegrityViolationException`이 나오는지. 원인과 메시지가 맞는지 확인한다
-- 서비스 계층 도입 시 — 저장소에 `throw new *Exception`(도메인 예외)이 없는지 확인한다
+- `JpaOnePickStoreIT` — 저장소는 중복이면 빈 값을, 다른 게시글의 댓글을 픽하면
+  `DataIntegrityViolationException` 을 낸다. 원인과 결과가 맞는지 확인한다
+- `OnePickServiceIT` — 서비스가 빈 값을 `DuplicatePickException` 으로 해석하는지,
+  R-12 로 두 사람에게 지급되는지, 중복이 막히면 포인트도 안 늘어나는지
+- 저장소에 도메인 예외(`throw new *Exception`)가 없는지 확인한다
 - 새 규칙을 넣을 때 "이게 왜 여기 있나"를 한 문장으로 답할 수 있어야 한다
 
 ## 참고
