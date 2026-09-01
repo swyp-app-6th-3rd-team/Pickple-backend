@@ -18,10 +18,13 @@ public class JpaOnePickStore implements OnePickStore {
     private final Clock clock;
 
     /**
-     * 아직 픽하지 않았다면 저장한다 (R-26).
+     * 이 게시글에서 아직 픽하지 않았다면 저장한다 (R-05).
+     *
+     * <p>판정 범위가 <b>게시글</b>이다 — 같은 댓글 재픽뿐 아니라
+     * "같은 게시글의 다른 댓글" 도 막는다.
      *
      * <p>존재를 먼저 확인한다. 확인과 삽입 사이에 틈이 있지만
-     * {@code UNIQUE(user_id, comment_id)} 가 최종 방어선이라 데이터는 깨지지 않는다 —
+     * {@code UNIQUE(user_id, post_id)} 가 최종 방어선이라 데이터는 깨지지 않는다 —
      * 그 좁은 창에서 두 요청이 겹치면 뒤쪽이 무결성 예외로 실패한다.
      *
      * <p><b>{@code INSERT IGNORE} 를 쓰지 않는 이유</b>: FK 위반까지 경고로 낮춰
@@ -31,7 +34,7 @@ public class JpaOnePickStore implements OnePickStore {
     @Override
     @Transactional
     public Optional<Long> saveIfAbsent(OnePick pick) {
-        if (repository.existsByUserIdAndCommentId(pick.pickerId(), pick.commentId())) {
+        if (repository.existsByUserIdAndPostId(pick.pickerId(), pick.postId())) {
             return Optional.empty();
         }
         return Optional.of(repository.save(

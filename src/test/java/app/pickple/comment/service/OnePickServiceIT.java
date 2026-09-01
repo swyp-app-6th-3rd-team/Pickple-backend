@@ -75,14 +75,14 @@ class OnePickServiceIT {
     }
 
     @Test
-    @DisplayName("이미 픽했으면 정책 예외가 된다 (R-26)")
+    @DisplayName("이 게시글에서 이미 픽했으면 정책 예외가 된다 (R-05)")
     void duplicatePickIsPolicyViolation() {
         // 저장소는 빈 값을 주고, 그것을 위반으로 해석하는 것이 서비스다.
         onePickService.pick(comment.id(), pickerId);
 
         assertThatThrownBy(() -> onePickService.pick(comment.id(), pickerId))
                 .isInstanceOf(DuplicatePickException.class)
-                .hasMessageContaining("이미 원픽한 댓글");
+                .hasMessageContaining("이 게시글에서 이미 원픽했습니다");
     }
 
     @Test
@@ -121,6 +121,38 @@ class OnePickServiceIT {
         assertThat(pointStore.sumByUser(authorId)).isEqualTo(PointReason.PICKED.amount() * 2);
         assertThat(pointStore.sumByUser(pickerId)).isEqualTo(PointReason.PICKING.amount());
         assertThat(pointStore.sumByUser(another)).isEqualTo(PointReason.PICKING.amount());
+    }
+
+    @Test
+    @DisplayName("같은 게시글의 다른 댓글도 두 번째면 거부한다 (R-05)")
+    void secondPickOnSamePostRejected() {
+        // 이 규칙의 핵심. 유일성 범위가 (user_id, comment_id) 라면 이게 통과해버린다.
+        Comment another = commentStore.save(
+                new Comment(comment.postId(), authorId, "같은 게시글의 다른 댓글", null));
+
+        onePickService.pick(comment.id(), pickerId);
+
+        assertThatThrownBy(() -> onePickService.pick(another.id(), pickerId))
+                .isInstanceOf(DuplicatePickException.class);
+
+        // 첫 픽의 지급분만 남는다
+        assertThat(pointStore.sumByUser(pickerId)).isEqualTo(PointReason.PICKING.amount());
+        assertThat(pointStore.sumByUser(authorId)).isEqualTo(PointReason.PICKED.amount());
+    }
+
+    @Test
+    @DisplayName("다른 게시글에서는 다시 픽할 수 있다 (R-05)")
+    void pickOnAnotherPostAllowed() {
+        // 범위가 게시글이므로 게시글이 다르면 막히지 않는다.
+        Post otherPost = postStore.save(
+                new Post(authorId, PostType.GENERAL, PostCategory.ETC, "다른 게시글", null));
+        Comment otherComment = commentStore.save(
+                new Comment(otherPost.id(), authorId, "다른 게시글의 댓글", null));
+
+        onePickService.pick(comment.id(), pickerId);
+        onePickService.pick(otherComment.id(), pickerId);
+
+        assertThat(pointStore.sumByUser(pickerId)).isEqualTo(PointReason.PICKING.amount() * 2);
     }
 
     @Test

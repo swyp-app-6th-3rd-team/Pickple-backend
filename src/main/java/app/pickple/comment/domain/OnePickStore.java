@@ -3,7 +3,7 @@ package app.pickple.comment.domain;
 /**
  * 원픽 저장소.
  *
- * <p>중복 판정은 애플리케이션이 아니라 {@code UNIQUE(user_id, comment_id)} 가 한다 (R-26) —
+ * <p>중복 판정은 애플리케이션이 아니라 {@code UNIQUE(user_id, post_id)} 가 한다 (R-05) —
  * 확인 후 삽입하는 방식은 동시 요청에서 뚫린다.
  *
  * <p><b>저장소는 "삽입됐는가" 라는 사실만 알린다.</b> 그것이 "이미 픽했다" 는
