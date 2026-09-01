@@ -1,0 +1,70 @@
+#!/bin/sh
+#
+# 브랜치 이름에 이슈 번호가 있는지 검사한다.
+#
+#   feature/#12-profile-update      타입/#이슈번호-작업명
+#
+# 왜 pre-push 인가 — `git switch -c` 에는 훅이 없다. 브랜치를 만드는 순간을
+# 가로챌 방법이 없으므로, 원격에 올라가기 직전을 마지막 관문으로 삼는다.
+# 로컬에서 잠깐 쓰고 지우는 브랜치까지 막지 않는 이점도 있다.
+#
+# 통과 대상 — develop·main 과 태그 삭제 push 는 검사하지 않는다.
+#
+# 우회 — 규약을 벗어나야 할 때는 `git push --no-verify` 를 쓴다.
+# 우회했다는 사실이 로그에 남지 않으므로 PR 에서 사유를 밝힌다.
+
+set -eu
+
+# 타입/#번호-작업명. 타입은 소문자와 하이픈, 작업명은 비어 있으면 안 된다.
+PATTERN='^(feature|feat|fix|hotfix|refactor|chore|docs|test|perf|build|ci)/#[0-9]+-[A-Za-z0-9._-]+$'
+PROTECTED='^(develop|main|master)$'
+
+fail=0
+
+# stdin 으로 <local ref> <local sha> <remote ref> <remote sha> 가 줄마다 들어온다
+while read -r local_ref local_sha remote_ref remote_sha; do
+	# 브랜치 삭제(push :branch)는 local_sha 가 전부 0 이다. 검사하지 않는다
+	case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+
+	# 브랜치가 아닌 것(태그 등)은 넘어간다
+	case "$local_ref" in refs/heads/*) ;; *) continue ;; esac
+
+	branch=${local_ref#refs/heads/}
+
+	if printf '%s' "$branch" | grep -Eq "$PROTECTED"; then
+		continue
+	fi
+
+	if printf '%s' "$branch" | grep -Eq "$PATTERN"; then
+		continue
+	fi
+
+	fail=1
+	printf '\n브랜치 이름이 규약에 맞지 않는다: %s\n' "$branch" >&2
+done
+
+if [ "$fail" -eq 1 ]; then
+	cat >&2 <<'EOF'
+
+  형식   타입/#이슈번호-작업명
+  예시   feature/#12-profile-update
+         fix/#31-post-edit-guard
+
+  타입   feature feat fix hotfix refactor chore docs test perf build ci
+
+  이슈 번호는 보드의 상태 전이(In Progress)에 쓰인다.
+  번호가 없으면 프로젝트 보드가 움직이지 않는다.
+
+  현재 브랜치의 이름을 바꾸려면:
+    git branch -m "feature/#<이슈번호>-<작업명>"
+
+  셸에서 # 은 주석이 될 수 있다. 따옴표로 감싼다:
+    git switch -c "feature/#12-profile-update"
+
+  규약을 벗어나야 하면 --no-verify 로 우회하고 PR 에 사유를 적는다.
+
+EOF
+	exit 1
+fi
+
+exit 0

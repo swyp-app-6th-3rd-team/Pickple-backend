@@ -126,3 +126,39 @@ sourceSets {
         }
     }
 }
+
+// Git 훅을 저장소 안의 .githooks 로 돌린다.
+// 훅은 clone 으로 따라오지 않으므로 빌드가 한 번 돌면 자동으로 연결되게 한다.
+// 이미 core.hooksPath 가 설정돼 있으면 건드리지 않는다(사용자 설정 존중).
+def installGitHooks = tasks.register('installGitHooks') {
+    description = '브랜치 이름 검사 훅을 활성화한다'
+    group = 'build setup'
+
+    def hooksDir = file('.githooks')
+    def gitDir = file('.git')
+    onlyIf { gitDir.exists() && hooksDir.exists() }
+
+    doLast {
+        def current = providers.exec {
+            commandLine 'git', 'config', '--get', 'core.hooksPath'
+            ignoreExitValue = true
+        }.standardOutput.asText.get().trim()
+
+        if (current == '.githooks') {
+            return
+        }
+        if (current) {
+            logger.lifecycle("core.hooksPath 가 이미 '${current}' 로 설정돼 있어 건드리지 않는다.")
+            return
+        }
+
+        providers.exec {
+            commandLine 'git', 'config', 'core.hooksPath', '.githooks'
+        }.result.get()
+        logger.lifecycle('core.hooksPath 를 .githooks 로 설정했다.')
+    }
+}
+
+tasks.matching { it.name == 'compileJava' }.configureEach {
+    dependsOn installGitHooks
+}
