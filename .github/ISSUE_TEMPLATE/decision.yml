@@ -1,0 +1,58 @@
+name: 결정 필요
+description: 구현 전에 정해야 하는 미결 항목
+labels: [type:decision]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **미결에 의존하는 구현을 먼저 진행하지 않는다.** 원픽 모델을 한 번 뒤집은 원인이
+        정본을 확인하지 못한 채 2차 자료로 판정한 것이었다. 미결은 미결로 두되 보이게 둔다.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 결정할 것
+      description: 한 문장 질문으로. "~를 어떻게 할까"가 아니라 "~를 허용하는가"처럼 판정 가능하게.
+      placeholder: 투표가 시작된 뒤 게시글의 상품을 수정할 수 있는가?
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-now
+    attributes:
+      label: 왜 지금 필요한가
+      description: 이 결정이 막고 있는 작업. 막는 게 없으면 아직 결정할 때가 아니다.
+      placeholder: "#8 게시글 수정·삭제 API 가 이 답에 따라 갈린다"
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: 선택지
+      value: |
+        | 안 | 내용 | 결과 |
+        |---|---|---|
+        | A |  |  |
+        | B |  |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: 정본 출처
+      description: |
+        무엇을 봐야 답이 나오는가. 화면설계서 > 정책표 > 화이트보드 > 내 해석 순으로 신뢰한다.
+        정본에 접근할 수 없으면 그 사실 자체를 적는다 — 추측으로 메우지 않는다.
+      placeholder: 화면설계서 COM_03 (Figma) · 정책 요약표 §2
+    validations:
+      required: true
+
+  - type: textarea
+    id: decision
+    attributes:
+      label: 결정
+      description: 정해지면 여기에 근거와 함께 적고 닫는다. 되돌리기 비싼 결정이면 ADR로 승격한다.
+    validations:
+      required: false

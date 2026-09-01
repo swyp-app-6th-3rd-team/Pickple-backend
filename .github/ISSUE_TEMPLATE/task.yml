@@ -1,0 +1,72 @@
+name: 작업
+description: 명세가 확정된 구현 작업 (기능 제안이 아니라 실행 단위)
+labels: [type:api]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        기획이 이미 정해진 것을 구현하는 작업용. 무엇을 만들지 **제안**하는 단계라면 `기능`을,
+        무엇을 할지 **결정**해야 한다면 `결정 필요`를 쓴다.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 무엇을 만드는가
+      description: 한두 문장. 명세를 그대로 옮기지 말고 백엔드가 할 일로 번역해 쓴다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: spec-ref
+    attributes:
+      label: 명세 근거
+      description: |
+        기능명세서 절 번호와 해당 화면. 명세에 없는 수치를 지어내지 않는다 —
+        불명확하면 `needs-spec` 라벨을 달고 여기에 무엇이 빈칸인지 적는다.
+      placeholder: |
+        기능명세서 v0.2 §4.1~4.2 (커뮤니티 목록)
+        - 카테고리 6종 / 정렬 최신·인기 / 무한스크롤 10개 단위
+    validations:
+      required: true
+
+  - type: textarea
+    id: contract
+    attributes:
+      label: API 계약
+      description: 확정된 만큼만. 설계하며 바뀌면 이슈를 갱신한다.
+      value: |
+        | Method | Path | 인증 | 설명 |
+        |---|---|---|---|
+        |  |  |  |  |
+    validations:
+      required: false
+
+  - type: textarea
+    id: rules
+    attributes:
+      label: 관련 도메인 규칙
+      description: "`docs/domain/도메인 모델.md` 의 규칙 ID. 없으면 \"해당 없음\"."
+      placeholder: R-22 (재투표 시 이전 선택을 덮어쓴다)
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 완료 판정
+      description: 측정 가능한 것만. 빌드 green·테스트 통과는 대리지표라 판정이 될 수 없다.
+      value: |
+        | 판정 | 검증 방법 |
+        |---|---|
+        |  |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: depends
+    attributes:
+      label: 의존
+      description: 먼저 끝나야 하는 이슈. 없으면 비워둔다.
+      placeholder: "#4 게시글 작성 API"
+    validations:
+      required: false
