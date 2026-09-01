@@ -9,7 +9,7 @@
 # (이슈가 닫혔다는 사실은 완료 판정이 검증됐다는 증거가 아니다).
 #
 # 브랜치 규약 — In Progress 는 브랜치 이름에서 이슈 번호를 읽는다.
-#   feat/17-post-create · 24-onepick-api · issue/21  → 잡힌다
+#   feature/#12-profile-update  타입/#이슈번호-작업명 (.githooks/pre-push 가 강제한다)
 #   feat/domain-schema                               → 번호가 없어 그냥 넘어간다
 # 기존 브랜치는 번호가 없으므로 이 전이만 동작하지 않는다. 나머지는 영향 없다.
 #
@@ -72,7 +72,7 @@ jobs:
             // 숫자 덩어리만 인정한다. `v2-migration` 같은 것을 잡지 않기 위함이다.
             if (ev === 'push') {
               const branch = p.ref.replace('refs/heads/', '');
-              const m = branch.match(/(?:^|\/)(\d+)(?:[-_/]|$)/);
+              const m = branch.match(/(?:^|\/)#?(\d+)(?:[-_/]|$)/);
               if (!m) {
                 core.info(`브랜치 '${branch}' 에 이슈 번호가 없다. 건너뛴다.`);
                 core.setOutput('numbers', '[]');
