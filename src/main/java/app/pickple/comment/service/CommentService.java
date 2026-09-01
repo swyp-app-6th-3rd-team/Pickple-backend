@@ -3,6 +3,7 @@ package app.pickple.comment.service;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.PostCommenterStore;
+import app.pickple.post.service.ActivePostGuard;
 import app.pickple.post.domain.PostCounters;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CommentService {
 
     private final CommentStore commentStore;
+    private final ActivePostGuard activePost;
     private final PostCommenterStore commenterStore;
     private final PostCounters counters;
 
@@ -31,6 +33,7 @@ public class CommentService {
      */
     @Transactional
     public Comment write(Comment comment) {
+        activePost.requireActive(comment.postId());
         Comment saved = commentStore.save(comment);
 
         counters.increaseCommentCount(saved.postId());

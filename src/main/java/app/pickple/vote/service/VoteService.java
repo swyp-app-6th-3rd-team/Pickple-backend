@@ -1,5 +1,6 @@
 package app.pickple.vote.service;
 
+import app.pickple.post.service.ActivePostGuard;
 import app.pickple.post.domain.PostCounters;
 import app.pickple.vote.domain.Vote;
 import app.pickple.vote.domain.VoteStore;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class VoteService {
 
     private final VoteStore voteStore;
+    private final ActivePostGuard activePost;
     private final PostCounters counters;
 
     /**
@@ -33,6 +35,7 @@ public class VoteService {
      */
     @Transactional
     public Vote castOrChange(Long postId, Long optionId, Long voterId) {
+        activePost.requireActive(postId);
         return voteStore.findByPostAndVoter(postId, voterId)
                 .map(existing -> changeChoice(existing, optionId))
                 .orElseGet(() -> castFirst(postId, optionId, voterId));

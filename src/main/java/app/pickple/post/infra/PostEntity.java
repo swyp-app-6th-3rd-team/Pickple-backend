@@ -123,17 +123,21 @@ public class PostEntity {
     /**
      * 상품·선택지를 도메인 상태에 맞춘다.
      *
-     * <p>이 동기화가 없으면 기존 게시글에 상품을 추가하고 저장해도 조용히 사라진다 —
-     * 하이버네이트가 추적하는 컬렉션에 변화가 없어 cascade 할 대상이 없기 때문이다.
+     * <p><b>새로 추가된 것만 넣는다.</b> 무조건 clear 후 재생성하면
+     * {@code orphanRemoval} 이 기존 행을 지우려 하는데, {@code vote.post_option_id} 가
+     * 그 선택지를 참조하고 있어(CASCADE 없음) <b>투표가 달린 게시글은 제목조차 수정할 수 없다.</b>
+     * 지우지 않으면 선택지 id 도 유지돼 외부 참조가 안정적이다.
      *
-     * <p>{@code orphanRemoval} 이 켜져 있어 컬렉션에서 빠진 행은 함께 지워진다.
-     * 컬렉션 인스턴스를 바꾸면 추적을 잃으므로 비우고 다시 채운다.
+     * <p>기존 자식의 수정·삭제는 다루지 않는다 — 투표가 시작된 뒤 상품을 바꾸는 것은
+     * 이미 받은 표의 의미를 바꾸는 일이라 정책이 정해지지 않았다(도메인 모델 "아직 결정하지 않은 것").
      */
     private void syncChildren(Post post, LocalDateTime now) {
-        this.products.clear();
-        post.products().forEach(p -> this.products.add(PostProductEntity.from(this, p, now)));
-        this.options.clear();
-        post.options().forEach(o -> this.options.add(PostOptionEntity.from(this, o, now)));
+        post.products().stream()
+                .filter(p -> p.id() == null)
+                .forEach(p -> this.products.add(PostProductEntity.from(this, p, now)));
+        post.options().stream()
+                .filter(o -> o.id() == null)
+                .forEach(o -> this.options.add(PostOptionEntity.from(this, o, now)));
     }
 
     public Post toDomain() {
