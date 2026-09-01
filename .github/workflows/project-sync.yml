@@ -4,7 +4,9 @@
 #   이슈를 다시 엶               → Ready
 #   이슈 번호가 붙은 브랜치에 push → In Progress
 #   PR 이 이슈를 닫도록 열림      → 해당 이슈를 In Review
-#   이슈를 닫음(= PR 머지 포함)   → Done
+#
+# Done 은 자동화하지 않는다. 완료 판정을 사람이 확인하고 손으로 옮긴다
+# (이슈가 닫혔다는 사실은 완료 판정이 검증됐다는 증거가 아니다).
 #
 # 브랜치 규약 — In Progress 는 브랜치 이름에서 이슈 번호를 읽는다.
 #   feat/17-post-create · 24-onepick-api · issue/21  → 잡힌다
@@ -21,7 +23,7 @@ name: project-sync
 
 on:
   issues:
-    types: [opened, reopened, closed, transferred]
+    types: [opened, reopened, transferred]
   pull_request:
     types: [opened, reopened, ready_for_review]
   push:
@@ -43,7 +45,6 @@ env:
   OPT_READY: c852b94b
   OPT_IN_PROGRESS: 0ff4bfc2
   OPT_IN_REVIEW: fad6985c
-  OPT_DONE: e47a1f54
 
 jobs:
   sync:
@@ -60,7 +61,7 @@ jobs:
 
             // 이슈 이벤트 — 그 이슈 자신이 대상
             if (ev === 'issues') {
-              const map = { opened: 'READY', transferred: 'READY', reopened: 'READY', closed: 'DONE' };
+              const map = { opened: 'READY', transferred: 'READY', reopened: 'READY' };
               core.setOutput('numbers', JSON.stringify([p.issue.number]));
               core.setOutput('status', map[p.action]);
               return;
@@ -110,7 +111,6 @@ jobs:
               READY:       process.env.OPT_READY,
               IN_PROGRESS: process.env.OPT_IN_PROGRESS,
               IN_REVIEW:   process.env.OPT_IN_REVIEW,
-              DONE:        process.env.OPT_DONE,
             }[process.env.WANT];
 
             for (const num of numbers) {
