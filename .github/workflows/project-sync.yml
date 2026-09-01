@@ -1,0 +1,116 @@
+# 이슈·PR 을 프로젝트 보드와 동기화한다.
+#
+#   이슈 생성            → 보드에 추가
+#   이슈를 닫음          → Done
+#   이슈를 다시 엶       → Ready
+#   PR 이 이슈를 닫도록 열림 → 해당 이슈를 In Review
+#   PR 머지              → 이슈가 닫히므로 위의 "이슈를 닫음"이 Done 으로 옮긴다
+#
+# 왜 워크플로인가 — Projects v2 내장 자동화는 UI 에서만 켤 수 있다.
+# 공개 GraphQL 에 워크플로 생성·활성화 뮤테이션이 없다(deleteProjectV2Workflow 만 존재).
+# 보드 규칙을 저장소 코드로 남기고 리뷰받으려면 이 방법뿐이다.
+#
+# 토큰 — 기본 GITHUB_TOKEN 은 저장소 스코프라 org 프로젝트에 닿지 않는다.
+# `project` 스코프 PAT 을 secrets.PROJECT_TOKEN 으로 등록해야 한다. 없으면 조용히 실패한다.
+name: project-sync
+
+on:
+  issues:
+    types: [opened, reopened, closed, transferred]
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  # 같은 이슈에 대한 이벤트가 겹치면 필드 갱신이 서로를 덮어쓴다
+  group: project-sync-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: PVT_kwDOEujCbs4BiFgP
+  STATUS_FIELD_ID: PVTSSF_lADOEujCbs4BiFgPzhg-yTU
+  OPT_READY: c852b94b
+  OPT_IN_REVIEW: fad6985c
+  OPT_DONE: e47a1f54
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 대상 이슈와 목표 상태 결정
+        id: plan
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const ev = context.eventName;
+            const p  = context.payload;
+
+            // 이슈 이벤트 — 그 이슈 자신이 대상
+            if (ev === 'issues') {
+              const map = { opened: 'READY', transferred: 'READY', reopened: 'READY', closed: 'DONE' };
+              const want = map[p.action];
+              core.setOutput('numbers', JSON.stringify([p.issue.number]));
+              core.setOutput('status', want);
+              core.setOutput('add', String(p.action === 'opened' || p.action === 'transferred'));
+              return;
+            }
+
+            // PR 이벤트 — 본문의 closing keyword 가 가리키는 이슈들이 대상
+            const q = `query($owner:String!,$repo:String!,$num:Int!){
+              repository(owner:$owner,name:$repo){
+                pullRequest(number:$num){
+                  closingIssuesReferences(first:20){ nodes { number } }
+                } } }`;
+            const r = await github.graphql(q, {
+              owner: context.repo.owner, repo: context.repo.repo, num: p.pull_request.number
+            });
+            const nums = r.repository.pullRequest.closingIssuesReferences.nodes.map(n => n.number);
+            if (nums.length === 0) core.info('PR 이 닫는 이슈가 없다. 건너뛴다.');
+            core.setOutput('numbers', JSON.stringify(nums));
+            core.setOutput('status', 'IN_REVIEW');
+            core.setOutput('add', 'false');
+
+      - name: 보드 추가와 상태 반영
+        if: steps.plan.outputs.numbers != '[]'
+        uses: actions/github-script@v7
+        env:
+          NUMBERS: ${{ steps.plan.outputs.numbers }}
+          WANT: ${{ steps.plan.outputs.status }}
+          SHOULD_ADD: ${{ steps.plan.outputs.add }}
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const numbers = JSON.parse(process.env.NUMBERS);
+            const optionId = {
+              READY:     process.env.OPT_READY,
+              IN_REVIEW: process.env.OPT_IN_REVIEW,
+              DONE:      process.env.OPT_DONE,
+            }[process.env.WANT];
+
+            for (const num of numbers) {
+              // 이슈 node id
+              const { repository } = await github.graphql(
+                `query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){id}}}`,
+                { o: context.repo.owner, r: context.repo.repo, n: num });
+              const contentId = repository.issue.id;
+
+              // 보드에 추가 (이미 있으면 기존 항목 id 를 그대로 돌려준다 — 중복되지 않는다)
+              const added = await github.graphql(
+                `mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}`,
+                { p: process.env.PROJECT_ID, c: contentId });
+              const itemId = added.addProjectV2ItemById.item.id;
+
+              await github.graphql(
+                `mutation($p:ID!,$i:ID!,$f:ID!,$v:String!){
+                   updateProjectV2ItemFieldValue(input:{
+                     projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$v}
+                   }){projectV2Item{id}}}`,
+                { p: process.env.PROJECT_ID, i: itemId, f: process.env.STATUS_FIELD_ID, v: optionId });
+
+              core.info(`#${num} → ${process.env.WANT}`);
+            }
