@@ -23,3 +23,4 @@
 | [0013](0013-oidc-and-secrets-manager.md) | 배포 자격증명은 OIDC 로, 런타임 비밀은 Secrets Manager 로 가른다 | Accepted |
 | [0014](0014-rename-to-pickple.md) | 이름을 `pickple` 로 통일한다 | Accepted |
 | [0018](0018-onepick-as-behavior.md) | 원픽을 행위로 모델링한다 | Accepted |
+| [0019](0019-policy-belongs-above-infrastructure.md) | 정책 판단을 인프라에서 걷어낸다 | Accepted |
