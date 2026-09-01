@@ -56,7 +56,7 @@ public class Comment {
      *
      * <p><b>중복 픽은 여기서 막지 않는다.</b> 이미 픽했는지 확인하려면 픽 목록 전체를
      * 들고 있어야 하고, 확인과 삽입 사이의 틈에서 동시 요청이 뚫린다.
-     * {@code UNIQUE(user_id, comment_id)} 가 원자적으로 막는다 (R-26).
+     * {@code UNIQUE(user_id, post_id)} 가 원자적으로 막는다 (R-05).
      */
     public OnePick pick(Long pickerId) {
         if (deleted) {

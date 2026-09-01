@@ -1,9 +1,9 @@
 package app.pickple.comment.domain;
 
-/** 같은 사람이 같은 댓글을 두 번 픽했다 (R-26). */
+/** 같은 사람이 한 게시글에서 두 번 픽했다 (R-05). */
 public class DuplicatePickException extends RuntimeException {
 
-    public DuplicatePickException(Long commentId, Long pickerId) {
-        super("이미 원픽한 댓글입니다: commentId=%d, pickerId=%d".formatted(commentId, pickerId));
+    public DuplicatePickException(Long postId, Long pickerId) {
+        super("이 게시글에서 이미 원픽했습니다: postId=%d, pickerId=%d".formatted(postId, pickerId));
     }
 }

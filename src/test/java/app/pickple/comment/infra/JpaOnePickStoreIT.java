@@ -69,7 +69,7 @@ class JpaOnePickStoreIT {
     }
 
     @Test
-    @DisplayName("이미 픽했으면 빈 값을 돌려준다 (R-26)")
+    @DisplayName("이 게시글에서 이미 픽했으면 빈 값을 돌려준다 (R-05)")
     void duplicateReturnsEmpty() {
         // 저장소는 "삽입됐는가" 만 알린다. 정책 해석은 서비스가 한다 (ADR-0019).
         Comment comment = newComment(authorId);
@@ -81,7 +81,7 @@ class JpaOnePickStoreIT {
     @Test
     @DisplayName("여러 사람이 같은 댓글을 픽할 수 있다")
     void multipleUsersCanPick() {
-        // 작성자 한 명이 하나를 채택하는 모델이 아니다 (R-05·R-08 폐기).
+        // 유일성 범위는 (user_id, post_id) 다 — 사람이 다르면 같은 댓글도 픽할 수 있다.
         Comment comment = newComment(authorId);
         Long another = userStore.save(
                 new User(SocialProvider.GOOGLE, "cm-p2-" + System.nanoTime(), null, "픽커2")).id();

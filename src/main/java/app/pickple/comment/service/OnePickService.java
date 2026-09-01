@@ -41,7 +41,7 @@ public class OnePickService {
      * 멱등키가 재시도를 막아 손으로 고쳐야 한다.
      *
      * @return 저장된 원픽의 식별자
-     * @throws DuplicatePickException 이미 픽한 댓글일 때 (R-26)
+     * @throws DuplicatePickException 이 게시글에서 이미 픽했을 때 (R-05)
      */
     @Transactional
     public Long pick(Long commentId, Long pickerId) {
@@ -53,7 +53,7 @@ public class OnePickService {
         // R-07 은 댓글 하나로 판정된다 — 도메인이 막는다.
         OnePick pick = comment.pick(pickerId);
 
-        // R-26 은 동시성이 있어 유니크 키가 가른다. 그 사실을 정책으로 해석하는 건 여기다.
+        // R-05 는 동시성이 있어 유니크 키가 가른다. 그 사실을 정책으로 해석하는 건 여기다.
         //
         // 존재 확인과 삽입 사이의 좁은 창에서 두 요청이 겹치면 뒤쪽이 유니크 위반으로 실패한다.
         // 그것도 "이미 픽했다" 는 같은 사실이므로 같은 예외로 통일한다 —
@@ -61,9 +61,9 @@ public class OnePickService {
         Long pickId;
         try {
             pickId = pickStore.saveIfAbsent(pick)
-                    .orElseThrow(() -> new DuplicatePickException(commentId, pickerId));
+                    .orElseThrow(() -> new DuplicatePickException(comment.postId(), pickerId));
         } catch (DataIntegrityViolationException e) {
-            throw new DuplicatePickException(commentId, pickerId);
+            throw new DuplicatePickException(comment.postId(), pickerId);
         }
 
         grant(comment.authorId(), PointReason.PICKED, pickId);

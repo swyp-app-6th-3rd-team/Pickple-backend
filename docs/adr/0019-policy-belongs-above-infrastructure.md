@@ -18,7 +18,7 @@ catch (DataIntegrityViolationException e) {
 }
 ```
 
-`UNIQUE(user_id, comment_id)` 위반은 인프라 사실이다.
+`UNIQUE(user_id, post_id)` 위반은 인프라 사실이다.
 그것이 "이미 원픽했다"는 **정책 위반**이라는 해석은 다른 층의 판단이다.
 `JpaPointHistoryStore`도 같은 형태로 `DuplicateGrantException`을 던지고 있었다.
 

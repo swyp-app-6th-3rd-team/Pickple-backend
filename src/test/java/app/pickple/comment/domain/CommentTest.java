@@ -61,10 +61,11 @@ class CommentTest {
         }
 
         @Test
-        @DisplayName("중복 픽은 도메인이 막지 않는다 — 유니크 키의 몫이다 (R-26)")
+        @DisplayName("중복 픽은 도메인이 막지 않는다 — 유니크 키의 몫이다 (R-05)")
         void duplicateIsNotDomainConcern() {
             // 확인 후 삽입은 동시 요청에서 뚫린다. 같은 결과가 두 번 나오는 것은 정상이고,
-            // 저장 시점에 UNIQUE(user_id, comment_id) 가 하나만 남긴다.
+            // 저장 시점에 UNIQUE(user_id, post_id) 가 하나만 남긴다.
+            // 댓글은 자기 게시글의 다른 픽을 모르므로 여기서 판정할 수도 없다.
             Comment comment = saved();
 
             OnePick first = comment.pick(OTHER);

@@ -24,7 +24,7 @@ import java.time.LocalDateTime;
 @Getter
 @Entity
 @Table(name = "comment_pick", uniqueConstraints =
-        @UniqueConstraint(name = "uk_pick_user_comment", columnNames = {"user_id", "comment_id"}))
+        @UniqueConstraint(name = "uk_pick_user_post", columnNames = {"user_id", "post_id"}))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class OnePickEntity {
 

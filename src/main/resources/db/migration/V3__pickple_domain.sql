@@ -288,11 +288,14 @@ CREATE TABLE comment (
 
 
 -- ---------------------------------------------------------
--- 원픽 — 여러 유저가 각자 픽한다 (좋아요형)
+-- 원픽 — 사용자마다 게시글당 하나씩 고른다
 --
--- 화이트보드가 CommentPick 을 별도 박스로 그리고 UNIQUE(user_id, comment_id)를
--- 명시했다. 초안의 post.picked_comment_id(작성자가 1개 채택)와 양립하지 않으므로
--- 이 모델로 대체한다. post ↔ comment 순환 FK 도 함께 사라진다.
+-- 누구나 픽할 수 있지만, 한 사람이 한 게시글에서 고를 수 있는 댓글은 하나다 (R-05).
+-- 그래서 유일성 범위가 (user_id, post_id) 다 — (user_id, comment_id) 로 두면
+-- 같은 사람이 같은 게시글의 댓글 여러 개를 픽할 수 있다.
+--
+-- 취소 불가(R-06)는 이 테이블에 UPDATE·DELETE 경로를 두지 않는 것으로 지킨다.
+-- 본인 댓글 금지(R-07)는 댓글 하나로 판정되므로 도메인이 본다.
 -- ---------------------------------------------------------
 CREATE TABLE comment_pick (
     id         BIGINT   NOT NULL AUTO_INCREMENT,
@@ -304,8 +307,9 @@ CREATE TABLE comment_pick (
 
     PRIMARY KEY (id),
 
-    -- 같은 댓글을 두 번 픽하지 않는다
-    UNIQUE KEY uk_pick_user_comment (user_id, comment_id),
+    -- 한 사람은 한 게시글에서 하나만 픽한다 (R-05).
+    -- 같은 댓글 재픽뿐 아니라 "같은 게시글의 다른 댓글" 도 이 키가 막는다.
+    UNIQUE KEY uk_pick_user_post (user_id, post_id),
 
     -- comment_pick.post_id ≠ comment.post_id 인 행을 막는다 (2.3)
     CONSTRAINT fk_comment_pick_comment FOREIGN KEY (comment_id, post_id)
