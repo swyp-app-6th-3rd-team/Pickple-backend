@@ -138,13 +138,18 @@ ALTER TABLE comment_pick ADD CONSTRAINT fk_comment_pick_comment
 `post_commenter(post_id, user_id)`에 `UNIQUE`를 걸고, **삽입의 성공 여부로 첫 댓글을 판정한다.**
 
 ```sql
-INSERT INTO post_commenter (post_id, user_id, created_at)
-VALUES (:postId, :userId, NOW())
-ON DUPLICATE KEY UPDATE post_id = post_id;   -- 영향 행 0이면 이미 있던 작성자
+INSERT IGNORE INTO post_commenter (post_id, user_id, created_at)
+VALUES (:postId, :userId, NOW());            -- 영향 행 0이면 이미 있던 작성자
 
 -- 영향 행이 1일 때만
 UPDATE post SET commenter_count = commenter_count + 1 WHERE id = :postId;
 ```
+
+> **`ON DUPLICATE KEY UPDATE` 가 아니라 `INSERT IGNORE` 다** (2026-09-01 구현 중 정정).
+> ODKU 로 `post_id = post_id` 를 넣으면 값이 그대로라 MySQL 이 이를 "변경 없음"으로
+> 볼지 "갱신함"으로 볼지가 드라이버·설정에 따라 갈려, 영향 행 수를 첫 댓글 판정에 쓸 수 없다.
+> 실제로 JPA 경로에서 두 번째 호출이 "첫 댓글"로 판정되는 것을 통합 테스트가 잡았다.
+> `INSERT IGNORE` 는 삽입되면 1, 유니크로 걸리면 0 으로 명확하다.
 
 판정을 애플리케이션이 아니라 유니크 키가 하므로 동시 요청에서도 한 번만 증가한다.
 
