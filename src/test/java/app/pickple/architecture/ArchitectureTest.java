@@ -29,7 +29,13 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 class ArchitectureTest {
 
     private static final String BASE = "app.pickple";
-    private static final String AUTH_DOMAIN = "..auth.domain..";
+
+    /**
+     * 모든 도메인 패키지. 특정 도메인({@code ..auth.domain..})으로 좁히면
+     * 새 도메인이 생겼을 때 규칙이 그 도메인을 보지 못한다 —
+     * 테스트는 초록색인데 보호는 없는 상태가 된다.
+     */
+    private static final String DOMAIN = "..domain..";
 
     private static JavaClasses classesUnderTest;
 
@@ -47,7 +53,7 @@ class ArchitectureTest {
         @Test
         @DisplayName("도메인은 JPA 에 의존하지 않는다")
         void noJpaDependency() {
-            noClasses().that().resideInAPackage(AUTH_DOMAIN)
+            noClasses().that().resideInAPackage(DOMAIN)
                     .should().dependOnClassesThat().resideInAnyPackage("jakarta.persistence..")
                     .check(classesUnderTest);
         }
@@ -55,7 +61,7 @@ class ArchitectureTest {
         @Test
         @DisplayName("도메인은 검증 애노테이션에 의존하지 않는다")
         void noValidationDependency() {
-            noClasses().that().resideInAPackage(AUTH_DOMAIN)
+            noClasses().that().resideInAPackage(DOMAIN)
                     .should().dependOnClassesThat().resideInAnyPackage("jakarta.validation..")
                     .check(classesUnderTest);
         }
@@ -65,7 +71,7 @@ class ArchitectureTest {
         void noLombokInDomain() {
             // @Builder 는 생성자 검증을 건너뛰고, @NoArgsConstructor 는 불변식을 우회하는
             // 기본 생성자를 열고, @Setter 는 상태 전이 규칙을 무력화한다.
-            noClasses().that().resideInAPackage(AUTH_DOMAIN)
+            noClasses().that().resideInAPackage(DOMAIN)
                     .should().dependOnClassesThat().resideInAnyPackage("lombok..")
                     .check(classesUnderTest);
         }
@@ -73,7 +79,7 @@ class ArchitectureTest {
         @Test
         @DisplayName("도메인은 인프라를 알지 못한다")
         void domainDoesNotKnowInfra() {
-            noClasses().that().resideInAPackage(AUTH_DOMAIN)
+            noClasses().that().resideInAPackage(DOMAIN)
                     .should().dependOnClassesThat().resideInAnyPackage("..infra..")
                     .check(classesUnderTest);
         }
@@ -81,7 +87,7 @@ class ArchitectureTest {
         @Test
         @DisplayName("도메인은 웹 계층을 알지 못한다")
         void domainDoesNotKnowWeb() {
-            noClasses().that().resideInAPackage(AUTH_DOMAIN)
+            noClasses().that().resideInAPackage(DOMAIN)
                     .should().dependOnClassesThat().resideInAnyPackage("..controller..", "org.springframework.web..")
                     .check(classesUnderTest);
         }
@@ -90,7 +96,7 @@ class ArchitectureTest {
         @DisplayName("도메인은 금액·수량에 실수형을 쓰지 않는다")
         void noFloatingPointInDomain() {
             // 부동소수점은 반올림 오차가 누적되어 합계를 어긋나게 만든다.
-            noClasses().that().resideInAPackage(AUTH_DOMAIN)
+            noClasses().that().resideInAPackage(DOMAIN)
                     .should().dependOnClassesThat().haveFullyQualifiedName("java.lang.Double")
                     .orShould().dependOnClassesThat().haveFullyQualifiedName("java.lang.Float")
                     .check(classesUnderTest);
