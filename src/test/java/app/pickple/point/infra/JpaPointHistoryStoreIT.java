@@ -6,7 +6,6 @@ import app.pickple.auth.domain.UserStore;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.OnePickStore;
-import app.pickple.point.domain.DuplicateGrantException;
 import app.pickple.point.domain.PointHistory;
 import app.pickple.point.domain.PointHistoryStore;
 import app.pickple.point.domain.PointReason;
@@ -54,30 +53,27 @@ class JpaPointHistoryStoreIT {
         Post post = postStore.save(
                 new Post(authorId, PostType.GENERAL, PostCategory.ETC, "포인트 대상", null));
         Comment comment = commentStore.save(new Comment(post.id(), authorId, "좋은 의견", null));
-        onePickId = pickStore.save(comment.pick(pickerId));
+        onePickId = pickStore.saveIfAbsent(comment.pick(pickerId)).orElseThrow();
     }
 
     @Test
     @DisplayName("원픽 하나가 두 사람에게 지급한다 (R-12)")
     void onePickGrantsTwoPeople() {
-        pointStore.save(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
-        pointStore.save(PointHistory.forPick(pickerId, PointReason.PICKING, onePickId));
+        pointStore.saveIfAbsent(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
+        pointStore.saveIfAbsent(PointHistory.forPick(pickerId, PointReason.PICKING, onePickId));
 
         assertThat(pointStore.sumByUser(authorId)).isEqualTo(10L);
         assertThat(pointStore.sumByUser(pickerId)).isEqualTo(5L);
     }
 
     @Test
-    @DisplayName("같은 원픽·사유로 두 번 지급하지 않는다 (R-13)")
-    void duplicateGrantRejected() {
+    @DisplayName("같은 원픽·사유로는 한 번만 적립된다 (R-13)")
+    void duplicateGrantReturnsEmpty() {
         // 조회 후 삽입은 동시 요청에서 두 번 지급된다. 멱등키가 원자적으로 막는다.
-        pointStore.save(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
+        pointStore.saveIfAbsent(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
 
-        assertThatThrownBy(() ->
-                pointStore.save(PointHistory.forPick(authorId, PointReason.PICKED, onePickId)))
-                .isInstanceOf(DuplicateGrantException.class)
-                .hasMessageContaining("이미 지급된 포인트");
-
+        assertThat(pointStore.saveIfAbsent(
+                PointHistory.forPick(authorId, PointReason.PICKED, onePickId))).isEmpty();
         assertThat(pointStore.sumByUser(authorId)).isEqualTo(10L);
     }
 
@@ -85,8 +81,8 @@ class JpaPointHistoryStoreIT {
     @DisplayName("사유가 다르면 같은 원픽이어도 지급된다")
     void differentReasonIsSeparateGrant() {
         // 멱등키는 (원픽, 사유) 쌍이다. 원픽 하나만으로는 안 된다 — R-12 가 두 건을 요구한다.
-        pointStore.save(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
-        pointStore.save(PointHistory.forPick(authorId, PointReason.PICKING, onePickId));
+        pointStore.saveIfAbsent(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
+        pointStore.saveIfAbsent(PointHistory.forPick(authorId, PointReason.PICKING, onePickId));
 
         assertThat(pointStore.sumByUser(authorId)).isEqualTo(15L);
     }
@@ -94,7 +90,7 @@ class JpaPointHistoryStoreIT {
     @Test
     @DisplayName("금액은 사유가 정한다 — 호출자가 못 정한다")
     void amountComesFromReason() {
-        pointStore.save(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
+        pointStore.saveIfAbsent(PointHistory.forPick(authorId, PointReason.PICKED, onePickId));
 
         assertThat(pointStore.sumByUser(authorId)).isEqualTo(PointReason.PICKED.amount());
     }
