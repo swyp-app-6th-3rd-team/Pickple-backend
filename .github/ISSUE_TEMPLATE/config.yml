@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 도메인 규칙 확인
+    url: https://github.com/swyp-app-6th-3rd-team/Pickple-backend/blob/develop/docs/domain/도메인%20모델.md
+    about: 규칙 ID(R-XX)와 상태 전이. 이슈를 쓰기 전에 여기부터 본다.
+  - name: 결정 이력 (ADR)
+    url: https://github.com/swyp-app-6th-3rd-team/Pickple-backend/tree/develop/docs/adr
+    about: 이미 내려진 결정인지 먼저 확인한다. 뒤집으려면 새 번호로 대체한다.
+  - name: API·스키마 명세
+    url: https://github.com/swyp-app-6th-3rd-team/Pickple-backend/blob/develop/docs/SPEC.md
+    about: 현재 무엇이 있는가. 기술 스택 버전과 응답 규약.

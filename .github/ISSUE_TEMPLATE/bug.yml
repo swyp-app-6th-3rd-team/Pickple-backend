@@ -1,0 +1,50 @@
+name: 버그
+description: 동작이 기대와 다를 때
+labels: [bug]
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 증상
+      description: 무엇이 어떻게 잘못 동작하는가. 기대한 결과와 실제 결과를 나란히.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 재현 방법
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 환경
+      value: |
+        - JDK:
+        - MySQL:
+        - 프로파일 (local/prod/test):
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그
+      description: X-Request-Id 가 있으면 함께. 스택트레이스는 전문으로.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: 원인 가설
+      description: 짐작이 있으면. "증상"이 아니라 "원인"을 겨냥해 적는다. 없으면 비워도 된다.
+    validations:
+      required: false
