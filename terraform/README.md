@@ -273,6 +273,27 @@ mysql -h 54.116.14.198 -P 13307 -u pickple -p pickple
 ```
 
 ⚠️ **DB 가 인터넷에 노출되어 있다.** 방어선은 계정 비밀번호뿐이다.
+
+⚠️ **`root@%` 는 반드시 지운다.** mysql 이미지는 `MYSQL_ROOT_PASSWORD` 가 설정되면
+`root@%` 를 만들어, 포트가 열린 순간 root 가 인터넷에서 로그인 가능해진다.
+`/data/mysql` 을 새로 만들면 되살아나므로 볼륨 재생성 후에는 매번 확인한다.
+
+```bash
+# 확인 — 0 이 아니면 노출 상태다
+docker exec pickple-mysql mysql -uroot -p -N -B \
+  -e "SELECT COUNT(*) FROM mysql.user WHERE user='root' AND host='%'"
+
+# 제거 (root@localhost 는 남는다)
+docker exec pickple-mysql mysql -uroot -p \
+  -e "DROP USER IF EXISTS 'root'@'%'; FLUSH PRIVILEGES;"
+```
+
+외부에서 거부되는지 확인:
+
+```bash
+mysql -h 54.116.14.198 -P 13307 -u root -p   # ERROR 1045 여야 정상
+```
+
 닫으려면 `terraform.tfvars` 의 `mysql_allowed_cidr` 를 지우고 apply 한다(인스턴스 replace 없음).
 
 실패 로그인을 확인하려면:
