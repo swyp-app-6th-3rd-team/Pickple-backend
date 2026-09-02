@@ -66,7 +66,8 @@ resource "aws_route_table_association" "public" {
 #   3306 (DB)   compose 내부 전용. ports 매핑조차 하지 않는다.
 #   22   (SSH)  SSM Session Manager 로 대체했다(ADR-0012).
 #
-# 443 은 도메인을 확보한 뒤 Caddy 자동 HTTPS 와 함께 연다.
+# 443 은 Caddy 가 Let's Encrypt 로 종단한다(ADR-0022). 80 은 ACME HTTP-01 과
+# 80→443 리다이렉트를 위해 계속 연다.
 resource "aws_security_group" "app" {
   name        = "${local.name_prefix}-app"
   description = "Pickple application host"
@@ -90,6 +91,24 @@ resource "aws_vpc_security_group_ingress_rule" "http_ipv6" {
   cidr_ipv6         = "::/0"
   from_port         = local.http_port
   to_port           = local.http_port
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "https_ipv4" {
+  security_group_id = aws_security_group.app.id
+  description       = "HTTPS"
+  cidr_ipv4         = "0.0.0.0/0"
+  from_port         = local.https_port
+  to_port           = local.https_port
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "https_ipv6" {
+  security_group_id = aws_security_group.app.id
+  description       = "HTTPS (IPv6)"
+  cidr_ipv6         = "::/0"
+  from_port         = local.https_port
+  to_port           = local.https_port
   ip_protocol       = "tcp"
 }
 

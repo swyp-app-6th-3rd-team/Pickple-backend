@@ -108,6 +108,10 @@ fi
 mkdir -p "${data_mount_point}/mysql"
 chown -R 999:999 "${data_mount_point}/mysql"
 
+# Caddy 인증서·ACME 계정. 루트 볼륨에 두면 인스턴스 교체마다 재발급되고
+# Let's Encrypt 는 같은 호스트에 주 5회까지만 내준다(ADR-0022).
+mkdir -p "${data_mount_point}/caddy"
+
 # ── 3. 애플리케이션 디렉터리 ───────────────────────────────
 mkdir -p "${app_dir}"
 

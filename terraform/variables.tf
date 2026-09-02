@@ -134,6 +134,46 @@ variable "ecr_keep_image_count" {
   default     = 10
 }
 
+# ── 도메인 (ADR-0022) ───────────────────────────────────────
+
+variable "domain_name" {
+  description = "Route53 hosted zone 으로 관리할 도메인. Gabia 에서 네임서버만 이쪽으로 위임한다"
+  type        = string
+  default     = "pickple.app"
+}
+
+variable "api_subdomain" {
+  description = "백엔드 develop 서버의 서브도메인. apex 는 프론트 몫으로 비워 둔다"
+  type        = string
+  default     = "dev-api"
+}
+
+variable "extra_records" {
+  description = <<-EOT
+    프론트 등 다른 팀의 DNS 레코드. 키는 서브도메인("@" 는 apex), 값은 type/ttl/records.
+    NS 가 Route53 으로 넘어오면 apex·www 도 여기서 관리해야 하므로 tfvars 한 줄로 받는다.
+      extra_records = {
+        "@"   = { type = "A",     ttl = 300, records = ["76.76.21.21"] }
+        "www" = { type = "CNAME", ttl = 300, records = ["cname.vercel-dns.com"] }
+      }
+  EOT
+  type = map(object({
+    type    = string
+    ttl     = optional(number, 300)
+    records = list(string)
+  }))
+  default = {}
+
+  # Route53 은 zone apex 의 CNAME 을 거부한다. apply 가 중간에 죽지 않게 plan 에서 막는다.
+  # Vercel 류는 apex 에 A 레코드(76.76.21.21 등)를 안내한다.
+  validation {
+    condition = alltrue([
+      for k, v in var.extra_records : !(k == "@" && upper(v.type) == "CNAME")
+    ])
+    error_message = "apex(\"@\") 에는 CNAME 을 둘 수 없습니다. A/AAAA 를 쓰거나 서브도메인으로 옮기십시오."
+  }
+}
+
 # ── 상태 저장소 ─────────────────────────────────────────────
 
 variable "state_bucket" {

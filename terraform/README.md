@@ -1,13 +1,16 @@
 # develop 인프라 (Terraform)
 
-단일 EC2 위에 docker-compose 로 앱과 MySQL 을 띄운다. 월 약 $22.
+단일 EC2 위에 docker-compose 로 앱과 MySQL 을 띄운다. 월 약 $22.5.
 설계 근거는 [ADR-0012](../docs/adr/0012-develop-infra-single-ec2.md) ·
-[ADR-0013](../docs/adr/0013-oidc-and-secrets-manager.md), 완료 판정은
-[PRD-007](../docs/prd/PRD-007-develop배포인프라.md) 에 있다.
+[ADR-0013](../docs/adr/0013-oidc-and-secrets-manager.md) ·
+[ADR-0022](../docs/adr/0022-route53-and-caddy-tls.md), 완료 판정은
+[PRD-007](../docs/prd/PRD-007-develop배포인프라.md) ·
+[PRD-008](../docs/prd/PRD-008-develop도메인연결과자동배포.md) 에 있다.
 
 ![develop 인프라 구조도](../docs/diagrams/develop-infra.light.png)
 
-NAT Gateway·ALB·RDS·VPC Endpoint 를 **쓰지 않는다.** 이것이 비용 구조의 전부다.
+NAT Gateway·ALB·RDS·VPC Endpoint·ACM 을 **쓰지 않는다.** 이것이 비용 구조의 전부다.
+도메인은 Route53 hosted zone(월 $0.50), TLS 는 EC2 위 Caddy 가 Let's Encrypt 로 종단한다.
 
 <sub>다크 버전: [`develop-infra.dark.png`](../docs/diagrams/develop-infra.dark.png) ·
 뷰별로 따라가려면 [인터랙티브 구조도](../docs/diagrams/develop-infra.html)</sub>
@@ -40,6 +43,8 @@ aws s3api put-bucket-encryption --bucket "$BUCKET" --profile root_habin \
   '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
 ```
 
+로컬 도구: `terraform` 1.10+, `aws`, `jq`, `openssl` (비밀 동기화 스크립트가 쓴다).
+
 ## 적용
 
 ```bash
@@ -52,16 +57,34 @@ terraform output next_steps
 ### 비용 사전 검증 (PRD-007 판정 1)
 
 과금 리소스가 계획에 섞이지 않았는지 확인한다. **빈 출력이어야 한다.**
+Route53 zone 은 유일하게 과금되는 추가 항목($0.50/월)이며 의도된 것이라 패턴에 넣지 않는다.
 
 ```bash
-terraform plan -no-color | grep -E "nat_gateway|_lb\.|db_instance|vpc_endpoint"
+terraform plan -no-color | grep -E "nat_gateway|_lb\.|db_instance|vpc_endpoint|cloudfront|acm_certificate"
 ```
 
 ## apply 직후
 
-### 1) 비밀 주입
+순서가 있다. HTTP-01 인증서는 DNS 가 EIP 를 가리켜야 나오고, 자동 배포는 GitHub 변수가
+있어야 열린다. `terraform output next_steps` 가 실값을 채워 같은 순서로 출력한다.
+
+### 1) 비밀 동기화
 
 자리표시자(`CHANGE_ME`) 상태로는 앱이 뜨지 않는다. `fetch-secrets.sh` 가 먼저 막는다.
+
+로컬 `.env` 를 읽어 Secrets Manager 에 넣는 스크립트가 있다. 키 스키마는 `terraform output secret_keys`
+에서 읽으므로 `locals.secret_keys` 에 키를 추가하면 그대로 따라온다.
+
+```bash
+terraform/scripts/sync-secrets.sh --dry-run   # 키 · 출처 · 길이 표만 본다. 값은 찍지 않는다
+terraform/scripts/sync-secrets.sh
+```
+
+키마다 값은 이 순서로 정해진다: `.env` 값(자리표시자 `change-me*` 제외) → 원격에 이미 있는 값 →
+MySQL 패스워드·JWT 는 생성 → 그 외 `not-configured`. 재실행해도 이미 초기화된 MySQL 패스워드는
+바뀌지 않는다.
+
+스크립트 없이 손으로 넣을 때:
 
 ```bash
 aws secretsmanager put-secret-value \
@@ -87,7 +110,24 @@ aws secretsmanager put-secret-value \
 ⚠️ MySQL 패스워드는 **최초 기동 시에만** 적용된다. 이미 초기화된 뒤에 바꾸려면
 Secrets Manager 값만이 아니라 `ALTER USER` 도 실행해야 한다.
 
-### 2) GitHub 변수 등록
+### 2) Gabia 네임서버 변경
+
+`pickple.app` 은 Gabia 에 등록돼 있다. 도메인 쪽에서 사람이 하는 일은 이것 하나다.
+
+```bash
+terraform output route53_name_servers   # 4개
+```
+
+Gabia → 도메인 관리 → 네임서버 설정에 4개를 넣는다. 전파는 보통 1시간 안, 최대 48시간.
+**둘 다 맞기 전에는 배포하지 않는다.** Caddy 는 뜨자마자 인증서를 요청하고,
+DNS 가 EIP 를 가리키지 않으면 실패 검증이 Let's Encrypt 한도를 태운다.
+
+```bash
+dig +short NS pickple.app @8.8.8.8         # awsdns 4개
+dig +short A "$(terraform output -raw api_fqdn)"   # == terraform output public_ip
+```
+
+### 3) GitHub 변수 등록
 
 Settings → Secrets and variables → Actions → **Variables** 탭 (Secrets 아님).
 
@@ -103,9 +143,27 @@ terraform output next_steps   # 값이 그대로 출력된다
 | `ECR_REPOSITORY` | `terraform output -raw ecr_repository` |
 | `EC2_INSTANCE_ID` | `terraform output -raw instance_id` |
 
-### 3) 배포
+`gh variable list` 로 5개가 실제로 들어갔는지 센다.
 
-`develop` 브랜치에 push 하면 자동으로 돈다.
+### 4) 배포
+
+`deploy-develop.yml` 의 `push: branches: [develop]` 주석을 풀고 develop 에 머지하면 첫 배포가 돈다.
+Caddy 가 인증서를 받으면 `https://dev-api.pickple.app` 이 살아난다.
+
+```bash
+curl -sI https://dev-api.pickple.app/actuator/health   # 200
+curl -sI http://dev-api.pickple.app                    # 308 → https
+```
+
+`.app` 은 HSTS preload TLD 라 브라우저는 `http://` 를 시도조차 하지 않는다. 리다이렉트 판정은 curl 로만 된다.
+
+### 5) OAuth 콘솔
+
+카카오·네이버·구글 콘솔에 redirect URI 를 등록한다. 인증서가 나온 뒤에만 검증되므로 이 순서다.
+
+```
+https://dev-api.pickple.app/login/oauth2/code/{kakao,naver,google}
+```
 
 ## 운영
 
@@ -117,14 +175,32 @@ aws ssm start-session --target "$(terraform output -raw instance_id)" \
 # 상태 확인
 sudo systemctl status pickple
 cd /opt/pickple && sudo docker compose -f docker-compose-ec2.yml ps
-
-# 비밀 갱신 후 반영 (인스턴스 재생성 불필요)
-sudo systemctl restart pickple
+sudo docker compose -f docker-compose-ec2.yml logs -f app
 ```
 
-### 관리 포트(9090) 보기
+### 인증서
 
-`/actuator/health` 는 인터넷에 열려 있지 않다. 포트 포워딩으로 붙는다.
+```bash
+sudo docker logs pickple-caddy 2>&1 | grep -iE "certificate|acme" | tail
+sudo ls /data/caddy/caddy/certificates/          # 영속 EBS 에 있다
+```
+
+인증서와 ACME 계정은 `/data/caddy`(MySQL 과 같은 EBS)에 있어 인스턴스를 교체해도 재발급되지 않는다.
+Let's Encrypt 는 같은 호스트에 **주 5회**까지만 발급한다. 실패가 반복되면 `docker logs pickple-caddy` 의
+챌린지 오류를 먼저 본다 — 거의 항상 DNS 가 EIP 를 가리키지 않는 문제다.
+
+### 비밀 갱신
+
+로컬 `.env` 를 고친 뒤 동기화하고 유닛을 재시작하면 `fetch-secrets.sh` 가 `.env` 를 다시 만든다.
+
+```bash
+terraform/scripts/sync-secrets.sh --restart
+```
+
+### 관리 포트(9090)
+
+`/actuator/health` 만 Caddy 를 통해 열려 있다. 나머지 actuator 는 인터넷에서 닿지 않으므로
+SSM 포트 포워딩으로 붙는다.
 
 ```bash
 aws ssm start-session --target "$(terraform output -raw instance_id)" \
@@ -147,6 +223,11 @@ sudo docker exec -it pickple-mysql mysql -u root -p
 
 Actions → deploy-develop → Run workflow → 이전 태그(`develop-<run_id>`) 입력.
 불변 태그를 SSM 으로 넘기는 구조라 재빌드 없이 즉시 되돌아간다.
+
+### 프론트 DNS 레코드
+
+네임서버가 Route53 으로 넘어왔으므로 apex·`www` 도 여기서 관리한다. `terraform.tfvars` 의
+`extra_records` 에 한 줄 추가하고 apply 한다(`terraform.tfvars.example` 참조).
 
 ## 인스턴스 교체 (AMI 갱신 · 스펙 변경 · 판정 3 검증)
 
@@ -171,17 +252,22 @@ terraform apply
 aws ssm start-session --target "$(terraform output -raw instance_id)" \
   --region ap-northeast-2 --profile root_habin
 #   sudo docker exec pickple-mysql mysql -uroot -p -e "SELECT COUNT(*) FROM ..."
+#   sudo ls /data/caddy/caddy/certificates/     # 인증서도 그대로여야 한다
 ```
 
 ⚠️ 볼륨 자체는 `prevent_destroy` 로 보호되므로 교체 과정에서 삭제되지 않는다.
 `force_detach = true` 는 분리를 강제할 뿐 데이터를 지우지 않는다(EBS 는 네트워크 블록
-스토리지라 분리 ≠ 소거).
+스토리지라 분리 ≠ 소거). EIP 와 Route53 레코드도 유지되므로 DNS 를 손댈 일이 없다.
 
 ## 주의
 
-- **`aws_ebs_volume.data` 는 `prevent_destroy` 로 보호된다.** MySQL 데이터가 여기 있다.
+- **`aws_ebs_volume.data` 는 `prevent_destroy` 로 보호된다.** MySQL 데이터와 Caddy 인증서가 여기 있다.
   정말 지우려면 `ec2.tf` 의 lifecycle 블록을 먼저 지워야 한다.
 - **관리 계정에는 SCP 가 적용되지 않는다.** 가드레일이 Budgets 알림($35, 3단계) 하나뿐이므로
   예상 밖 리소스를 만들지 않도록 주의한다.
 - `terraform destroy` 는 데이터 볼륨 때문에 그냥은 통과하지 않는다. 6주 후 정리 시
   스냅샷을 먼저 뜨고 lifecycle 블록을 제거한다.
+- **Route53 hosted zone 은 프로젝트가 끝나도 과금된다.** `force_destroy = true` 라 destroy 가 막히지는
+  않지만, 남겨 두면 매달 $0.50 이 나간다. teardown 뒤 `aws route53 list-hosted-zones` 로 0 을 확인한다.
+- `application.yml` 의 `forward-headers-strategy=framework` 는 **8080 이 인터넷에 닫혀 있다는 전제**다.
+  8080 을 열거나 host 네트워크로 바꾸면 scheme 스푸핑 구멍이 되므로 함께 재검토한다(ADR-0022).

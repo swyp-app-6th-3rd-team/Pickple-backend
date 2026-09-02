@@ -9,4 +9,5 @@
 | # | 제목 | 상태 |
 |---|---|---|
 | [006](PRD-006-LLM문서서빙.md) | LLM 문서 서빙 (llms.txt) | 완료 |
-| [007](PRD-007-develop배포인프라.md) | develop 배포 인프라 (EC2 + Terraform) | 진행 중 |
+| [007](PRD-007-develop배포인프라.md) | develop 배포 인프라 (EC2 + Terraform) | 검증 완료 (실측 후 teardown) |
+| [008](PRD-008-develop도메인연결과자동배포.md) | develop 도메인 연결과 자동 배포 (Route53 + Caddy TLS) | 진행 중 |
