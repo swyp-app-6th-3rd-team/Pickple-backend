@@ -110,10 +110,9 @@ services:
       # 사이트 주소. 도메인이면 Caddy 가 Let's Encrypt 로 자동 HTTPS (ADR-0022).
       SITE_ADDRESS: ${SITE_ADDRESS:-dev-api.pickple.app}
     ports:
-      # 80 은 ACME HTTP-01 과 80→443 리다이렉트. 443/udp 는 HTTP/3.
+      # 80 은 ACME HTTP-01 과 80→443 리다이렉트. HTTP/3(443/udp)은 SG 에 UDP 규칙이 없어 열지 않는다.
       - "80:80"
       - "443:443"
-      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # 인증서·ACME 계정은 영속 EBS(/data)에 둔다. 루트 볼륨의 named volume 에 두면

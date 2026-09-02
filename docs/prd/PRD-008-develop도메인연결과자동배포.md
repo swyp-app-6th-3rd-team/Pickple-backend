@@ -68,4 +68,8 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 
 | 문제 | 원인 | 조치 |
 |---|---|---|
-| (진행하며 기록) | | |
+| `sync-secrets.sh` 가 macOS 에서 즉시 죽는다 | `declare -A`·`mapfile` 은 bash 4 문법인데 macOS 기본 `/bin/bash` 는 3.2 다 | 연관 배열·mapfile 없이 재작성. `/bin/bash -n` 과 stub 시나리오 5종으로 3.2 에서 검증 |
+| 로컬 `.env` 의 MySQL 패스워드가 원격을 덮을 수 있다 | 우선순위가 `.env` → 원격이라, 오래된 값이 `.env` 에 남아 있으면 초기화된 MySQL 과 어긋난다. 경고는 put 뒤에만 나왔다 | `mysql_*` 만 원격 우선. 바꾸려면 `--generate` 명시, 경고는 put 전에 출력 |
+| 비밀값이 `jq --arg` 인자로 `ps` 에 잠깐 보인다 | 값을 프로세스 인자로 넘겼다 | `--rawfile` 로 파일 경유 |
+| `443/udp` 매핑이 죽은 설정 | SG 에 UDP 443 규칙이 없어 HTTP/3 이 EC2 에 닿지 않는다 | 매핑 제거. HTTP/3 은 필요해지면 SG 와 함께 연다 |
+| 이슈 #36 의 "ACM" | ACM 은 EC2 에 배포 불가 | Caddy Let's Encrypt 로 교정(ADR-0022) |

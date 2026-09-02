@@ -6,11 +6,16 @@
 #
 # 키마다 값을 이 순서로 정한다.
 #   1. .env 에 같은 이름(대문자)의 값이 있고 자리표시자(change-me*)가 아니면 그 값
-#   2. 원격에 CHANGE_ME 가 아닌 값이 이미 있으면 보존   ← MySQL 패스워드는 최초 기동 뒤 바꾸면 안 된다
+#   2. 원격에 CHANGE_ME 가 아닌 값이 이미 있으면 보존
 #   3. mysql_root_password · mysql_password · jwt_secret_key 는 생성(openssl rand)
 #   4. 그 외는 not-configured (oauth_apple_enabled 만 false)
 #
+# 단, mysql_root_password · mysql_password 는 2 → 1 → 3 이다. 최초 기동 뒤에 바꾸면 이미 초기화된
+# MySQL 과 어긋나 앱이 못 붙으므로, 원격에 값이 있으면 로컬 .env 에 뭐가 있든 원격을 지킨다.
+# 정말 바꾸려면 --generate mysql_password 처럼 명시하고 ALTER USER 를 같이 한다(README).
+#
 # 값은 화면에 찍지 않는다. 키 · 출처 · 길이만 보여준다.
+# macOS 기본 bash 3.2 에서 돌아야 하므로 연관 배열·mapfile 을 쓰지 않는다.
 #
 # 사용:
 #   terraform/scripts/sync-secrets.sh [--env-file .env] [--profile P] [--dry-run] [--restart]
@@ -27,7 +32,7 @@ ENV_FILE="$REPO_DIR/.env"
 PROFILE=""
 DRY_RUN=0
 RESTART=0
-GENERATE=()
+GENERATE=" "   # 공백으로 구분한 키 목록. 양끝 공백으로 감싸 " key " 검색이 정확히 맞게 한다
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,8 +40,8 @@ while [ $# -gt 0 ]; do
     --profile)  PROFILE="$2";  shift 2 ;;
     --dry-run)  DRY_RUN=1;     shift ;;
     --restart)  RESTART=1;     shift ;;
-    --generate) GENERATE+=("$2"); shift 2 ;;
-    -h|--help)  sed -n '2,20p' "$0"; exit 0 ;;
+    --generate) GENERATE="$GENERATE$2 "; shift 2 ;;
+    -h|--help)  sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -52,52 +57,67 @@ SECRET_ID="$(tf_out secret_arn)"
 REGION="$(tf_out region)"
 [ -n "$PROFILE" ] || PROFILE="$(tf_out aws_profile)"
 INSTANCE_ID="$(tf_out instance_id)"
-mapfile -t KEYS < <(terraform -chdir="$TF_DIR" output -json secret_keys | jq -r '.[]')
-[ "${#KEYS[@]}" -gt 0 ] || { echo "FATAL: secret_keys output 이 비어 있습니다. apply 가 됐는지 확인하십시오" >&2; exit 1; }
+KEYS="$(terraform -chdir="$TF_DIR" output -json secret_keys | jq -r '.[]')"
+[ -n "$KEYS" ] || { echo "FATAL: secret_keys output 이 비어 있습니다. apply 가 됐는지 확인하십시오" >&2; exit 1; }
 
-AWS=(aws --region "$REGION" --profile "$PROFILE")
+AWS="aws --region $REGION --profile $PROFILE"
 
 # ── 원격 현재값 ─────────────────────────────────────────────
-REMOTE_JSON="$("${AWS[@]}" secretsmanager get-secret-value --secret-id "$SECRET_ID" \
+REMOTE_JSON="$($AWS secretsmanager get-secret-value --secret-id "$SECRET_ID" \
   --query SecretString --output text 2>/dev/null || echo '{}')"
 echo "$REMOTE_JSON" | jq -e 'type == "object"' >/dev/null \
   || { echo "FATAL: 원격 secret 이 JSON 객체가 아닙니다" >&2; exit 1; }
 
 # ── 로컬 .env ────────────────────────────────────────────────
-# KEY=VALUE 만 읽는다. 따옴표는 벗기고, export · 주석 · 빈 줄은 건너뛴다. 값은 변수에만 둔다.
-declare -A ENV
-while IFS= read -r line || [ -n "$line" ]; do
+# KEY=VALUE 줄만 본다. `export `·주석·빈 줄은 건너뛰고, CRLF 와 감싼 따옴표를 벗긴다.
+# 값에 '=' 가 있어도 첫 '=' 까지만 키다. 값은 변수에만 두고 화면에 내지 않는다.
+env_get() {
+  local line
+  line="$(grep -E "^(export )?$1=" "$ENV_FILE" | tail -1 | tr -d '\r' || true)"
+  [ -n "$line" ] || return 0
   line="${line#export }"
-  case "$line" in ''|'#'*) continue ;; esac
-  [[ "$line" == *=* ]] || continue
-  k="${line%%=*}"; v="${line#*=}"
+  local v="${line#*=}"
   v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
-  ENV["$k"]="$v"
-done < "$ENV_FILE"
+  printf '%s' "$v"
+}
+env_keys() {
+  grep -E '^(export )?[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" | tr -d '\r' \
+    | sed -E 's/^export //; s/=.*//' | sort -u
+}
 
-is_placeholder() { [[ "$1" == change-me* || "$1" == "CHANGE_ME" || -z "$1" ]]; }
-wants_generate() { local k; for k in "${GENERATE[@]:-}"; do [ "$k" = "$1" ] && return 0; done; return 1; }
+is_placeholder() { case "$1" in ''|change-me*|CHANGE_ME) return 0 ;; *) return 1 ;; esac; }
+wants_generate() { case "$GENERATE" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 
 umask 077
-TMP_NEW="$(mktemp)"; trap 'rm -f "$TMP_NEW"' EXIT
+TMP_NEW="$(mktemp)"; TMP_VAL="$(mktemp)"
+trap 'rm -f "$TMP_NEW" "$TMP_NEW.next" "$TMP_VAL"' EXIT
 echo '{}' > "$TMP_NEW"
 
 printf '\n%-36s %-10s %s\n' "키" "출처" "길이"
 printf '%-36s %-10s %s\n' "------------------------------------" "----------" "----"
 
 CHANGED=0
-for key in "${KEYS[@]}"; do
-  env_name="$(echo "$key" | tr '[:lower:]' '[:upper:]')"
-  local_val="${ENV[$env_name]:-}"
+for key in $KEYS; do
+  local_val="$(env_get "$(upper "$key")")"
   remote_val="$(echo "$REMOTE_JSON" | jq -r --arg k "$key" '.[$k] // ""')"
   src=""; val=""
 
   if wants_generate "$key"; then
     src="generated"
-  elif ! is_placeholder "$local_val"; then
-    src="env"; val="$local_val"
-  elif ! is_placeholder "$remote_val"; then
-    src="remote"; val="$remote_val"
+  else
+    case "$key" in
+      mysql_root_password|mysql_password)
+        # 원격 우선. 초기화된 MySQL 의 패스워드를 로컬 .env 가 실수로 덮지 못하게 한다.
+        if ! is_placeholder "$remote_val"; then src="remote"; val="$remote_val"
+        elif ! is_placeholder "$local_val"; then src="env"; val="$local_val"
+        fi ;;
+      *)
+        if ! is_placeholder "$local_val"; then src="env"; val="$local_val"
+        elif ! is_placeholder "$remote_val"; then src="remote"; val="$remote_val"
+        fi ;;
+    esac
   fi
 
   if [ -z "$src" ] || [ "$src" = "generated" ]; then
@@ -110,20 +130,29 @@ for key in "${KEYS[@]}"; do
   fi
 
   [ "$val" != "$remote_val" ] && CHANGED=1
-  jq --arg k "$key" --arg v "$val" '.[$k] = $v' "$TMP_NEW" > "$TMP_NEW.next" && mv "$TMP_NEW.next" "$TMP_NEW"
+  # 값은 파일로 넘긴다. --arg 로 넘기면 실행 중 ps 에 인자로 보인다.
+  printf '%s' "$val" > "$TMP_VAL"
+  jq --arg k "$key" --rawfile v "$TMP_VAL" '.[$k] = $v' "$TMP_NEW" > "$TMP_NEW.next" && mv "$TMP_NEW.next" "$TMP_NEW"
   printf '%-36s %-10s %s\n' "$key" "$src" "${#val}"
+
+  case "$key" in
+    mysql_root_password|mysql_password)
+      if ! is_placeholder "$remote_val" && [ "$val" != "$remote_val" ]; then
+        echo "WARN: $key 가 바뀝니다. 이미 초기화된 MySQL 에는 ALTER USER 가 필요합니다 (README 참조)." >&2
+      fi ;;
+  esac
 done
+rm -f "$TMP_VAL"
 
 # 스키마에 없는 로컬 키는 이름만 알려 준다 (예: 로컬 전용 포트, 아직 스키마에 없는 프로바이더).
-IGNORED=()
-for k in "${!ENV[@]}"; do
-  lk="$(echo "$k" | tr '[:upper:]' '[:lower:]')"
-  found=0; for s in "${KEYS[@]}"; do [ "$s" = "$lk" ] && found=1 && break; done
-  [ $found -eq 0 ] && IGNORED+=("$k")
+IGNORED=""
+for k in $(env_keys); do
+  lk="$(lower "$k")"
+  case " $(echo $KEYS) " in *" $lk "*) ;; *) IGNORED="$IGNORED $k" ;; esac
 done
-if [ "${#IGNORED[@]}" -gt 0 ]; then
+if [ -n "$IGNORED" ]; then
   echo
-  echo "스키마에 없어 무시한 .env 키 (${#IGNORED[@]}): $(printf '%s ' "${IGNORED[@]}" | sort | tr '\n' ' ')"
+  echo "스키마에 없어 무시한 .env 키:$IGNORED"
 fi
 
 echo
@@ -137,19 +166,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-"${AWS[@]}" secretsmanager put-secret-value --secret-id "$SECRET_ID" \
+$AWS secretsmanager put-secret-value --secret-id "$SECRET_ID" \
   --secret-string "file://$TMP_NEW" --query VersionId --output text \
   | sed 's/^/put-secret-value VersionId=/'
 
-if echo "$REMOTE_JSON" | jq -e '.mysql_root_password and .mysql_root_password != "CHANGE_ME"' >/dev/null; then
-  new_root="$(jq -r .mysql_root_password "$TMP_NEW")"
-  old_root="$(echo "$REMOTE_JSON" | jq -r .mysql_root_password)"
-  [ "$new_root" != "$old_root" ] && echo "WARN: mysql_root_password 가 바뀌었습니다. 이미 초기화된 MySQL 에는 ALTER USER 가 필요합니다 (README 참조)." >&2
-fi
-
 if [ "$RESTART" -eq 1 ]; then
   echo "EC2 유닛 재시작 (fetch-secrets.sh 가 .env 를 다시 만듭니다)…"
-  "${AWS[@]}" ssm send-command --instance-ids "$INSTANCE_ID" \
+  $AWS ssm send-command --instance-ids "$INSTANCE_ID" \
     --document-name AWS-RunShellScript \
     --parameters 'commands=["systemctl restart pickple"]' \
     --query 'Command.CommandId' --output text | sed 's/^/ssm CommandId=/'
