@@ -163,6 +163,15 @@ variable "extra_records" {
     records = list(string)
   }))
   default = {}
+
+  # Route53 은 zone apex 의 CNAME 을 거부한다. apply 가 중간에 죽지 않게 plan 에서 막는다.
+  # Vercel 류는 apex 에 A 레코드(76.76.21.21 등)를 안내한다.
+  validation {
+    condition = alltrue([
+      for k, v in var.extra_records : !(k == "@" && upper(v.type) == "CNAME")
+    ])
+    error_message = "apex(\"@\") 에는 CNAME 을 둘 수 없습니다. A/AAAA 를 쓰거나 서브도메인으로 옮기십시오."
+  }
 }
 
 # ── 상태 저장소 ─────────────────────────────────────────────

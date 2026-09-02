@@ -63,8 +63,17 @@ KEYS="$(terraform -chdir="$TF_DIR" output -json secret_keys | jq -r '.[]')"
 AWS="aws --region $REGION --profile $PROFILE"
 
 # ── 원격 현재값 ─────────────────────────────────────────────
-REMOTE_JSON="$($AWS secretsmanager get-secret-value --secret-id "$SECRET_ID" \
-  --query SecretString --output text 2>/dev/null || echo '{}')"
+# 조회 실패는 곧바로 멈춘다(fail-closed). 잘못된 프로필·권한·일시 장애를 "원격 값 없음" 으로
+# 오인하면 mysql_* 를 새로 만들어 초기화된 MySQL 과 어긋난다. secret 은 Terraform 이 항상
+# 자리표시자 버전과 함께 만들므로 "없음" 이 정상인 경우는 없다. stderr 에는 비밀값이 담기지 않는다.
+REMOTE_ERR="$(mktemp)"
+if ! REMOTE_JSON="$($AWS secretsmanager get-secret-value --secret-id "$SECRET_ID" \
+  --query SecretString --output text 2>"$REMOTE_ERR")"; then
+  echo "FATAL: 원격 secret 조회에 실패했습니다. 아무것도 쓰지 않고 멈춥니다." >&2
+  cat "$REMOTE_ERR" >&2; rm -f "$REMOTE_ERR"
+  exit 1
+fi
+rm -f "$REMOTE_ERR"
 echo "$REMOTE_JSON" | jq -e 'type == "object"' >/dev/null \
   || { echo "FATAL: 원격 secret 이 JSON 객체가 아닙니다" >&2; exit 1; }
 

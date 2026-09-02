@@ -73,3 +73,5 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 | 비밀값이 `jq --arg` 인자로 `ps` 에 잠깐 보인다 | 값을 프로세스 인자로 넘겼다 | `--rawfile` 로 파일 경유 |
 | `443/udp` 매핑이 죽은 설정 | SG 에 UDP 443 규칙이 없어 HTTP/3 이 EC2 에 닿지 않는다 | 매핑 제거. HTTP/3 은 필요해지면 SG 와 함께 연다 |
 | 이슈 #36 의 "ACM" | ACM 은 EC2 에 배포 불가 | Caddy Let's Encrypt 로 교정(ADR-0022) |
+| 원격 조회 실패가 "값 없음" 으로 오인돼 MySQL 패스워드가 재생성될 수 있다 (Codex 이종 리뷰) | `get-secret-value` 실패를 `{}` 로 삼켰다. 잘못된 프로필·권한 오류 하나로 초기화된 MySQL 과 어긋난다 | fail-closed: 조회 실패 시 아무것도 쓰지 않고 종료. stub 케이스 6(AccessDenied → put 0회) 추가 |
+| `extra_records` 가 apex CNAME 을 받아 apply 가 중간에 죽는다 (Codex 이종 리뷰) | Route53 은 zone apex 의 CNAME 을 거부하는데 변수에 제약이 없었다 | variable validation 으로 plan 단계에서 거부. apex A + www CNAME 은 통과 확인(plan 33 add) |
