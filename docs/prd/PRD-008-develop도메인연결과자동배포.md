@@ -42,17 +42,17 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 | # | 판정 | 검증 방법 | 결과 |
 |---|---|---|---|
 | 1 | develop 인프라가 apply 됨 | `terraform output` 에 instance_id·ecr·role·secret_arn·route53_name_servers 출력 | ✅ 2026-09-02 31 리소스, output 12개. SSM PingStatus=Online, user-data 완료, `/data/{mysql,caddy}` 마운트 |
-| 2 | `https://dev-api.pickple.app` 이 유효한 인증서로 응답 | `curl -sI https://dev-api.pickple.app/actuator/health` 200, `openssl s_client` 로 issuer = Let's Encrypt | |
-| 3 | 443 이 열리고 80 이 443 으로 리다이렉트 | `curl -sI http://dev-api.pickple.app` → 308 + `Location: https://…` (`.app` 은 HSTS preload 라 브라우저로는 판정 불가) | |
-| 4 | develop push 시 자동 배포가 돈다 | 머지 후 Actions 실행 · 헬스 스텝 통과 · 배포 SHA 대조 | |
+| 2 | `https://dev-api.pickple.app` 이 유효한 인증서로 응답 | `curl -sI https://dev-api.pickple.app/actuator/health` 200, `openssl s_client` 로 issuer = Let's Encrypt | ✅ 2026-09-02 200, `ssl_verify=0`, issuer `Let's Encrypt CN=YE1`, notAfter 2026-12-01 |
+| 3 | 443 이 열리고 80 이 443 으로 리다이렉트 | `curl -sI http://dev-api.pickple.app` → 308 + `Location: https://…` (`.app` 은 HSTS preload 라 브라우저로는 판정 불가) | ✅ 308 → `https://dev-api.pickple.app/actuator/health` |
+| 4 | develop push 시 자동 배포가 돈다 | 머지 후 Actions 실행 · 헬스 스텝 통과 · 배포 SHA 대조 | ✅ PR #42 머지 → run 33592400889. attempt 1 은 OIDC AccessDenied(아래 "발견한 문제"), trust policy 교정 후 attempt 2 success. 컨테이너 이미지 `pickple:develop-33592400889` = `.env` IMAGE_TAG, head 2a8e580 |
 | 5 | 워크플로에 `secrets.*` 참조 0건 | `grep -c '\${{ secrets\.' .github/workflows/deploy-develop.yml` → 0 (이슈 #36 의 `grep "secrets\."` 는 주석과 `fetch-secrets.sh` 경로에 걸려 2 가 나온다 — 측정식을 표현식 문법으로 좁혔다) | ✅ 0건 |
 | 6 | 롤백이 동작 | 2회째 배포 후 `workflow_dispatch` 에 이전 태그 → `docker inspect pickple-app` 이미지 태그 | |
-| 7 | OAuth 인가 요청의 redirect_uri 가 https | `curl -sI https://dev-api.pickple.app/oauth2/authorization/kakao` → `Location` 안 `redirect_uri=https%3A%2F%2Fdev-api.pickple.app…` | |
-| 8 | 클라이언트 `X-Forwarded-Proto` 스푸핑이 막힘 | 위 요청에 `-H "X-Forwarded-Proto: http"` 를 얹어도 결과 동일 | |
-| 9 | 외부 포트가 80·443 만 열림 | `nc -zv <EIP> 22 3306 8080 9090` 전부 실패, `/actuator/info` 404 | |
-| 10 | 인증서가 영속 EBS 에 있다 | SSM 에서 `ls /data/caddy/caddy/certificates/` 존재 | |
+| 7 | OAuth 인가 요청의 redirect_uri 가 https | `curl -sI https://dev-api.pickple.app/oauth2/authorization/kakao` → `Location` 안 `redirect_uri=https%3A%2F%2Fdev-api.pickple.app…` | ✅ 302 → kauth.kakao.com, `redirect_uri=https://dev-api.pickple.app/login/oauth2/code/kakao` |
+| 8 | 클라이언트 `X-Forwarded-Proto` 스푸핑이 막힘 | 위 요청에 `-H "X-Forwarded-Proto: http"` 를 얹어도 결과 동일 | ✅ `X-Forwarded-Proto: http` + `X-Forwarded-Host: evil.example` 를 얹어도 redirect_uri 는 `https://dev-api.pickple.app/…` — Caddy 가 클라이언트 헤더를 덮어쓴다 |
+| 9 | 외부 포트가 80·443 만 열림 | `nc -zv <EIP> 22 3306 8080 9090` 전부 실패, `/actuator/info` 404 | ✅ 22·3306·8080·9090 closed, 80·443 open. `/actuator/info`·`/actuator/env` 404. 문서 4종(scalar·swagger·api-docs·llms.txt) 200 |
+| 10 | 인증서가 영속 EBS 에 있다 | SSM 에서 `ls /data/caddy/caddy/certificates/` 존재 | ✅ `/data/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dev-api.pickple.app/` (데이터 EBS, 315MB 사용) |
 | 11 | 비밀 동기화가 멱등 | `sync-secrets.sh` 재실행 시 "변경 없음", 원격 JSON 에 `CHANGE_ME` 0건, MySQL 패스워드 불변 | ✅ 2026-09-02 1회 put(VersionId 1개) 뒤 재실행 "변경 없음", `CHANGE_ME` 0건. mysql_* 출처 generated→remote |
-| 12 | 2GB 안에서 메모리가 버틴다 | `docker stats --no-stream` (Caddy TLS 추가분 포함) | |
+| 12 | 2GB 안에서 메모리가 버틴다 | `docker stats --no-stream` (Caddy TLS 추가분 포함) | ✅ app 479MiB(40%) · mysql 481MiB(69%) · caddy 25MiB(20%), host available 468MB. PRD-007 실측(495MB)과 동급 |
 | 13 | 비용이 추정 범위 안 | Budgets $35 의 50% 알림 미도달 + 1주 후 Cost Explorer ≈ $22.5/월 환산 | |
 
 ## 열린 질문
