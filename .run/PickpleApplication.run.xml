@@ -1,0 +1,24 @@
+<component name="ProjectRunConfigurationManager">
+  <!--
+    공유 실행 구성. .idea/ 는 .gitignore 대상이지만 .run/ 은 아니라 팀 전체가 같은 구성을 쓴다.
+
+    시크릿은 여기 넣지 않는다. 이 파일은 커밋되므로 값을 적으면 저장소에 그대로 들어간다.
+    JWT_SECRET_KEY 등은 .env 에 두고, application-local.yml 의 spring.config.import 가 읽는다.
+
+    SPRING_PROFILES_ACTIVE 를 명시하는 이유는 이게 없으면 application-local.yml 이
+    적용되지 않고 기본 프로파일로 돌기 때문이다(ADR-0024).
+
+    실행 전 MySQL 이 떠 있어야 한다:
+      docker compose -f docker-compose-local.yml up -d
+  -->
+  <configuration name="PickpleApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="pickple-backend.main" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="app.pickple.PickpleApplication" />
+    <envs>
+      <env name="SPRING_PROFILES_ACTIVE" value="local" />
+    </envs>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
