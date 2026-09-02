@@ -15,8 +15,20 @@
 앱은 IDE 에서 띄우고 MySQL 만 컨테이너로 쓴다(ADR-0024).
 
 ```bash
-docker compose -f docker/docker-compose-local.yml up -d
+docker compose --env-file .env -f docker/docker-compose-local.yml up -d
 ```
+
+### `--env-file .env` 는 생략할 수 없다
+
+Compose 는 변수 보간(`${MYSQL_PASSWORD}`)에 쓸 `.env` 를 **실행 위치가 아니라 compose 파일과
+같은 디렉터리**에서 찾는다. compose 파일이 `docker/` 로 오면서 Compose 는 `docker/.env` 를
+보게 됐지만 `.env` 는 루트에 있다.
+
+`env_file:` 로는 해결되지 않는다. 그건 **컨테이너에 주입할 환경변수**를 지정하는 것이고,
+변수 보간은 그보다 이른 **파싱 시점**에 일어나기 때문이다(실험으로 확인).
+
+EC2 배포는 영향이 없다. `deploy-develop.yml` 이 파일을 `/opt/pickple/docker-compose-ec2.yml` 로
+평탄화해 배치하므로 `.env` 와 같은 디렉터리에 놓인다.
 
 ## 빌드 컨텍스트는 루트다
 
