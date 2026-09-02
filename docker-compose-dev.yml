@@ -59,6 +59,13 @@ services:
       OAUTH_KAKAO_CLIENT_SECRET: ${OAUTH_KAKAO_CLIENT_SECRET:-not-configured}
       OAUTH_NAVER_CLIENT_ID: ${OAUTH_NAVER_CLIENT_ID:-not-configured}
       OAUTH_NAVER_CLIENT_SECRET: ${OAUTH_NAVER_CLIENT_SECRET:-not-configured}
+      OAUTH_APPLE_ENABLED: ${OAUTH_APPLE_ENABLED:-false}
+      OAUTH_APPLE_TEAM_ID: ${OAUTH_APPLE_TEAM_ID:-not-configured}
+      OAUTH_APPLE_KEY_ID: ${OAUTH_APPLE_KEY_ID:-not-configured}
+      OAUTH_APPLE_CLIENT_ID: ${OAUTH_APPLE_CLIENT_ID:-not-configured}
+      OAUTH_APPLE_PRIVATE_KEY_BASE64: ${OAUTH_APPLE_PRIVATE_KEY_BASE64:-not-configured}
+      OAUTH_APPLE_TOKEN_ENCRYPTION_KEYS: ${OAUTH_APPLE_TOKEN_ENCRYPTION_KEYS:-not-configured}
+      OAUTH_APPLE_TOKEN_ACTIVE_KEY_ID: ${OAUTH_APPLE_TOKEN_ACTIVE_KEY_ID:-not-configured}
       TZ: ${TZ:-Asia/Seoul}
       # logback-spring.xml 이 읽는 로그 위치. 아래 볼륨이 이 경로를 호스트에 연결한다.
       LOG_DIR: /app/logs

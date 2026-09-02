@@ -3,6 +3,7 @@ package app.pickple.error;
 import app.pickple.common.ApiResponse;
 import app.pickple.common.ResponseCode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -25,12 +26,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({
             MethodArgumentNotValidException.class,
+            HttpMessageNotReadableException.class,
             MissingServletRequestParameterException.class,
             MissingServletRequestPartException.class,
             MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleValidation(Exception e) {
-        log.warn("요청 검증 실패: {}", e.getMessage());
+        // rejected value에는 authorization code나 token이 들어갈 수 있으므로 상세 메시지를 기록하지 않는다.
+        log.warn("요청 검증 실패: {}", e.getClass().getSimpleName());
         return status(ResponseCode.INVALID_REQUEST);
     }
 

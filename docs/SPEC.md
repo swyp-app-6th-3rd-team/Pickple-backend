@@ -34,16 +34,17 @@ app/pickple/
 ├── docs/            LlmsTxtController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
-└── auth/            OAuth2 + JWT
-    ├── domain/      User · Role · SocialProvider · UserStore · RefreshTokenStore
-    ├── service/     AuthService · JwtService
-    ├── infra/       UserEntity · UserRefreshTokenEntity · Jpa*Store
+└── auth/            OAuth2 + Apple native login + JWT
+    ├── domain/      User · Role · SocialProvider · SocialIdentity · *Store
+    ├── service/     AuthService · JwtService · AccountWithdrawal*Service
+    ├── infra/       UserEntity · *TokenEntity · Jpa*Store
     ├── oauth/       OAuth2UserInfo(+3 어댑터) · CustomOAuth2UserService
     │                OAuth2SuccessHandler · OAuth2FailureHandler
     │                HttpCookieOAuth2AuthorizationRequestRepository
     ├── security/    JwtAuthenticationFilter · @CurrentUser
     │                RestAuthenticationEntryPoint · RestAccessDeniedHandler
-    ├── config/      SecurityConfig · AuthProperties
+    ├── apple/       client secret · code 교환/revoke · ID token 검증 · provider token 암호화
+    ├── config/      SecurityConfig · AuthProperties · AppleProperties
     └── controller/  AuthController
 ```
 
@@ -67,13 +68,20 @@ app/pickple/
 |---|---|---|---|
 | GET | `/oauth2/authorization/{google\|kakao\|naver}` | — | 소셜 로그인 시작 |
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
+| POST | `/api/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
 | GET | `/api/auth/me` | 필요 | 내 정보 |
 | POST | `/api/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
+| POST | `/api/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/api/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
+| DELETE | `/api/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
 
 **토큰 전달 규약**
-- 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
-- 리프레시 토큰 — **HttpOnly 쿠키만**. 본문에도 URL 에도 담지 않는다
+- 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
+- 웹 리프레시 토큰 — **HttpOnly 쿠키**. URL이나 본문에 담지 않는다
+- iOS 토큰 — HTTPS JSON으로 access/refresh를 받고 Keychain에 저장한다. URL·로그에 담지 않는다
+- iOS nonce — 로그인마다 안전한 새 `rawNonce`를 만든다. Apple 요청에는
+  `lowercase hex SHA-256(rawNonce)`를 넣고 `/api/auth/apple`에는 원문 `rawNonce`를 보낸다
+- 백엔드는 nonce를 발급·저장하지 않는다. 재전송 방어는 Apple authorization code의 일회성 교환에 의존한다
 
 ### 3.2 문서
 
@@ -88,7 +96,7 @@ app/pickple/
 
 ## 4. 스키마
 
-### 4.1 인증 2개
+### 4.1 인증 3개
 
 ```sql
 users(id, provider, provider_id, email, name, role, state, created_at, updated_at,
@@ -98,6 +106,10 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
       UNIQUE KEY uk_refresh_user (user_id),
       UNIQUE KEY uk_refresh_token_hash (token_hash),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
+
+apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token,
+      encryption_iv, encryption_key_id, created_at, updated_at,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
 ```
 
 ### 4.2 마이그레이션
@@ -105,6 +117,7 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 | 파일 | location | 로드 시점 |
 |---|---|---|
 | `V1__auth_tables.sql` | `db/migration` | 항상 |
+| `V2__apple_provider_tokens.sql` | `db/migration` | 항상 |
 
 ---
 
@@ -139,11 +152,25 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 ### 5.4 인증
 
 - 액세스 토큰은 클레임만으로 인가 판단. **요청마다 DB 를 조회하지 않는다**
-- 리프레시 토큰은 SHA-256 해시로 저장. 사용자당 한 행, 재발급 시 갱신
-- 해시 불일치 시 저장 토큰을 폐기하고 재로그인을 강제한다 (재사용 탐지)
+- 리프레시 토큰은 SHA-256 해시로 저장. 사용자당 한 행, 제출 해시를 조건으로 CAS 회전
+- 동시 회전의 패자나 옛 토큰은 401로 거부하되 현재 저장된 승자 token은 삭제하지 않는다
 - `typ` 클레임으로 액세스/리프레시를 구분해 혼용을 막는다
 - 리다이렉트 URI 는 호스트 화이트리스트 검증 (오픈 리다이렉트 방지)
-- 근거: [ADR-0006](adr/0006-auth-hardening.md)
+- Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
+- Apple client secret은 `.p8`로 ES256 서명하고, Apple ID token은 JWKS의 RS256 서명을 검증한다
+- Apple provider refresh token은 별도 AES-256-GCM keyring으로 암호화해 저장한다. 랜덤 12-byte IV와
+  사용자 ID·키 ID를 묶은 AAD를 사용하며 DB에는 평문을 저장하지 않는다
+- Apple code 교환 뒤 ID token 불일치나 로컬 로그인 완료가 실패하면, 새로 발급된 provider refresh token을
+  보상 revoke해 로컬에서 소유하지 않는 Apple 세션이 남지 않게 한다
+- Apple 회원 탈퇴는 provider refresh token으로 `/auth/revoke`에 성공한 뒤 로컬 계정을 비활성화하고
+  서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다. Apple 일시 장애 시 503으로 재시도한다.
+  token이 없는 기존 계정은 로컬 탈퇴 후 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+- 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
+- 회원 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 같은 트랜잭션에서 기록한다
+- authorization code·identity token·`.p8`·access/refresh token은 로그에 남기지 않는다
+- 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
+  [ADR-0016](adr/0016-refresh-token-rotation-cas.md)
+- 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md)
 
 ### 5.5 로깅
 
@@ -173,6 +200,9 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 | 미인증 · 토큰 오류 | `UNAUTHORIZED` / `INVALID_TOKEN` / `EXPIRED_TOKEN` | 401 |
 | 권한 없음 | `FORBIDDEN` | 403 |
 | 대상 없음 | `NOT_FOUND` | 404 |
+| Apple 키 미설정·Apple 서버 일시 장애 | `APPLE_LOGIN_UNAVAILABLE` | 503 |
+| Apple 회원 탈퇴 연결 해제 일시 장애 | `APPLE_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
+| Apple token 없는 기존 계정의 로컬 탈퇴 완료 | `APPLE_MANUAL_REVOCATION_REQUIRED` | 200 |
 | 그 외 | `SYSTEM_ERROR` | 500 |
 
 ---
@@ -216,3 +246,6 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 | 2026-08-15 | 아키텍처 규칙 "컨트롤러는 엔티티를 노출하지 않는다" 에 패키지 조건 추가 | 이름만으로 필터링해 Spring `ResponseEntity` 를 오검출 |
 | 2026-08-22 | `/llms.txt` · `/llms.md` 추가 | FE 가 API 계약을 LLM 프롬프트에 붙여넣을 표면이 없었음 |
 | 2026-08-22 | `OpenAPI` 빈으로 스펙 제목 지정 | 기본값 "OpenAPI definition" 이 그대로 노출되고 있었음 |
+| 2026-08-29 | Apple 네이티브 로그인과 모바일 JWT 회전 API 추가 | iOS Sign in with Apple 지원 |
+| 2026-08-30 | Apple provider RT 암호화 저장과 회원 탈퇴 시 revoke 추가 | 계정 삭제 시 Apple 연결 해제 필요 |
+| 2026-08-30 | refresh CAS·Apple 수동 해제 응답·보상 실패 관측 추가 | PR #12 리뷰 반영 |

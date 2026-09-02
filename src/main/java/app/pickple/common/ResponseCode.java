@@ -11,6 +11,9 @@ public enum ResponseCode {
     // 성공
     OK(HttpStatus.OK, "정상 처리되었습니다."),
     CREATED(HttpStatus.CREATED, "생성되었습니다."),
+    APPLE_MANUAL_REVOCATION_REQUIRED(
+            HttpStatus.OK,
+            "회원 탈퇴는 완료되었습니다. Apple 계정 설정에서 Pickple 연결을 직접 해제해 주세요."),
 
     // 요청 오류
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
@@ -24,6 +27,9 @@ public enum ResponseCode {
     EXPIRED_TOKEN(HttpStatus.UNAUTHORIZED, "만료된 토큰입니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
     OAUTH2_FAILED(HttpStatus.UNAUTHORIZED, "소셜 로그인에 실패했습니다."),
+    APPLE_LOGIN_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Apple 로그인을 현재 사용할 수 없습니다."),
+    APPLE_ACCOUNT_REVOCATION_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE, "Apple 계정 연결 해제를 완료할 수 없습니다. 잠시 후 다시 시도해 주세요."),
 
     // 서버
     SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "일시적인 오류가 발생했습니다.");

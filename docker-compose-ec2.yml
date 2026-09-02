@@ -70,6 +70,13 @@ services:
       OAUTH_KAKAO_CLIENT_SECRET: ${OAUTH_KAKAO_CLIENT_SECRET:-not-configured}
       OAUTH_NAVER_CLIENT_ID: ${OAUTH_NAVER_CLIENT_ID:-not-configured}
       OAUTH_NAVER_CLIENT_SECRET: ${OAUTH_NAVER_CLIENT_SECRET:-not-configured}
+      OAUTH_APPLE_ENABLED: ${OAUTH_APPLE_ENABLED:-false}
+      OAUTH_APPLE_TEAM_ID: ${OAUTH_APPLE_TEAM_ID:-not-configured}
+      OAUTH_APPLE_KEY_ID: ${OAUTH_APPLE_KEY_ID:-not-configured}
+      OAUTH_APPLE_CLIENT_ID: ${OAUTH_APPLE_CLIENT_ID:-not-configured}
+      OAUTH_APPLE_PRIVATE_KEY_BASE64: ${OAUTH_APPLE_PRIVATE_KEY_BASE64:-not-configured}
+      OAUTH_APPLE_TOKEN_ENCRYPTION_KEYS: ${OAUTH_APPLE_TOKEN_ENCRYPTION_KEYS:-not-configured}
+      OAUTH_APPLE_TOKEN_ACTIVE_KEY_ID: ${OAUTH_APPLE_TOKEN_ACTIVE_KEY_ID:-not-configured}
       # ── HTTPS 뒤에서 동작하기 위한 값 (ADR-0022). 비밀이 아니라 여기 리터럴로 둔다.
       # fetch-secrets.sh 에 넣지 않는 이유: 그 스크립트는 user_data 가 최초 부팅 때 한 번 써 놓는
       # 파일이라 템플릿을 고쳐도 떠 있는 인스턴스에 반영되지 않는다. 이 파일은 배포마다 SSM 으로
