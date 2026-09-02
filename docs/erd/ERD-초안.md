@@ -297,7 +297,7 @@ erDiagram
 
 논리 구조를 MySQL 8.4에 맞춘다. 핵심 질문은 **어떤 타입을 쓸 것인가**와 **어디에 인덱스를 걸 것인가**다.
 
-운영·개발 컨테이너 모두 `image: mysql:8.4`이므로(docker-compose-dev.yml / -prod.yml)
+운영·로컬 컨테이너 모두 `image: mysql:8.4`이므로(docker-compose-ec2.yml / -local.yml)
 `CHECK` 제약과 함수 인덱스를 전제할 수 있다.
 
 ### 5.1 타입 선택 원칙

@@ -2,6 +2,16 @@
 
 **상태**: Accepted
 
+> **§접속 경로**는 [ADR-0023](0023-external-db-ssh-access.md) 이 대체한다.
+>
+> **§compose 파일 구성**은 [ADR-0024](0024-local-run-environment.md) 가 대체한다.
+> 아래 본문이 언급하는 `docker-compose-prod.yml` 은 `docker-compose-dev.yml` 과
+> 바이트 단위로 동일한 사본이었고 CI 참조가 0 건이라 삭제됐다. 배포는
+> `docker-compose-ec2.yml` 로 일원화되고, 로컬은 `docker-compose-local.yml` 을 쓴다.
+> **본문은 당시 판단의 근거이므로 고치지 않는다.**
+>
+> 나머지 결정(단일 EC2 + docker-compose, 비용 판정, `/data` 볼륨 분리)은 그대로 유효하다.
+
 ## 맥락
 
 swyp 6기는 **6주 팀 프로젝트**다. 매출이 없고, 기간이 끝나면 인프라를 걷어낸다.

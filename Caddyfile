@@ -7,7 +7,7 @@
 #
 # SITE_ADDRESS 는 compose environment 로 들어온다.
 #   EC2  : dev-api.pickple.app  → 자동 HTTPS
-#   로컬 : :80                  → HTTP 만 (docker-compose-dev/prod 는 이 파일을 쓰지 않는다)
+#   로컬 : :80                  → HTTP 만 (docker-compose-local.yml 은 이 파일을 쓰지 않는다)
 #
 # ⚠️ 도메인 블록은 기동 즉시 ACME HTTP-01 을 시도한다. DNS 가 EIP 를 가리키기 전에 띄우면
 #    실패 검증이 Let's Encrypt 한도(같은 호스트 주 5회)를 태운다. terraform/README.md 순서를 지킨다.

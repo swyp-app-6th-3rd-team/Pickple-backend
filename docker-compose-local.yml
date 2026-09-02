@@ -1,0 +1,49 @@
+# 로컬 개발용 — MySQL 만 띄운다.
+#
+#   docker compose -f docker-compose-local.yml up -d
+#
+# 앱은 컨테이너로 띄우지 않고 IDE 나 `./gradlew bootRun` 으로 실행한다.
+# 그래서 app 서비스가 아예 없다 — `--profile app` 같은 플래그를 알 필요가 없다.
+#
+# 앱이 읽는 환경변수는 application-local.yml 의 `spring.config.import` 가
+# .env 에서 가져온다. 실행 방법은 README 의 "로컬 실행" 절 참조.
+#
+# 배포는 docker-compose-ec2.yml 이 담당한다.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: ${COMPOSE_PROJECT_NAME:-pickple}-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD 를 .env 에 설정하세요}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pickple}
+      MYSQL_USER: ${MYSQL_USER:-pickple}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD 를 .env 에 설정하세요}
+      TZ: ${TZ:-Asia/Seoul}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      # 초기 스키마와 JPA 엔티티가 모두 소문자 테이블명을 쓴다.
+      # 온프레미스 리눅스 호스트는 기본값이 0(대소문자 구분)이라 명시한다.
+      - --lower_case_table_names=0
+      # 시간 컬럼을 LocalDateTime 으로 다루므로 서버 타임존을 고정한다.
+      - --default-time-zone=+09:00
+      - --max_connections=200
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # 앱이 DB 준비 전에 떠서 Flyway 가 실패하는 것을 막는다.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  # name 을 고정해 compose 가 프로젝트명 접두어를 붙이지 않게 한다.
+  # 이름이 예측 가능해야 `docker volume inspect` 로 찾기 쉽고,
+  # `docker compose down` 후 다시 올려도 같은 볼륨을 재사용한다.
+  mysql_data:
+    name: ${COMPOSE_PROJECT_NAME:-pickple}_mysql_data

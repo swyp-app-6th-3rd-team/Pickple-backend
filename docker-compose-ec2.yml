@@ -1,7 +1,8 @@
-# EC2 (develop) 전용 compose.
+# EC2 (develop) 전용 compose. 현재 유일한 배포 파일이다(ADR-0024).
 #
-# docker-compose-prod.yml 을 오버레이(-f a -f b)로 재사용하지 않고 별도 파일로 둔다.
-# 이유:
+# 원래는 docker-compose-prod.yml 을 오버레이(-f a -f b)로 재사용하지 않고 별도 파일로 둔
+# 결정이었다(PRD-007). 그 prod 파일은 dev 와 바이트 단위로 동일한 사본이었고 CI 참조가
+# 0 건이라 ADR-0024 에서 삭제했다. 아래 이유는 완결형 파일을 유지하는 근거로 여전히 유효하다.
 #   1. 오버레이로 image: 만 얹으면 compose 는 build: 와 image: 가 둘 다 있는 것으로 보고
 #      "그 이름으로 빌드"한다. EC2 에서 Gradle 빌드가 돌아 2GB 인스턴스가 OOM 으로 죽는다.
 #      (build: !reset 으로 지울 수 있으나 compose 버전 의존성이 생긴다.)
