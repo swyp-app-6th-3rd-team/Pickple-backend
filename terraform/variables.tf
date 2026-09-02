@@ -115,14 +115,26 @@ variable "github_deploy_branch" {
   default     = "develop"
 }
 
+variable "github_owner_id" {
+  description = "GitHub 조직(owner) 의 숫자 ID. immutable sub claim 에 들어간다. `gh api orgs/<owner> --jq .id`"
+  type        = string
+  default     = "317244014"
+}
+
+variable "github_repository_id" {
+  description = "GitHub 저장소의 숫자 ID. immutable sub claim 에 들어간다. `gh api repos/<owner>/<repo> --jq .id`"
+  type        = string
+  default     = "1339691515"
+}
+
 variable "github_oidc_subject" {
   description = <<-EOT
-    OIDC trust policy 의 sub 조건. null 이면 표준 형식으로 자동 생성한다:
-      repo:<owner>/<repo>:ref:refs/heads/<branch>
+    OIDC trust policy 의 sub 조건. null 이면 immutable 형식으로 자동 생성한다:
+      repo:<owner>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/<branch>
 
-    ⚠️ GitHub 이 2026-06-18 부터 신규 저장소에 immutable subject claims 를 적용하고 있어
-    형식이 다를 수 있다. AssumeRole 이 실패하면 워크플로 로그의 실제 claim 을 보고
-    이 변수로 덮어쓴다(ADR-0013 "포기한 것" 참조).
+    2026-06-18 이후 신규 저장소는 이 형식만 온다(첫 배포에서 CloudTrail 로 실측, PRD-008).
+    저장소를 옮기거나 GitHub 이 형식을 또 바꾸면 CloudTrail 의 AssumeRoleWithWebIdentity
+    AccessDenied 이벤트에 찍힌 실제 sub 를 이 변수로 덮어쓴다.
   EOT
   type        = string
   default     = null

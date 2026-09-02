@@ -42,17 +42,17 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 | # | 판정 | 검증 방법 | 결과 |
 |---|---|---|---|
 | 1 | develop 인프라가 apply 됨 | `terraform output` 에 instance_id·ecr·role·secret_arn·route53_name_servers 출력 | ✅ 2026-09-02 31 리소스, output 12개. SSM PingStatus=Online, user-data 완료, `/data/{mysql,caddy}` 마운트 |
-| 2 | `https://dev-api.pickple.app` 이 유효한 인증서로 응답 | `curl -sI https://dev-api.pickple.app/actuator/health` 200, `openssl s_client` 로 issuer = Let's Encrypt | |
-| 3 | 443 이 열리고 80 이 443 으로 리다이렉트 | `curl -sI http://dev-api.pickple.app` → 308 + `Location: https://…` (`.app` 은 HSTS preload 라 브라우저로는 판정 불가) | |
-| 4 | develop push 시 자동 배포가 돈다 | 머지 후 Actions 실행 · 헬스 스텝 통과 · 배포 SHA 대조 | |
+| 2 | `https://dev-api.pickple.app` 이 유효한 인증서로 응답 | `curl -sI https://dev-api.pickple.app/actuator/health` 200, `openssl s_client` 로 issuer = Let's Encrypt | ✅ 2026-09-02 200, `ssl_verify=0`, issuer `Let's Encrypt CN=YE1`, notAfter 2026-12-01 |
+| 3 | 443 이 열리고 80 이 443 으로 리다이렉트 | `curl -sI http://dev-api.pickple.app` → 308 + `Location: https://…` (`.app` 은 HSTS preload 라 브라우저로는 판정 불가) | ✅ 308 → `https://dev-api.pickple.app/actuator/health` |
+| 4 | develop push 시 자동 배포가 돈다 | 머지 후 Actions 실행 · 헬스 스텝 통과 · 배포 SHA 대조 | ✅ PR #42 머지 → run 33592400889. attempt 1 은 OIDC AccessDenied(아래 "발견한 문제"), trust policy 교정 후 attempt 2 success. 컨테이너 이미지 `pickple:develop-33592400889` = `.env` IMAGE_TAG, head 2a8e580 |
 | 5 | 워크플로에 `secrets.*` 참조 0건 | `grep -c '\${{ secrets\.' .github/workflows/deploy-develop.yml` → 0 (이슈 #36 의 `grep "secrets\."` 는 주석과 `fetch-secrets.sh` 경로에 걸려 2 가 나온다 — 측정식을 표현식 문법으로 좁혔다) | ✅ 0건 |
 | 6 | 롤백이 동작 | 2회째 배포 후 `workflow_dispatch` 에 이전 태그 → `docker inspect pickple-app` 이미지 태그 | |
-| 7 | OAuth 인가 요청의 redirect_uri 가 https | `curl -sI https://dev-api.pickple.app/oauth2/authorization/kakao` → `Location` 안 `redirect_uri=https%3A%2F%2Fdev-api.pickple.app…` | |
-| 8 | 클라이언트 `X-Forwarded-Proto` 스푸핑이 막힘 | 위 요청에 `-H "X-Forwarded-Proto: http"` 를 얹어도 결과 동일 | |
-| 9 | 외부 포트가 80·443 만 열림 | `nc -zv <EIP> 22 3306 8080 9090` 전부 실패, `/actuator/info` 404 | |
-| 10 | 인증서가 영속 EBS 에 있다 | SSM 에서 `ls /data/caddy/caddy/certificates/` 존재 | |
+| 7 | OAuth 인가 요청의 redirect_uri 가 https | `curl -sI https://dev-api.pickple.app/oauth2/authorization/kakao` → `Location` 안 `redirect_uri=https%3A%2F%2Fdev-api.pickple.app…` | ✅ 302 → kauth.kakao.com, `redirect_uri=https://dev-api.pickple.app/login/oauth2/code/kakao` |
+| 8 | 클라이언트 `X-Forwarded-Proto` 스푸핑이 막힘 | 위 요청에 `-H "X-Forwarded-Proto: http"` 를 얹어도 결과 동일 | ✅ `X-Forwarded-Proto: http` + `X-Forwarded-Host: evil.example` 를 얹어도 redirect_uri 는 `https://dev-api.pickple.app/…` — Caddy 가 클라이언트 헤더를 덮어쓴다 |
+| 9 | 외부 포트가 80·443 만 열림 | `nc -zv <EIP> 22 3306 8080 9090` 전부 실패, `/actuator/info` 404 | ✅ 22·3306·8080·9090 closed, 80·443 open. `/actuator/info`·`/actuator/env` 404. 문서 4종(scalar·swagger·api-docs·llms.txt) 200 |
+| 10 | 인증서가 영속 EBS 에 있다 | SSM 에서 `ls /data/caddy/caddy/certificates/` 존재 | ✅ `/data/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dev-api.pickple.app/` (데이터 EBS, 315MB 사용) |
 | 11 | 비밀 동기화가 멱등 | `sync-secrets.sh` 재실행 시 "변경 없음", 원격 JSON 에 `CHANGE_ME` 0건, MySQL 패스워드 불변 | ✅ 2026-09-02 1회 put(VersionId 1개) 뒤 재실행 "변경 없음", `CHANGE_ME` 0건. mysql_* 출처 generated→remote |
-| 12 | 2GB 안에서 메모리가 버틴다 | `docker stats --no-stream` (Caddy TLS 추가분 포함) | |
+| 12 | 2GB 안에서 메모리가 버틴다 | `docker stats --no-stream` (Caddy TLS 추가분 포함) | ✅ app 479MiB(40%) · mysql 481MiB(69%) · caddy 25MiB(20%), host available 468MB. PRD-007 실측(495MB)과 동급 |
 | 13 | 비용이 추정 범위 안 | Budgets $35 의 50% 알림 미도달 + 1주 후 Cost Explorer ≈ $22.5/월 환산 | |
 
 ## 열린 질문
@@ -75,3 +75,4 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 | 이슈 #36 의 "ACM" | ACM 은 EC2 에 배포 불가 | Caddy Let's Encrypt 로 교정(ADR-0022) |
 | 원격 조회 실패가 "값 없음" 으로 오인돼 MySQL 패스워드가 재생성될 수 있다 (Codex 이종 리뷰) | `get-secret-value` 실패를 `{}` 로 삼켰다. 잘못된 프로필·권한 오류 하나로 초기화된 MySQL 과 어긋난다 | fail-closed: 조회 실패 시 아무것도 쓰지 않고 종료. stub 케이스 6(AccessDenied → put 0회) 추가 |
 | `extra_records` 가 apex CNAME 을 받아 apply 가 중간에 죽는다 (Codex 이종 리뷰) | Route53 은 zone apex 의 CNAME 을 거부하는데 변수에 제약이 없었다 | variable validation 으로 plan 단계에서 거부. apex A + www CNAME 은 통과 확인(plan 33 add) |
+| 첫 배포에서 OIDC AssumeRole 이 AccessDenied 로 12회 재시도 후 실패 | GitHub 이 2026-06-18 이후 신규 저장소에 **immutable sub claim** 을 보낸다: `repo:<owner>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/<branch>`. trust policy 는 옛 형식(`repo:<owner>/<repo>:ref:…`)이었다. PRD-007 열린 질문이 이렇게 닫혔다 | CloudTrail `AssumeRoleWithWebIdentity` AccessDenied 이벤트의 `userName` 에 실제 sub 가 찍힌다 — 워크플로 로그엔 안 나온다. `locals.github_oidc_subject` 를 immutable 형식으로 바꾸고 `github_owner_id`·`github_repository_id` 변수 추가. apply 1 change 뒤 재실행 |
