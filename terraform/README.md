@@ -259,11 +259,47 @@ aws ssm start-session --target "$(terraform output -raw instance_id)" \
 
 ### MySQL 접속
 
-3306 은 외부에 열려 있지 않다. SSM 으로 들어가 컨테이너에서 붙는다.
+호스트 **13307** → 컨테이너 3306 으로 매핑되어 외부에 열려 있다(ADR-0023).
+GUI 툴(DataGrip 등)은 아래 정보로 붙는다.
+
+```
+Host: 54.116.14.198   (= dev-api.pickple.app, EIP 라 replace 후에도 그대로)
+Port: 13307
+User: pickple         ← root 는 원격 접속이 막혀 있다
+```
+
+```bash
+mysql -h 54.116.14.198 -P 13307 -u pickple -p pickple
+```
+
+⚠️ **DB 가 인터넷에 노출되어 있다.** 방어선은 계정 비밀번호뿐이다.
+닫으려면 `terraform.tfvars` 의 `mysql_allowed_cidr` 를 지우고 apply 한다(인스턴스 replace 없음).
+
+실패 로그인을 확인하려면:
+
+```bash
+sudo docker logs pickple-mysql 2>&1 | grep -i "access denied" | tail -20
+```
+
+컨테이너 안에서 직접 붙는 기존 방법도 그대로 쓸 수 있다.
 
 ```bash
 sudo docker exec -it pickple-mysql mysql -u root -p
 ```
+
+### SSH 접속
+
+포트는 **124** 다(22 아님, ADR-0023). 개인키는 발급 시 1회만 반환되므로 로컬에 보관한다.
+
+```bash
+ssh -i ~/.ssh/pickple-dev.pem -p 124 ec2-user@54.116.14.198
+```
+
+키를 잃어버렸다면 키페어를 새로 발급하고 `ssh_public_key` 를 갱신해야 하며,
+`key_name` 이 바뀌면 **인스턴스가 replace 된다**. 그 경우 SSM 으로 들어가
+`authorized_keys` 에 새 공개키를 넣는 편이 빠르다.
+
+SSH 가 안 되면 SSM 이 복구 경로다(아래 §접속 참조).
 
 ### 롤백
 

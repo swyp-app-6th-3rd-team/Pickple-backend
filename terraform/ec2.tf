@@ -25,9 +25,31 @@ resource "aws_ebs_volume" "data" {
   }
 }
 
+# SSH 키페어. 개인키는 AWS 가 생성 시 1회만 반환하므로 로컬 ~/.ssh/pickple-dev.pem 에 보관한다
+# (저장소에는 절대 넣지 않는다). AWS 콘솔/CLI 로 먼저 만든 뒤 terraform import 로 상태에 편입했다.
+resource "aws_key_pair" "dev" {
+  key_name = local.name_prefix
+
+  # ed25519 공개키. 개인키 분실 시 이 리소스를 지우고 새로 발급해야 하며,
+  # key_name 이 바뀌면 인스턴스가 replace 된다.
+  public_key = var.ssh_public_key
+
+  tags = { Name = "${local.name_prefix}" }
+
+  lifecycle {
+    # 공개키 문자열의 주석부(끝의 host 표기)가 달라도 replace 하지 않는다.
+    ignore_changes = [public_key]
+  }
+}
+
 resource "aws_instance" "app" {
   ami           = data.aws_ssm_parameter.al2023.value
   instance_type = var.instance_type
+
+  # ⚠️ key_name 은 launch 시점에만 설정된다 — 값이 바뀌면 인스턴스가 **replace** 된다.
+  #    /data 는 별도 EBS(prevent_destroy)라 보존되고, EIP 도 자동 재연결된다.
+  #    다만 인스턴스 ID 가 바뀌므로 GitHub vars.EC2_INSTANCE_ID 를 갱신해야 한다(ADR-0023).
+  key_name = aws_key_pair.dev.key_name
 
   subnet_id              = aws_subnet.public[0].id
   vpc_security_group_ids = [aws_security_group.app.id]
@@ -47,6 +69,7 @@ resource "aws_instance" "app" {
     data_device_name = local.data_device_name
     data_mount_point = local.data_mount_point
     data_volume_id   = aws_ebs_volume.data.id
+    ssh_port         = var.ssh_port
     app_dir          = local.app_dir
 
     fetch_secrets_script = templatefile("${path.module}/templates/fetch-secrets.sh.tftpl", {

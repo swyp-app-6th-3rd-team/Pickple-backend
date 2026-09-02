@@ -60,14 +60,22 @@ resource "aws_route_table_association" "public" {
 
 # ── Security Group ─────────────────────────────────────────
 #
-# ingress 는 80 하나뿐이다. 의도적으로 빠진 것들:
+# 상시 개방은 80·443 둘뿐이다.
 #
-#   8080 (앱)   Caddy 가 compose 내부 네트워크로 프록시한다. 외부에 열 이유가 없다.
-#   3306 (DB)   compose 내부 전용. ports 매핑조차 하지 않는다.
-#   22   (SSH)  SSM Session Manager 로 대체했다(ADR-0012).
+#   8080 (앱)   여전히 닫혀 있다. Caddy 가 compose 내부 네트워크로 프록시한다.
 #
 # 443 은 Caddy 가 Let's Encrypt 로 종단한다(ADR-0022). 80 은 ACME HTTP-01 과
 # 80→443 리다이렉트를 위해 계속 연다.
+#
+# 아래 둘은 변수를 지정했을 때만 생성된다(기본 null = 규칙 없음). ADR-0023 에서
+# ADR-0012 의 "SSH 를 열지 않는다" 결정을 이 두 경로에 한해 대체했다.
+#
+#   var.ssh_port        (기본 22, 운영은 124)    var.ssh_allowed_cidr 지정 시
+#   var.mysql_host_port (기본 13307 → 컨테이너 3306) var.mysql_allowed_cidr 지정 시
+#
+# ⚠️ MySQL 을 열면 DB 가 인터넷에 노출된다. 방어선은 계정 비밀번호뿐이므로
+#    remote root 를 막고 앱 계정으로만 붙는다. 되돌리려면 변수를 null 로 두고 apply 한다
+#    (규칙이 count=0 으로 사라진다 — 인스턴스 replace 없음).
 resource "aws_security_group" "app" {
   name        = "${local.name_prefix}-app"
   description = "Pickple application host"
@@ -117,10 +125,23 @@ resource "aws_vpc_security_group_ingress_rule" "ssh" {
   count = var.ssh_allowed_cidr == null ? 0 : 1
 
   security_group_id = aws_security_group.app.id
-  description       = "SSH (emergency only - prefer SSM)"
+  description       = "SSH"
   cidr_ipv4         = var.ssh_allowed_cidr
-  from_port         = 22
-  to_port           = 22
+  from_port         = var.ssh_port
+  to_port           = var.ssh_port
+  ip_protocol       = "tcp"
+}
+
+# MySQL. 컨테이너 3306 을 호스트 var.mysql_host_port 로 매핑한 것을 연다
+# (docker-compose-ec2.yml 의 ports 와 값이 같아야 한다).
+resource "aws_vpc_security_group_ingress_rule" "mysql" {
+  count = var.mysql_allowed_cidr == null ? 0 : 1
+
+  security_group_id = aws_security_group.app.id
+  description       = "MySQL (external client access)"
+  cidr_ipv4         = var.mysql_allowed_cidr
+  from_port         = var.mysql_host_port
+  to_port           = var.mysql_host_port
   ip_protocol       = "tcp"
 }
 
