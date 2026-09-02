@@ -115,6 +115,17 @@ class JwtServiceTest {
                 .hasMessageContaining("32바이트 이상");
     }
 
+    @DisplayName("설정 문자열에 JWT secret을 노출하지 않는다")
+    @Test
+    void redactsSecretFromConfigurationString() {
+        AuthProperties.Jwt properties = new AuthProperties.Jwt(
+                SECRET, Duration.ofMinutes(30), Duration.ofDays(14), "test-issuer");
+
+        assertThat(properties.toString())
+                .contains("secretKey=redacted")
+                .doesNotContain(SECRET);
+    }
+
     @DisplayName("같은 토큰은 같은 해시를 낸다")
     @Test
     void hashIsDeterministic() {

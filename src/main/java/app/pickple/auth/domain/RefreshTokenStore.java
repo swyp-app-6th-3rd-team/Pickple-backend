@@ -14,6 +14,15 @@ public interface RefreshTokenStore {
     /** 사용자당 한 행을 유지한다. 이미 있으면 교체한다. */
     void store(Long userId, String tokenHash, LocalDateTime expiresAt);
 
+    /**
+     * 저장된 해시가 제출된 해시와 같을 때만 새 토큰으로 회전한다.
+     * 동시 요청 중 먼저 성공한 한 건만 {@code true}를 받는다.
+     */
+    boolean rotateIfMatches(Long userId,
+                            String expectedTokenHash,
+                            String newTokenHash,
+                            LocalDateTime newExpiresAt);
+
     Optional<StoredRefreshToken> findByUserId(Long userId);
 
     void deleteByUserId(Long userId);
