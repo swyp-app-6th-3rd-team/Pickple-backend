@@ -41,7 +41,7 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 
 | # | 판정 | 검증 방법 | 결과 |
 |---|---|---|---|
-| 1 | develop 인프라가 apply 됨 | `terraform output` 에 instance_id·ecr·role·secret_arn·route53_name_servers 출력 | |
+| 1 | develop 인프라가 apply 됨 | `terraform output` 에 instance_id·ecr·role·secret_arn·route53_name_servers 출력 | ✅ 2026-09-02 31 리소스, output 12개. SSM PingStatus=Online, user-data 완료, `/data/{mysql,caddy}` 마운트 |
 | 2 | `https://dev-api.pickple.app` 이 유효한 인증서로 응답 | `curl -sI https://dev-api.pickple.app/actuator/health` 200, `openssl s_client` 로 issuer = Let's Encrypt | |
 | 3 | 443 이 열리고 80 이 443 으로 리다이렉트 | `curl -sI http://dev-api.pickple.app` → 308 + `Location: https://…` (`.app` 은 HSTS preload 라 브라우저로는 판정 불가) | |
 | 4 | develop push 시 자동 배포가 돈다 | 머지 후 Actions 실행 · 헬스 스텝 통과 · 배포 SHA 대조 | |
@@ -51,7 +51,7 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 | 8 | 클라이언트 `X-Forwarded-Proto` 스푸핑이 막힘 | 위 요청에 `-H "X-Forwarded-Proto: http"` 를 얹어도 결과 동일 | |
 | 9 | 외부 포트가 80·443 만 열림 | `nc -zv <EIP> 22 3306 8080 9090` 전부 실패, `/actuator/info` 404 | |
 | 10 | 인증서가 영속 EBS 에 있다 | SSM 에서 `ls /data/caddy/caddy/certificates/` 존재 | |
-| 11 | 비밀 동기화가 멱등 | `sync-secrets.sh` 재실행 시 "변경 없음", 원격 JSON 에 `CHANGE_ME` 0건, MySQL 패스워드 불변 | |
+| 11 | 비밀 동기화가 멱등 | `sync-secrets.sh` 재실행 시 "변경 없음", 원격 JSON 에 `CHANGE_ME` 0건, MySQL 패스워드 불변 | ✅ 2026-09-02 1회 put(VersionId 1개) 뒤 재실행 "변경 없음", `CHANGE_ME` 0건. mysql_* 출처 generated→remote |
 | 12 | 2GB 안에서 메모리가 버틴다 | `docker stats --no-stream` (Caddy TLS 추가분 포함) | |
 | 13 | 비용이 추정 범위 안 | Budgets $35 의 50% 알림 미도달 + 1주 후 Cost Explorer ≈ $22.5/월 환산 | |
 
