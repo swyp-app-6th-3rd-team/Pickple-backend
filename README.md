@@ -25,10 +25,15 @@ Apple 로그인을 쓰지 않는다면 `OAUTH_APPLE_ENABLED=false` 로 둔다.
 ### 2. MySQL 기동
 
 ```bash
-docker compose -f docker/docker-compose-local.yml up -d
+docker compose --env-file .env -f docker/docker-compose-local.yml up -d
 ```
 
 앱은 컨테이너로 띄우지 않는다. DB 만 컨테이너, 앱은 IDE 나 Gradle 로 실행한다.
+
+> `--env-file .env` 를 빼면 `MYSQL_PASSWORD ... missing a value` 로 실패한다.
+> Compose 는 변수 보간용 `.env` 를 **실행 위치가 아니라 compose 파일과 같은 디렉터리**에서
+> 찾는데, compose 파일은 `docker/` 에 있고 `.env` 는 루트에 있기 때문이다.
+> Spring 의 `spring.config.import` 는 작업 디렉터리 기준이라 이 플래그가 필요 없다.
 
 ### 3. 애플리케이션 실행
 
@@ -64,7 +69,8 @@ spring:
 | `JWT_SECRET_KEY 는 32바이트 이상이어야 합니다` | 값이 짧거나 **아예 없다**. 두 경우가 같은 메시지다 |
 | `Client id of registration must not be empty` | `.env` 에 `OAUTH_..._CLIENT_ID=` 처럼 **빈 값**이 있다. 기본값은 변수가 미정의일 때만 발동한다 |
 | Apple 관련 기동 실패 | `OAUTH_APPLE_ENABLED=true` 인데 6개 값이 덜 찼다 |
-| Flyway checksum mismatch | 오래된 컨테이너다. `docker compose -f docker/docker-compose-local.yml down -v` 후 재기동 |
+| `MYSQL_PASSWORD ... missing a value` | compose 명령에 `--env-file .env` 가 빠졌다 |
+| Flyway checksum mismatch | 오래된 컨테이너다. `docker compose --env-file .env -f docker/docker-compose-local.yml down -v` 후 재기동 |
 
 ## 배포
 
