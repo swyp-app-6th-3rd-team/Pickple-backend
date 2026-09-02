@@ -2,6 +2,21 @@
 #   SPRING_PROFILES_ACTIVE=local
 
 spring:
+  config:
+    # .env 를 프로퍼티 소스로 읽는다.
+    #
+    # .env 는 표준이 아니라 관례다. JVM 도 Spring Boot 도 .env 라는 개념이 없고,
+    # 그 파일을 읽어 프로세스 환경에 넣어주는 주체는 Docker Compose 뿐이다.
+    # 그래서 이 줄이 없으면 IDE 실행과 `./gradlew bootRun` 양쪽에서
+    # application.yml 의 ${JWT_SECRET_KEY} 가 해석되지 않아 기동이 실패한다.
+    #
+    # optional: — .env 가 없는 CI·EC2 에서도 기동을 막지 않는다.
+    # [.properties] — 확장자 없는 파일의 타입 힌트. .env 는 이미 key=value 형식이다.
+    #
+    # 임포트된 값은 JWT_SECRET_KEY 라는 이름 그대로 등록되므로
+    # application.yml 의 기존 플레이스홀더를 고칠 필요가 없다.
+    import: "optional:file:.env[.properties]"
+
   flyway:
     locations:
       - classpath:db/migration
