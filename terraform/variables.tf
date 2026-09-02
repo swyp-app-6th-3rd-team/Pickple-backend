@@ -115,14 +115,26 @@ variable "github_deploy_branch" {
   default     = "develop"
 }
 
+variable "github_owner_id" {
+  description = "GitHub 조직(owner) 의 숫자 ID. immutable sub claim 에 들어간다. `gh api orgs/<owner> --jq .id`"
+  type        = string
+  default     = "317244014"
+}
+
+variable "github_repository_id" {
+  description = "GitHub 저장소의 숫자 ID. immutable sub claim 에 들어간다. `gh api repos/<owner>/<repo> --jq .id`"
+  type        = string
+  default     = "1339691515"
+}
+
 variable "github_oidc_subject" {
   description = <<-EOT
-    OIDC trust policy 의 sub 조건. null 이면 표준 형식으로 자동 생성한다:
-      repo:<owner>/<repo>:ref:refs/heads/<branch>
+    OIDC trust policy 의 sub 조건. null 이면 immutable 형식으로 자동 생성한다:
+      repo:<owner>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/<branch>
 
-    ⚠️ GitHub 이 2026-06-18 부터 신규 저장소에 immutable subject claims 를 적용하고 있어
-    형식이 다를 수 있다. AssumeRole 이 실패하면 워크플로 로그의 실제 claim 을 보고
-    이 변수로 덮어쓴다(ADR-0013 "포기한 것" 참조).
+    2026-06-18 이후 신규 저장소는 이 형식만 온다(첫 배포에서 CloudTrail 로 실측, PRD-008).
+    저장소를 옮기거나 GitHub 이 형식을 또 바꾸면 CloudTrail 의 AssumeRoleWithWebIdentity
+    AccessDenied 이벤트에 찍힌 실제 sub 를 이 변수로 덮어쓴다.
   EOT
   type        = string
   default     = null
@@ -132,6 +144,46 @@ variable "ecr_keep_image_count" {
   description = "ECR lifecycle policy 가 유지할 이미지 개수. 빌드마다 불변 태그가 쌓이므로 정리가 필요하다"
   type        = number
   default     = 10
+}
+
+# ── 도메인 (ADR-0022) ───────────────────────────────────────
+
+variable "domain_name" {
+  description = "Route53 hosted zone 으로 관리할 도메인. Gabia 에서 네임서버만 이쪽으로 위임한다"
+  type        = string
+  default     = "pickple.app"
+}
+
+variable "api_subdomain" {
+  description = "백엔드 develop 서버의 서브도메인. apex 는 프론트 몫으로 비워 둔다"
+  type        = string
+  default     = "dev-api"
+}
+
+variable "extra_records" {
+  description = <<-EOT
+    프론트 등 다른 팀의 DNS 레코드. 키는 서브도메인("@" 는 apex), 값은 type/ttl/records.
+    NS 가 Route53 으로 넘어오면 apex·www 도 여기서 관리해야 하므로 tfvars 한 줄로 받는다.
+      extra_records = {
+        "@"   = { type = "A",     ttl = 300, records = ["76.76.21.21"] }
+        "www" = { type = "CNAME", ttl = 300, records = ["cname.vercel-dns.com"] }
+      }
+  EOT
+  type = map(object({
+    type    = string
+    ttl     = optional(number, 300)
+    records = list(string)
+  }))
+  default = {}
+
+  # Route53 은 zone apex 의 CNAME 을 거부한다. apply 가 중간에 죽지 않게 plan 에서 막는다.
+  # Vercel 류는 apex 에 A 레코드(76.76.21.21 등)를 안내한다.
+  validation {
+    condition = alltrue([
+      for k, v in var.extra_records : !(k == "@" && upper(v.type) == "CNAME")
+    ])
+    error_message = "apex(\"@\") 에는 CNAME 을 둘 수 없습니다. A/AAAA 를 쓰거나 서브도메인으로 옮기십시오."
+  }
 }
 
 # ── 상태 저장소 ─────────────────────────────────────────────

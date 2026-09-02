@@ -22,10 +22,25 @@
 # github_repository    = "swyp-app-6th-3rd-team/Pickple-backend"
 # github_deploy_branch = "develop"
 
-# OIDC AssumeRole 이 실패하면 워크플로 로그에 찍힌 실제 sub claim 을 여기에 넣는다.
-# (GitHub 이 2026-06-18 부터 신규 저장소에 immutable subject claims 를 적용 중)
-# github_oidc_subject = "repo:swyp-app-6th-3rd-team/Pickple-backend:ref:refs/heads/develop"
+# OIDC sub 는 immutable 형식으로 자동 생성된다 (locals.tf). 저장소를 옮기면 ID 둘을 바꾼다.
+#   gh api repos/<owner>/<repo> --jq '.owner.id, .id'
+# github_owner_id      = "317244014"
+# github_repository_id = "1339691515"
+#
+# GitHub 이 형식을 또 바꾸면 CloudTrail 의 AssumeRoleWithWebIdentity AccessDenied 이벤트에
+# 찍힌 실제 sub 를 그대로 넣는다(워크플로 로그에는 안 나온다).
+# github_oidc_subject = "repo:swyp-app-6th-3rd-team@317244014/Pickple-backend@1339691515:ref:refs/heads/develop"
 
 # ── 비상용 ──────────────────────────────────────────────────
 # 평소에는 비워둔다. SSM 이 동작하지 않을 때만 임시로 자기 IP 를 넣는다.
 # ssh_allowed_cidr = "203.0.113.10/32"
+
+# ── 도메인 ───────────────────────────────────────
+# domain_name   = "pickple.app"
+# api_subdomain = "dev-api"          # → dev-api.pickple.app
+#
+# 프론트 레코드. NS 가 Route53 으로 넘어오면 apex·www 도 여기서 받는다.
+# extra_records = {
+#   "@"   = { type = "A",     ttl = 300, records = ["76.76.21.21"] }
+#   "www" = { type = "CNAME", ttl = 300, records = ["cname.vercel-dns.com"] }
+# }

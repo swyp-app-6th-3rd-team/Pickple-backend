@@ -110,6 +110,12 @@ app:
       # CloudFront 등 안정적인 공개 URL의 base. 비면 SDK가 S3 객체 URL을 만든다.
       public-base-url: ${IMAGE_PUBLIC_BASE_URL:}
 
+server:
+  # 리버스 프록시(Caddy) 뒤에서 X-Forwarded-Proto 로 scheme 을 복원한다. 없으면 OAuth 의
+  # {baseUrl} 이 http:// 로 만들어져 redirect_uri_mismatch 가 난다(ADR-0022).
+  # framework 는 헤더를 무조건 신뢰하므로 앱 포트가 프록시 뒤에만 있을 때 켠다. 로컬 기본 none.
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:none}
+
 management:
   # 관리 엔드포인트를 **서비스 포트와 분리**한다.
   #

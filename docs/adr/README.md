@@ -26,3 +26,4 @@
 | [0019](0019-policy-belongs-above-infrastructure.md) | 정책 판단을 인프라에서 걷어낸다 | Accepted |
 | [0020](0020-onepick-uniqueness-scope.md) | 원픽의 유일성 범위는 게시글이다 | Accepted |
 | [0021](0021-s3-image-object-storage.md) | 이미지 객체는 S3에 저장한다 | Accepted |
+| [0022](0022-route53-and-caddy-tls.md) | 도메인은 Route53 이 관리하고 TLS 는 Caddy 가 종단한다 | Accepted |
