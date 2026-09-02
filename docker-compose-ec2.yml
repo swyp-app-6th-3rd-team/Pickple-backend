@@ -70,6 +70,18 @@ services:
       OAUTH_KAKAO_CLIENT_SECRET: ${OAUTH_KAKAO_CLIENT_SECRET:-not-configured}
       OAUTH_NAVER_CLIENT_ID: ${OAUTH_NAVER_CLIENT_ID:-not-configured}
       OAUTH_NAVER_CLIENT_SECRET: ${OAUTH_NAVER_CLIENT_SECRET:-not-configured}
+      # ── HTTPS 뒤에서 동작하기 위한 값 (ADR-0022). 비밀이 아니라 여기 리터럴로 둔다.
+      # fetch-secrets.sh 에 넣지 않는 이유: 그 스크립트는 user_data 가 최초 부팅 때 한 번 써 놓는
+      # 파일이라 템플릿을 고쳐도 떠 있는 인스턴스에 반영되지 않는다. 이 파일은 배포마다 SSM 으로
+      # 다시 실리므로 값 변경 = PR + 배포로 끝난다.
+      # Caddy 가 TLS 를 벗기고 평문으로 넘기므로 X-Forwarded-Proto 를 신뢰해야 OAuth {baseUrl} 이
+      # https 가 된다. 8080 은 compose 네트워크 안에만 있고 SG 에도 없어 Caddy 가 유일한 입구다.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      AUTH_COOKIE_SECURE: "true"
+      # 프론트 배포 URL 이 정해지면 아래 세 기본값을 바꾼다(PRD-008 열린 질문).
+      AUTH_REDIRECT_URI: ${AUTH_REDIRECT_URI:-http://localhost:3000/oauth/callback}
+      AUTH_ALLOWED_REDIRECT_HOSTS: ${AUTH_ALLOWED_REDIRECT_HOSTS:-localhost}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       TZ: ${TZ:-Asia/Seoul}
       LOG_DIR: /app/logs
       LOG_MAX_HISTORY: ${LOG_MAX_HISTORY:-14}
@@ -94,18 +106,24 @@ services:
     restart: unless-stopped
     depends_on:
       - app
+    environment:
+      # 사이트 주소. 도메인이면 Caddy 가 Let's Encrypt 로 자동 HTTPS (ADR-0022).
+      SITE_ADDRESS: ${SITE_ADDRESS:-dev-api.pickple.app}
     ports:
+      # 80 은 ACME HTTP-01 과 80→443 리다이렉트. 443/udp 는 HTTP/3.
       - "80:80"
+      - "443:443"
+      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
+      # 인증서·ACME 계정은 영속 EBS(/data)에 둔다. 루트 볼륨의 named volume 에 두면
+      # 인스턴스 교체마다 재발급되고 Let's Encrypt 는 같은 호스트에 주 5회까지만 내준다.
+      - /data/caddy:/data
       - caddy_config:/config
     mem_limit: 128m
 
 volumes:
   app_log:
     name: ${COMPOSE_PROJECT_NAME:-pickple}-log
-  caddy_data:
-    name: ${COMPOSE_PROJECT_NAME:-pickple}-caddy-data
   caddy_config:
     name: ${COMPOSE_PROJECT_NAME:-pickple}-caddy-config
