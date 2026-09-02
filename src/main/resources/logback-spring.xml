@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  로그 파일을 레벨별 디렉터리로 나눠 남긴다.
+  로그를 레벨 구분 없이 한 파일에 시간순으로 남긴다.
 
-      ${LOG_DIR}/error/error-2026-08-15.log
-      ${LOG_DIR}/warn/warn-2026-08-15.log
-      ${LOG_DIR}/info/info-2026-08-15.log
+      ${LOG_DIR}/app.log              현재 파일
+      ${LOG_DIR}/app-2026-08-15.0.log 롤링된 파일
+
+  레벨로 파일을 나누지 않는 이유: 아래 FILE_LOG_PATTERN 이 각 줄에 시각과 레벨을
+  찍으므로 `grep ERROR` 로 걸러낼 수 있고, 한 요청의 흐름을 볼 때 파일을 오갈 필요가 없다.
+  예전에는 error/ warn/ info/ 로 나눴으나, info 가 ThresholdFilter 로 INFO 이상을
+  전부 담아 ERROR 한 줄이 두 파일에 중복 저장됐다.
+  근거: docs/adr/0025-single-log-file.md (ADR-0009 의 레벨 분리를 대체)
 
   이 디렉터리를 도커 볼륨에 마운트해 컨테이너가 삭제돼도 로그가 남게 한다.
   근거: docs/adr/0009-log-persistence.md
@@ -59,62 +64,13 @@
     </appender>
 
     <!--
-      레벨별 appender.
-      LevelFilter 로 "그 레벨만" 남긴다(ThresholdFilter 가 아니다) —
-      error 파일에 warn·info 가 섞이면 장애 시 찾는 의미가 없다.
+      파일 appender 하나로 전부 받는다.
+      레벨 필터를 두지 않으므로 root level 이 무엇을 남길지 정하는 유일한 기준이다.
     -->
-    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <filter class="ch.qos.logback.classic.filter.LevelFilter">
-            <level>ERROR</level>
-            <onMatch>ACCEPT</onMatch>
-            <onMismatch>DENY</onMismatch>
-        </filter>
-        <file>${LOG_DIR}/error/error.log</file>
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/app.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_DIR}/error/error-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
-            <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
-        <encoder>
-            <pattern>${FILE_LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
-
-    <appender name="WARN_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <filter class="ch.qos.logback.classic.filter.LevelFilter">
-            <level>WARN</level>
-            <onMatch>ACCEPT</onMatch>
-            <onMismatch>DENY</onMismatch>
-        </filter>
-        <file>${LOG_DIR}/warn/warn.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_DIR}/warn/warn-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
-            <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
-        <encoder>
-            <pattern>${FILE_LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
-
-    <!--
-      info 는 LevelFilter 를 쓰지 않는다. INFO 만 남기면 그 요청이 어떻게 흘러가다
-      경고를 만났는지 추적할 수 없다. ThresholdFilter 로 INFO 이상을 전부 담아
-      "전체 흐름"을 보는 파일로 쓴다.
-    -->
-    <appender name="INFO_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>INFO</level>
-        </filter>
-        <file>${LOG_DIR}/info/info.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_DIR}/info/info-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <fileNamePattern>${LOG_DIR}/app-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
             <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
             <maxHistory>${MAX_HISTORY}</maxHistory>
             <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
@@ -131,24 +87,15 @@
       queueSize 를 넘으면 기본 동작은 WARN 이하를 버리는 것이므로
       discardingThreshold=0 으로 아무것도 버리지 않게 한다 — 장애 조사용 로그를
       정작 장애 때 잃으면 의미가 없다.
+
+      includeCallerData 는 ERROR 스택의 호출 위치를 남기기 위해 켠다.
+      예전에는 ERROR appender 에만 켰는데, 이제 이 appender 가 ERROR 도 담는다.
     -->
-    <appender name="ASYNC_ERROR" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="ERROR_FILE"/>
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-        <includeCallerData>true</includeCallerData>
-    </appender>
-
-    <appender name="ASYNC_WARN" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="WARN_FILE"/>
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-    </appender>
-
-    <appender name="ASYNC_INFO" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="INFO_FILE"/>
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
         <queueSize>1024</queueSize>
         <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>true</includeCallerData>
     </appender>
 
     <!--
@@ -165,9 +112,7 @@
     <springProfile name="local">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ASYNC_ERROR"/>
-            <appender-ref ref="ASYNC_WARN"/>
-            <appender-ref ref="ASYNC_INFO"/>
+            <appender-ref ref="ASYNC_FILE"/>
         </root>
         <logger name="app.pickple" level="DEBUG"/>
     </springProfile>
@@ -180,9 +125,7 @@
     <springProfile name="prod">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ASYNC_ERROR"/>
-            <appender-ref ref="ASYNC_WARN"/>
-            <appender-ref ref="ASYNC_INFO"/>
+            <appender-ref ref="ASYNC_FILE"/>
         </root>
     </springProfile>
 
@@ -190,9 +133,7 @@
     <springProfile name="!test &amp; !local &amp; !prod">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ASYNC_ERROR"/>
-            <appender-ref ref="ASYNC_WARN"/>
-            <appender-ref ref="ASYNC_INFO"/>
+            <appender-ref ref="ASYNC_FILE"/>
         </root>
     </springProfile>
 

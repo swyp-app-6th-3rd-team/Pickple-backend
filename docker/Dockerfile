@@ -31,11 +31,15 @@ RUN addgroup -S app && adduser -S app -G app
 # 이 순서가 중요하다. 도커는 빈 named volume 을 마운트할 때 컨테이너 이미지의
 # 해당 경로 소유권·권한을 볼륨에 복사한다. 디렉터리가 없으면 root:root 로 만들어지고,
 # non-root 로 실행되는 앱이 로그 파일을 쓰지 못한다.
-#   → java.io.FileNotFoundException: /app/logs/error/error.log (Permission denied)
+#   → java.io.FileNotFoundException: /app/logs/app.log (Permission denied)
+#
+# ⚠️ 운영은 named volume 이 아니라 /data/logs bind mount 다(ADR-0025). bind mount 는
+#    위의 소유권 복사가 **일어나지 않으므로**, 호스트에서 미리 chown 100:101 해야 한다
+#    (terraform/templates/user-data.sh.tftpl 참조). 이 RUN 은 로컬 실행용이다.
 #
 # USER 를 바꾸기 전에 만들어야 chown 이 먹는다.
 # jfr/ 은 JFR 상시 녹화의 링버퍼가 쌓이는 곳이다(아래 ENTRYPOINT 참조).
-RUN mkdir -p /app/logs/error /app/logs/warn /app/logs/info /app/logs/jfr && \
+RUN mkdir -p /app/logs/jfr && \
     chown -R app:app /app/logs
 
 USER app

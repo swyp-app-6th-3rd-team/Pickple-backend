@@ -25,7 +25,7 @@ Apple 로그인을 쓰지 않는다면 `OAUTH_APPLE_ENABLED=false` 로 둔다.
 ### 2. MySQL 기동
 
 ```bash
-docker compose -f docker-compose-local.yml up -d
+docker compose -f docker/docker-compose-local.yml up -d
 ```
 
 앱은 컨테이너로 띄우지 않는다. DB 만 컨테이너, 앱은 IDE 나 Gradle 로 실행한다.
@@ -64,17 +64,17 @@ spring:
 | `JWT_SECRET_KEY 는 32바이트 이상이어야 합니다` | 값이 짧거나 **아예 없다**. 두 경우가 같은 메시지다 |
 | `Client id of registration must not be empty` | `.env` 에 `OAUTH_..._CLIENT_ID=` 처럼 **빈 값**이 있다. 기본값은 변수가 미정의일 때만 발동한다 |
 | Apple 관련 기동 실패 | `OAUTH_APPLE_ENABLED=true` 인데 6개 값이 덜 찼다 |
-| Flyway checksum mismatch | 오래된 컨테이너다. `docker compose -f docker-compose-local.yml down -v` 후 재기동 |
+| Flyway checksum mismatch | 오래된 컨테이너다. `docker compose -f docker/docker-compose-local.yml down -v` 후 재기동 |
 
 ## 배포
 
 develop 브랜치에 머지되면 `.github/workflows/deploy-develop.yml` 이
-`docker-compose-ec2.yml` 을 EC2 로 실어 보낸다. compose 파일은 두 개뿐이다.
+`docker/docker-compose-ec2.yml` 을 EC2 로 실어 보낸다. compose 파일은 두 개뿐이다.
 
 | 파일 | 용도 |
 |---|---|
-| `docker-compose-local.yml` | 로컬 — MySQL 만 |
-| `docker-compose-ec2.yml` | 배포 — 앱 + MySQL + Caddy |
+| `docker/docker-compose-local.yml` | 로컬 — MySQL 만 |
+| `docker/docker-compose-ec2.yml` | 배포 — 앱 + MySQL + Caddy |
 
 ## Template
 

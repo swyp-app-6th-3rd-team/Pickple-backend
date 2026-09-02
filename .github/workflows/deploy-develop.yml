@@ -81,7 +81,10 @@ jobs:
           # 두 태그를 붙인다.
           #   develop-<run_id>  불변 — 배포와 롤백이 이걸 가리킨다
           #   develop           이동 — 최신 확인용
+          # 컨텍스트는 루트를 유지한다 — Dockerfile 이 gradle 소스를 COPY 하기 때문이다.
+          # Dockerfile 위치만 docker/ 로 옮겼다.
           docker build \
+            -f docker/Dockerfile \
             -t "$IMAGE:${{ steps.tag.outputs.value }}" \
             -t "$IMAGE:develop" \
             .
@@ -98,8 +101,8 @@ jobs:
 
           # compose 파일과 Caddyfile 을 base64 로 실어 보낸다.
           # S3 경유나 git clone 없이 한 번에 끝나고, 따옴표·개행 이스케이프 문제도 없다.
-          COMPOSE_B64="$(base64 -w0 docker-compose-ec2.yml)"
-          CADDY_B64="$(base64 -w0 Caddyfile)"
+          COMPOSE_B64="$(base64 -w0 docker/docker-compose-ec2.yml)"
+          CADDY_B64="$(base64 -w0 docker/Caddyfile)"
 
           COMMAND_ID="$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \

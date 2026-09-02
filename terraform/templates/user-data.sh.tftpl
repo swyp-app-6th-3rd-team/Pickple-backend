@@ -112,6 +112,15 @@ chown -R 999:999 "${data_mount_point}/mysql"
 # Let's Encrypt 는 같은 호스트에 주 5회까지만 내준다(ADR-0022).
 mkdir -p "${data_mount_point}/caddy"
 
+# 앱 로그(uid 100 app). 루트 볼륨의 named volume 에 두면 인스턴스 교체마다
+# 사라져 장애 직전 로그를 잃는다(ADR-0025).
+#
+# ⚠️ bind mount 는 named volume 과 달리 이미지의 소유권·권한을 복사해 주지 않는다.
+#    여기서 chown 하지 않으면 도커가 root:root 로 만들고, non-root 로 도는 앱이
+#    로그를 한 줄도 쓰지 못한다(컨테이너는 뜨므로 배포는 green 으로 보인다).
+mkdir -p "${data_mount_point}/logs/jfr"
+chown -R 100:101 "${data_mount_point}/logs"
+
 # ── 3. 애플리케이션 디렉터리 ───────────────────────────────
 mkdir -p "${app_dir}"
 

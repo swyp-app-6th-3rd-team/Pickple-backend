@@ -224,6 +224,24 @@ cd /opt/pickple && sudo docker compose -f docker-compose-ec2.yml ps
 sudo docker compose -f docker-compose-ec2.yml logs -f app
 ```
 
+### 로그 파일
+
+레벨 구분 없이 `app.log` 한 파일에 시간순으로 쌓인다(ADR-0025).
+영속 EBS 라 인스턴스를 replace 해도 남는다.
+
+```bash
+sudo tail -f /data/logs/app.log
+sudo ls -la /data/logs/                    # app.log + 롤링된 app-YYYY-MM-DD.N.log
+
+# 레벨로 거르기 — 각 줄에 레벨이 찍히므로 grep 으로 충분하다
+sudo grep -E ' (ERROR|WARN) ' /data/logs/app.log | tail -50
+
+# 한 요청 추적 (correlationId 는 X-Request-Id 헤더 또는 자동 생성 UUID)
+sudo grep '<correlationId>' /data/logs/app.log
+```
+
+`docker logs` 는 콘솔 appender 출력이라 기동 실패처럼 파일 appender 가 준비되기 전 상황에 쓴다.
+
 ### 인증서
 
 ```bash
