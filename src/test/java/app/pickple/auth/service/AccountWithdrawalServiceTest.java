@@ -1,7 +1,7 @@
 package app.pickple.auth.service;
 
 import app.pickple.auth.apple.AppleProviderTokenService;
-import app.pickple.auth.apple.AppleTokenClient;
+import app.pickple.auth.apple.AppleTokenGateway;
 import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
@@ -34,7 +34,7 @@ class AccountWithdrawalServiceTest {
     @Mock
     private AppleProviderTokenService providerTokenService;
     @Mock
-    private AppleTokenClient appleTokenClient;
+    private AppleTokenGateway appleTokenGateway;
     @Mock
     private AccountWithdrawalPersistenceService persistenceService;
 
@@ -43,7 +43,7 @@ class AccountWithdrawalServiceTest {
     @BeforeEach
     void setUp() {
         service = new AccountWithdrawalService(
-                userStore, providerTokenService, appleTokenClient, persistenceService);
+                userStore, providerTokenService, appleTokenGateway, persistenceService);
     }
 
     @Test
@@ -54,8 +54,8 @@ class AccountWithdrawalServiceTest {
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
         assertThat(outcome).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
-        InOrder order = inOrder(appleTokenClient, persistenceService);
-        order.verify(appleTokenClient).revokeRefreshToken("provider-refresh");
+        InOrder order = inOrder(appleTokenGateway, persistenceService);
+        order.verify(appleTokenGateway).revokeRefreshToken("provider-refresh");
         order.verify(persistenceService).complete(7L);
     }
 
@@ -64,7 +64,7 @@ class AccountWithdrawalServiceTest {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
         org.mockito.Mockito.doThrow(new ApiException(ResponseCode.APPLE_ACCOUNT_REVOCATION_UNAVAILABLE))
-                .when(appleTokenClient).revokeRefreshToken("provider-refresh");
+                .when(appleTokenGateway).revokeRefreshToken("provider-refresh");
 
         assertThatThrownBy(() -> service.withdraw(7L))
                 .isInstanceOf(ApiException.class)
@@ -82,7 +82,7 @@ class AccountWithdrawalServiceTest {
 
         assertThat(outcome).isEqualTo(
                 AccountWithdrawalService.WithdrawalOutcome.COMPLETED_REQUIRES_MANUAL_APPLE_REVOCATION);
-        verifyNoInteractions(appleTokenClient);
+        verifyNoInteractions(appleTokenGateway);
         verify(persistenceService).complete(7L);
     }
 
@@ -100,10 +100,10 @@ class AccountWithdrawalServiceTest {
 
         assertThat(service.withdraw(7L))
                 .isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
-        InOrder order = inOrder(appleTokenClient, persistenceService);
-        order.verify(appleTokenClient).revokeRefreshToken("provider-refresh");
+        InOrder order = inOrder(appleTokenGateway, persistenceService);
+        order.verify(appleTokenGateway).revokeRefreshToken("provider-refresh");
         order.verify(persistenceService).complete(7L);
-        order.verify(appleTokenClient).revokeRefreshToken("provider-refresh");
+        order.verify(appleTokenGateway).revokeRefreshToken("provider-refresh");
         order.verify(persistenceService).complete(7L);
     }
 
@@ -114,7 +114,7 @@ class AccountWithdrawalServiceTest {
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
         assertThat(outcome).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
-        verifyNoInteractions(providerTokenService, appleTokenClient);
+        verifyNoInteractions(providerTokenService, appleTokenGateway);
         verify(persistenceService).complete(7L);
     }
 

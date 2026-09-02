@@ -70,8 +70,7 @@ class AppleProviderTokenCipherTest {
                 true, "TEAM", "KEY", "app.pickple.ios", "base64-p8",
                 keyring, activeKeyId,
                 "https://appleid.apple.com",
-                "https://appleid.apple.com/auth/token",
-                "https://appleid.apple.com/auth/revoke",
+                "https://appleid.apple.com",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10));
     }

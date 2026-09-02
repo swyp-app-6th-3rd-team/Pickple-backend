@@ -38,8 +38,7 @@ class AppleSecurityTest {
                 true, "not-configured", "KEY", "app.pickple.ios", "base64-key",
                 "k1=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "k1",
                 "https://appleid.apple.com",
-                "https://appleid.apple.com/auth/token",
-                "https://appleid.apple.com/auth/revoke",
+                "https://appleid.apple.com",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10)))
                 .isInstanceOf(IllegalStateException.class);
@@ -48,8 +47,7 @@ class AppleSecurityTest {
                 true, "TEAM", "KEY", "app.pickple.ios", "base64-key",
                 "k1=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "missing-key-id",
                 "https://appleid.apple.com",
-                "https://appleid.apple.com/auth/token",
-                "https://appleid.apple.com/auth/revoke",
+                "https://appleid.apple.com",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10)))
                 .isInstanceOf(IllegalStateException.class)
@@ -59,8 +57,7 @@ class AppleSecurityTest {
                 true, "TEAM", "KEY", "app.pickple.ios", "base64-key",
                 "k1=dG9vLXNob3J0", "k1",
                 "https://appleid.apple.com",
-                "https://appleid.apple.com/auth/token",
-                "https://appleid.apple.com/auth/revoke",
+                "https://appleid.apple.com",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10)))
                 .isInstanceOf(IllegalStateException.class)
@@ -70,8 +67,7 @@ class AppleSecurityTest {
                 false, "not-configured", "not-configured", "not-configured", "not-configured",
                 "not-configured", "not-configured",
                 "https://appleid.apple.com",
-                "https://appleid.apple.com/auth/token",
-                "https://appleid.apple.com/auth/revoke",
+                "https://appleid.apple.com",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofSeconds(15_777_001)))
                 .isInstanceOf(IllegalStateException.class);
@@ -104,7 +100,7 @@ class AppleSecurityTest {
         AppleProperties loginDisabled = new AppleProperties(
                 false, enabled.teamId(), enabled.keyId(), enabled.clientId(), enabled.privateKeyBase64(),
                 enabled.providerTokenEncryptionKeys(), enabled.providerTokenActiveKeyId(),
-                enabled.issuer(), enabled.tokenUri(), enabled.revokeUri(), enabled.jwkSetUri(),
+                enabled.apiBaseUrl(), enabled.issuer(), enabled.jwkSetUri(),
                 enabled.clientSecretValidity());
 
         String token = new AppleClientSecretProvider(loginDisabled, CLOCK).create();
@@ -187,8 +183,7 @@ class AppleSecurityTest {
                 "k1=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 "k1",
                 "https://appleid.apple.com",
-                "https://appleid.apple.com/auth/token",
-                "https://appleid.apple.com/auth/revoke",
+                "https://appleid.apple.com",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10));
     }

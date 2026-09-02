@@ -1,7 +1,7 @@
 package app.pickple.auth.service;
 
 import app.pickple.auth.apple.AppleProviderTokenService;
-import app.pickple.auth.apple.AppleTokenClient;
+import app.pickple.auth.apple.AppleTokenGateway;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
@@ -19,7 +19,7 @@ public class AccountWithdrawalService {
 
     private final UserStore userStore;
     private final AppleProviderTokenService appleProviderTokenService;
-    private final AppleTokenClient appleTokenClient;
+    private final AppleTokenGateway appleTokenGateway;
     private final AccountWithdrawalPersistenceService persistenceService;
 
     public WithdrawalOutcome withdraw(Long userId) {
@@ -30,7 +30,7 @@ public class AccountWithdrawalService {
         if (user.provider() == SocialProvider.APPLE) {
             var providerToken = appleProviderTokenService.findDecryptedByUserId(userId);
             if (providerToken.isPresent()) {
-                appleTokenClient.revokeRefreshToken(providerToken.get());
+                appleTokenGateway.revokeRefreshToken(providerToken.get());
             } else {
                 log.warn("Apple 회원 탈퇴 시 저장된 provider token이 없습니다. 수동 연결 해제가 필요합니다: userId={}",
                         userId);

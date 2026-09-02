@@ -21,7 +21,7 @@ public class AppleAuthService {
 
     private final AppleProperties properties;
     private final AppleIdTokenVerifier idTokenVerifier;
-    private final AppleTokenClient tokenClient;
+    private final AppleTokenGateway tokenGateway;
     private final AppleLoginCompletionService loginCompletionService;
     private final MeterRegistry meterRegistry;
 
@@ -36,7 +36,7 @@ public class AppleAuthService {
 
         // 먼저 앱이 받은 ID token을 검증해 잘못된 요청이 Apple code를 소비하지 않게 한다.
         AppleIdentity clientIdentity = idTokenVerifier.verify(identityToken, rawNonce);
-        AppleTokenResponse exchanged = tokenClient.exchangeAuthorizationCode(authorizationCode);
+        AppleTokenResponse exchanged = tokenGateway.exchangeAuthorizationCode(authorizationCode);
         try {
             AppleIdentity serverIdentity = idTokenVerifier.verify(exchanged.idToken(), rawNonce);
 
@@ -84,7 +84,7 @@ public class AppleAuthService {
             return;
         }
         try {
-            tokenClient.revokeRefreshToken(refreshToken);
+            tokenGateway.revokeRefreshToken(refreshToken);
         } catch (RuntimeException revokeFailure) {
             // 원래 로그인 실패를 보존한다. token·sub·외부 오류 본문은 로그에 남기지 않는다.
             meterRegistry.counter(COMPENSATION_REVOKE_FAILURE_METRIC).increment();

@@ -16,9 +16,8 @@ public record AppleProperties(
         @DefaultValue("not-configured") String privateKeyBase64,
         @DefaultValue("not-configured") String providerTokenEncryptionKeys,
         @DefaultValue("not-configured") String providerTokenActiveKeyId,
+        @DefaultValue("https://appleid.apple.com") String apiBaseUrl,
         @DefaultValue("https://appleid.apple.com") String issuer,
-        @DefaultValue("https://appleid.apple.com/auth/token") String tokenUri,
-        @DefaultValue("https://appleid.apple.com/auth/revoke") String revokeUri,
         @DefaultValue("https://appleid.apple.com/auth/keys") String jwkSetUri,
         @DefaultValue("PT10M") Duration clientSecretValidity) {
 

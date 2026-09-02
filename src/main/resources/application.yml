@@ -107,9 +107,8 @@ app:
       # keyring 형식: key-id=base64-32-byte-key,key-id-2=base64-32-byte-key
       provider-token-encryption-keys: ${OAUTH_APPLE_TOKEN_ENCRYPTION_KEYS:not-configured}
       provider-token-active-key-id: ${OAUTH_APPLE_TOKEN_ACTIVE_KEY_ID:not-configured}
+      api-base-url: https://appleid.apple.com
       issuer: https://appleid.apple.com
-      token-uri: https://appleid.apple.com/auth/token
-      revoke-uri: https://appleid.apple.com/auth/revoke
       jwk-set-uri: https://appleid.apple.com/auth/keys
       client-secret-validity: PT10M
 

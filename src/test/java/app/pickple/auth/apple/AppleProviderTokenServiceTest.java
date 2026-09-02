@@ -30,8 +30,8 @@ class AppleProviderTokenServiceTest {
         String key = Base64.getEncoder().encodeToString(new byte[32]);
         AppleProperties properties = new AppleProperties(
                 true, "TEAM", "KEY", "app.pickple.ios", "base64-p8", "k1=" + key, "k1",
-                "https://appleid.apple.com", "https://appleid.apple.com/auth/token",
-                "https://appleid.apple.com/auth/revoke", "https://appleid.apple.com/auth/keys",
+                "https://appleid.apple.com", "https://appleid.apple.com",
+                "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10));
         service = new AppleProviderTokenService(store, new AppleProviderTokenCipher(properties));
     }
