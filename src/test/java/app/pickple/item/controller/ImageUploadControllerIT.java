@@ -50,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @IntegrationTest
 @Import(LocalStackConfig.class)
-class ImageUploadControllerIntegrationTest {
+class ImageUploadControllerIT {
 
     private static final String BUCKET = "pickple-image-upload-it";
     private static final byte[] ONE_PIXEL_PNG = Base64.getDecoder().decode(
