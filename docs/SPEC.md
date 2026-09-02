@@ -117,7 +117,8 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 파일 | location | 로드 시점 |
 |---|---|---|
 | `V1__auth_tables.sql` | `db/migration` | 항상 |
-| `V2__apple_provider_tokens.sql` | `db/migration` | 항상 |
+| `V3__pickple_domain.sql` | `db/migration` | 항상 |
+| `V4__apple_provider_tokens.sql` | `db/migration` | 항상 |
 
 ---
 
