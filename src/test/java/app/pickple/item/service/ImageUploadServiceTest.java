@@ -14,6 +14,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.util.unit.DataSize;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -79,6 +81,50 @@ class ImageUploadServiceTest {
 
         verify(objectStorage, times(2)).delete(anyString());
         verify(containerStore, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("트랜잭션 완료 콜백이 롤백 상태를 받으면 S3 객체를 보상 삭제한다")
+    void compensatesObjectsWhenTransactionCompletionReportsRollback() {
+        when(objectStorage.put(anyString(), any(byte[].class), anyString()))
+                .thenAnswer(invocation -> "https://images.example/" + invocation.getArgument(0, String.class));
+        when(containerStore.save(any(ItemContainer.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        TransactionSynchronizationManager.initSynchronization();
+
+        try {
+            service.upload(3L, List.of(image("product.jpg")));
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(synchronization -> synchronization.afterCompletion(
+                            TransactionSynchronization.STATUS_ROLLED_BACK));
+
+            ArgumentCaptor<String> uploadedKey = ArgumentCaptor.forClass(String.class);
+            verify(objectStorage).put(uploadedKey.capture(), any(byte[].class), anyString());
+            verify(objectStorage).delete(uploadedKey.getValue());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    @DisplayName("트랜잭션 결과를 알 수 없으면 DB 참조 보호를 위해 S3 객체를 삭제하지 않는다")
+    void keepsObjectsWhenTransactionCompletionIsUnknown() {
+        when(objectStorage.put(anyString(), any(byte[].class), anyString()))
+                .thenAnswer(invocation -> "https://images.example/" + invocation.getArgument(0, String.class));
+        when(containerStore.save(any(ItemContainer.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        TransactionSynchronizationManager.initSynchronization();
+
+        try {
+            service.upload(4L, List.of(image("product.jpg")));
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(synchronization -> synchronization.afterCompletion(
+                            TransactionSynchronization.STATUS_UNKNOWN));
+
+            verify(objectStorage, never()).delete(anyString());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test

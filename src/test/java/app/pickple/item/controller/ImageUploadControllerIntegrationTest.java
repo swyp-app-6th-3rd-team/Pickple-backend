@@ -1,4 +1,4 @@
-package app.pickple.item;
+package app.pickple.item.controller;
 
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
@@ -8,7 +8,7 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.support.IntegrationTest;
-import app.pickple.support.LocalStackS3Config;
+import app.pickple.support.LocalStackConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,8 +49,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 컨트롤러 요청 안의 서비스 트랜잭션이 실제로 commit된 뒤 DB를 조회한다.
  */
 @IntegrationTest
-@Import(LocalStackS3Config.class)
-class ImageUploadIT {
+@Import(LocalStackConfig.class)
+class ImageUploadControllerIntegrationTest {
 
     private static final String BUCKET = "pickple-image-upload-it";
     private static final byte[] ONE_PIXEL_PNG = Base64.getDecoder().decode(

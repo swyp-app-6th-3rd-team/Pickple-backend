@@ -15,7 +15,7 @@ import static org.testcontainers.containers.localstack.LocalStackContainer.Servi
 
 /** 이미지 업로드 통합 테스트에서만 사용하는 LocalStack S3 설정. */
 @TestConfiguration(proxyBeanMethods = false)
-public class LocalStackS3Config {
+public class LocalStackConfig {
 
     private static final DockerImageName IMAGE =
             DockerImageName.parse("localstack/localstack:4.14.0");

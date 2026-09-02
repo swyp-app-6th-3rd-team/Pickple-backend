@@ -47,7 +47,7 @@ public class ImageUploadService {
         }
 
         List<String> uploadedKeys = new ArrayList<>();
-        registerRollbackCleanup(uploadedKeys);
+        registerTransactionRollbackCompensation(uploadedKeys);
         ItemContainer container = new ItemContainer(ownerId, AttachType.PRODUCT);
 
         try {
@@ -66,7 +66,8 @@ public class ImageUploadService {
             }
             return containerStore.save(container);
         } catch (RuntimeException e) {
-            cleanup(uploadedKeys);
+            compensateUploadedObjects(uploadedKeys);
+            // 트랜잭션 콜백이 같은 목록을 참조하므로 이미 보상한 키는 다시 삭제하지 않는다.
             uploadedKeys.clear();
             throw e;
         }
@@ -103,22 +104,27 @@ public class ImageUploadService {
         return "product-images/%d/%s.%s".formatted(ownerId, UUID.randomUUID(), extension);
     }
 
-    private void registerRollbackCleanup(List<String> uploadedKeys) {
+    /**
+     * 대상 메서드가 반환된 뒤 DB commit이 실패하는 경우까지 보상한다.
+     * S3는 DB 트랜잭션에 참여하지 않으므로 최종 결과가 rollback이면 업로드한 객체를 삭제한다.
+     */
+    private void registerTransactionRollbackCompensation(List<String> uploadedKeys) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCompletion(int status) {
-                if (status != TransactionSynchronization.STATUS_COMMITTED) {
-                    cleanup(uploadedKeys);
+                // 결과 불명일 때 삭제하면 실제 commit된 DB 행이 없는 S3 객체를 가리킬 수 있다.
+                if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
+                    compensateUploadedObjects(uploadedKeys);
                 }
             }
         });
     }
 
-    private void cleanup(List<String> itemKeys) {
-        for (String itemKey : List.copyOf(itemKeys)) {
+    private void compensateUploadedObjects(List<String> itemKeys) {
+        for (String itemKey : itemKeys) {
             try {
                 objectStorage.delete(itemKey);
             } catch (RuntimeException cleanupFailure) {
