@@ -5,6 +5,11 @@
 이 ADR 은 **ADR-0012 의 §compose 파일 구성만** 대체한다. ADR-0012 의 나머지 결정
 (단일 EC2 + docker-compose, 비용 판정, `/data` 볼륨 분리)은 그대로 유효하다.
 
+ADR-0012 본문은 **고치지 않았다**. ADR 은 불변이므로 대체 관계는 대체하는 쪽인 이 문서에만 적는다.
+ADR-0012 가 언급하는 `docker-compose-prod.yml`(32·70 줄)은 이 ADR 로 삭제됐으나,
+그 문장들은 당시 판단의 근거이므로 그대로 둔다.
+같은 이유로 PRD-007(23·73 줄)의 "기존 `docker-compose-prod.yml` 을 수정하지 않는다"도 손대지 않는다.
+
 ## 맥락
 
 IntelliJ 에서 `PickpleApplication` 을 실행하면 기동이 실패한다.
