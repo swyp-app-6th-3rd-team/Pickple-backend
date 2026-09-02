@@ -11,6 +11,10 @@ locals {
   app_port   = 8080
   mysql_port = 3306
   http_port  = 80
+  https_port = 443
+
+  # 백엔드 develop 서버의 FQDN. 예: dev-api.pickple.app (ADR-0022)
+  api_fqdn = "${var.api_subdomain}.${var.domain_name}"
 
   # 데이터 EBS 가 인스턴스에 붙는 경로.
   #

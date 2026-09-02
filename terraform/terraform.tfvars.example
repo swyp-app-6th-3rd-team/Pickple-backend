@@ -29,3 +29,13 @@
 # ── 비상용 ──────────────────────────────────────────────────
 # 평소에는 비워둔다. SSM 이 동작하지 않을 때만 임시로 자기 IP 를 넣는다.
 # ssh_allowed_cidr = "203.0.113.10/32"
+
+# ── 도메인 ───────────────────────────────────────
+# domain_name   = "pickple.app"
+# api_subdomain = "dev-api"          # → dev-api.pickple.app
+#
+# 프론트 레코드. NS 가 Route53 으로 넘어오면 apex·www 도 여기서 받는다.
+# extra_records = {
+#   "@"   = { type = "A",     ttl = 300, records = ["76.76.21.21"] }
+#   "www" = { type = "CNAME", ttl = 300, records = ["cname.vercel-dns.com"] }
+# }

@@ -134,6 +134,37 @@ variable "ecr_keep_image_count" {
   default     = 10
 }
 
+# ── 도메인 (ADR-0022) ───────────────────────────────────────
+
+variable "domain_name" {
+  description = "Route53 hosted zone 으로 관리할 도메인. Gabia 에서 네임서버만 이쪽으로 위임한다"
+  type        = string
+  default     = "pickple.app"
+}
+
+variable "api_subdomain" {
+  description = "백엔드 develop 서버의 서브도메인. apex 는 프론트 몫으로 비워 둔다"
+  type        = string
+  default     = "dev-api"
+}
+
+variable "extra_records" {
+  description = <<-EOT
+    프론트 등 다른 팀의 DNS 레코드. 키는 서브도메인("@" 는 apex), 값은 type/ttl/records.
+    NS 가 Route53 으로 넘어오면 apex·www 도 여기서 관리해야 하므로 tfvars 한 줄로 받는다.
+      extra_records = {
+        "@"   = { type = "A",     ttl = 300, records = ["76.76.21.21"] }
+        "www" = { type = "CNAME", ttl = 300, records = ["cname.vercel-dns.com"] }
+      }
+  EOT
+  type = map(object({
+    type    = string
+    ttl     = optional(number, 300)
+    records = list(string)
+  }))
+  default = {}
+}
+
 # ── 상태 저장소 ─────────────────────────────────────────────
 
 variable "state_bucket" {
