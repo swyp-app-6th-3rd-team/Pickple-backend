@@ -45,7 +45,7 @@ DNS 가 EIP 를 가리켜야 인증서가 나오고, apply 결과가 있어야 G
 | 2 | `https://dev-api.pickple.app` 이 유효한 인증서로 응답 | `curl -sI https://dev-api.pickple.app/actuator/health` 200, `openssl s_client` 로 issuer = Let's Encrypt | |
 | 3 | 443 이 열리고 80 이 443 으로 리다이렉트 | `curl -sI http://dev-api.pickple.app` → 308 + `Location: https://…` (`.app` 은 HSTS preload 라 브라우저로는 판정 불가) | |
 | 4 | develop push 시 자동 배포가 돈다 | 머지 후 Actions 실행 · 헬스 스텝 통과 · 배포 SHA 대조 | |
-| 5 | 워크플로에 `secrets.*` 참조 0건 | `grep -c "secrets\." .github/workflows/deploy-develop.yml` → 0 | |
+| 5 | 워크플로에 `secrets.*` 참조 0건 | `grep -c '\${{ secrets\.' .github/workflows/deploy-develop.yml` → 0 (이슈 #36 의 `grep "secrets\."` 는 주석과 `fetch-secrets.sh` 경로에 걸려 2 가 나온다 — 측정식을 표현식 문법으로 좁혔다) | ✅ 0건 |
 | 6 | 롤백이 동작 | 2회째 배포 후 `workflow_dispatch` 에 이전 태그 → `docker inspect pickple-app` 이미지 태그 | |
 | 7 | OAuth 인가 요청의 redirect_uri 가 https | `curl -sI https://dev-api.pickple.app/oauth2/authorization/kakao` → `Location` 안 `redirect_uri=https%3A%2F%2Fdev-api.pickple.app…` | |
 | 8 | 클라이언트 `X-Forwarded-Proto` 스푸핑이 막힘 | 위 요청에 `-H "X-Forwarded-Proto: http"` 를 얹어도 결과 동일 | |
