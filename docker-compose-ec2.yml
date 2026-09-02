@@ -24,6 +24,11 @@ services:
       TZ: ${TZ:-Asia/Seoul}
     # ports 매핑이 없다. 3306 은 compose 내부 네트워크에서만 보인다.
     # 외부에서 접속해야 하면 SSM 포트 포워딩을 쓴다(README 참조).
+    # 외부 DB 툴 접속용(ADR-0023). 호스트 13307 → 컨테이너 3306.
+    # ⚠️ 0.0.0.0 바인딩이라 보안그룹의 mysql 규칙과 합쳐지면 인터넷에 노출된다.
+    #    terraform 의 var.mysql_host_port 와 반드시 같은 값이어야 한다.
+    ports:
+      - "13307:3306"
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci

@@ -53,12 +53,50 @@ variable "public_subnet_cidrs" {
 
 variable "ssh_allowed_cidr" {
   description = <<-EOT
-    22번 포트를 열 CIDR. 기본은 null 이며 이 경우 **SSH 규칙 자체를 만들지 않는다**.
-    접속은 SSM Session Manager 로 한다(ADR-0012). SSM 이 동작하지 않는 상황의
-    비상 수단으로만 임시 지정한다.
+    SSH 포트(var.ssh_port)를 열 CIDR. 기본은 null 이며 이 경우 **SSH 규칙 자체를 만들지 않는다**.
+    값을 지정하면 인터넷에서 직접 SSH 로 붙을 수 있다(ADR-0023).
+    SSM Session Manager 는 그대로 살아 있으므로, 이 값을 다시 null 로 되돌려도 접속 경로는 남는다.
   EOT
   type        = string
   default     = null
+}
+
+variable "ssh_public_key" {
+  description = <<-EOT
+    SSH 키페어의 **공개키**(ssh-ed25519 AAAA...). 개인키는 넣지 않는다.
+    개인키는 발급 시 1회만 반환되므로 로컬 ~/.ssh/pickple-dev.pem 에 chmod 400 으로 보관한다.
+    공개키는 `ssh-keygen -y -f ~/.ssh/pickple-dev.pem` 로 다시 얻을 수 있다.
+  EOT
+  type        = string
+}
+
+variable "ssh_port" {
+  description = <<-EOT
+    sshd 가 listen 할 포트. 기본 22 대신 비표준 포트를 쓰면 자동 스캔 트래픽이 줄어든다.
+    ⚠️ 이 값을 바꾸면 user_data 가 SELinux 포트 라벨(semanage)과 sshd_config 를 함께 고친다.
+    SG 만 열고 OS 설정을 빼먹으면 접속되지 않는다.
+  EOT
+  type        = number
+  default     = 22
+}
+
+variable "mysql_allowed_cidr" {
+  description = <<-EOT
+    MySQL 호스트 포트(var.mysql_host_port)를 열 CIDR. 기본은 null 이며 이 경우 **규칙 자체를 만들지 않는다**.
+    ⚠️ 값을 지정하면 DB 가 인터넷에 노출된다. 방어선은 계정 비밀번호뿐이므로
+    remote root 를 막고 앱 계정으로만 붙는다(ADR-0023).
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "mysql_host_port" {
+  description = <<-EOT
+    MySQL 컨테이너 3306 을 호스트에 매핑할 포트. docker-compose-ec2.yml 의 ports 와 반드시 같아야 한다.
+    3306 을 그대로 쓰지 않는 이유는 자동 스캔 회피다.
+  EOT
+  type        = number
+  default     = 13307
 }
 
 # ── 인스턴스 ────────────────────────────────────────────────
