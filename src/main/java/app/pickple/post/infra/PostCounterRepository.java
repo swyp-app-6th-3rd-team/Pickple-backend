@@ -18,6 +18,15 @@ interface PostCounterRepository extends JpaRepository<PostEntity, Long> {
     void increaseVoteCount(@Param("postId") Long postId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "UPDATE post_option SET vote_count = vote_count + 1 WHERE id = :optionId", nativeQuery = true)
+    void increaseOptionVoteCount(@Param("optionId") Long optionId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "UPDATE post_option SET vote_count = GREATEST(CAST(vote_count AS SIGNED) - 1, 0) "
+            + "WHERE id = :optionId", nativeQuery = true)
+    void decreaseOptionVoteCount(@Param("optionId") Long optionId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = "UPDATE post SET commenter_count = commenter_count + 1 WHERE id = :postId", nativeQuery = true)
     void increaseCommenterCount(@Param("postId") Long postId);
 
