@@ -93,9 +93,12 @@ services:
       # 자격증명은 넣지 않는다. EC2 인스턴스 프로파일을 SDK 가 IMDS 로 가져간다(ADR-0013).
       # FILE_S3_ENDPOINT 는 일부러 빠져 있다 — 값이 있으면 endpointOverride 가 켜져
       # 실제 AWS 로 나가지 못하므로, 목록에 없는 편이 안전하다.
-      FILE_S3_BUCKET: ${FILE_S3_BUCKET:-not-configured}
+      # ⚠️ 구키 폴백(#63). 인스턴스의 fetch-secrets.sh 가 아직 IMAGE_* 를 쓸 수 있어
+      # (user_data 최초 부팅에만 갱신 — ADR-0027) 신키가 비면 구키로 받는다.
+      # 인스턴스 스크립트가 FILE_* 로 갱신되면 이 폴백을 제거한다.
+      FILE_S3_BUCKET: ${FILE_S3_BUCKET:-${IMAGE_S3_BUCKET:-not-configured}}
       # 빈 값이 정상 동작이다(SDK 가 S3 객체 URL 로 폴백). not-configured 로 "고치지" 말 것.
-      FILE_PUBLIC_BASE_URL: ${FILE_PUBLIC_BASE_URL:-}
+      FILE_PUBLIC_BASE_URL: ${FILE_PUBLIC_BASE_URL:-${IMAGE_PUBLIC_BASE_URL:-}}
       AWS_REGION: ${AWS_REGION:-ap-northeast-2}
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       AUTH_COOKIE_SECURE: "true"

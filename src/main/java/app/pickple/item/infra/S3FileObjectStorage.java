@@ -36,7 +36,7 @@ public class S3FileObjectStorage implements FileObjectStorage {
             fileS3Client.putObject(request, RequestBody.fromBytes(content));
             return accessUrl(bucket, itemKey);
         } catch (S3Exception | SdkClientException e) {
-            throw new FileStorageException("S3 이미지 업로드에 실패했습니다.", e);
+            throw new FileObjectStorageException("S3 이미지 업로드에 실패했습니다.", e);
         }
     }
 
@@ -49,14 +49,14 @@ public class S3FileObjectStorage implements FileObjectStorage {
                     .key(itemKey)
                     .build());
         } catch (S3Exception | SdkClientException e) {
-            throw new FileStorageException("S3 이미지 삭제에 실패했습니다.", e);
+            throw new FileObjectStorageException("S3 이미지 삭제에 실패했습니다.", e);
         }
     }
 
     private String configuredBucket() {
         String bucket = properties.s3().bucket();
         if (!StringUtils.hasText(bucket) || NOT_CONFIGURED.equals(bucket)) {
-            throw new FileStorageException("이미지 S3 버킷이 설정되지 않았습니다.");
+            throw new FileObjectStorageException("이미지 S3 버킷이 설정되지 않았습니다.");
         }
         return bucket;
     }

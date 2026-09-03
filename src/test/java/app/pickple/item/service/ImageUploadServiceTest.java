@@ -6,7 +6,7 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.FileObjectStorage;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
-import app.pickple.item.infra.FileStorageException;
+import app.pickple.item.infra.FileObjectStorageException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -74,11 +74,11 @@ class ImageUploadServiceTest {
     void compensatesAttemptedKeysWhenLaterUploadFails() {
         when(objectStorage.put(anyString(), any(byte[].class), anyString()))
                 .thenReturn("https://images.example/first")
-                .thenThrow(new FileStorageException("S3 failure"));
+                .thenThrow(new FileObjectStorageException("S3 failure"));
 
         assertThatThrownBy(() -> service.upload(2L, AttachType.PRODUCT, List.of(
                 image("first.jpg"), image("second.jpg"))))
-                .isInstanceOf(FileStorageException.class);
+                .isInstanceOf(FileObjectStorageException.class);
 
         verify(objectStorage, times(2)).delete(anyString());
         verify(containerStore, never()).save(any());
