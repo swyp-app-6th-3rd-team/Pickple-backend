@@ -22,6 +22,7 @@
 #                                     [--generate KEY ...]
 #   --generate KEY   .env 나 원격에 값이 있어도 KEY 를 새로 생성한다 (예: jwt_secret_key 분리)
 #   --restart        동기화 뒤 EC2 의 pickple 유닛을 재시작해 .env 를 다시 만든다
+#   --check          아무것도 쓰지 않고 스키마 정합만 검사한다(CI·배포 전 점검용)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,6 +33,7 @@ ENV_FILE="$REPO_DIR/.env"
 PROFILE=""
 DRY_RUN=0
 RESTART=0
+CHECK=0
 GENERATE=" "   # 공백으로 구분한 키 목록. 양끝 공백으로 감싸 " key " 검색이 정확히 맞게 한다
 
 while [ $# -gt 0 ]; do
@@ -39,6 +41,7 @@ while [ $# -gt 0 ]; do
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --profile)  PROFILE="$2";  shift 2 ;;
     --dry-run)  DRY_RUN=1;     shift ;;
+    --check)    CHECK=1;       shift ;;
     --restart)  RESTART=1;     shift ;;
     --generate) GENERATE="$GENERATE$2 "; shift 2 ;;
     -h|--help)  sed -n '2,21p' "$0"; exit 0 ;;
@@ -96,6 +99,77 @@ policy_field() { awk -F'\t' -v k="$1" -v n="$2" '$1==k { print $n; exit }' "$POL
 
 AWS="aws --region $REGION --profile $PROFILE"
 
+# ── 공통 헬퍼 ───────────────────────────────────────────────
+is_placeholder() { case "$1" in ''|change-me*|CHANGE_ME) return 0 ;; *) return 1 ;; esac; }
+wants_generate() { case "$GENERATE" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+
+# ── --check: 스키마 정합만 검사한다(아무것도 쓰지 않는다) ────
+# ADR-0017 이 남긴 "여러 목록을 함께 갱신해야 하므로 누락 가능성이 있다" 를 여기서 잡는다.
+if [ "$CHECK" -eq 1 ]; then
+  RC=0
+
+  # 1. .env.example 파싱 결과 vs terraform output — 어긋나면 apply 가 안 된 것이다.
+  TF_KEYS="$(terraform -chdir="$TF_DIR" output -json secret_keys 2>/dev/null | jq -r '.[]' | sort || true)"
+  if [ -n "$TF_KEYS" ]; then
+    if [ "$(echo "$KEYS" | sort)" != "$TF_KEYS" ]; then
+      echo "NG: .env.example 과 terraform output secret_keys 가 다릅니다. terraform apply 가 필요합니다." >&2
+      diff <(echo "$KEYS" | sort) <(echo "$TF_KEYS") | sed 's/^/    /' >&2 || true
+      RC=1
+    else
+      echo "OK: 스키마 일치 ($(echo "$KEYS" | wc -l | tr -d ' ') 키)"
+    fi
+  else
+    echo "SKIP: terraform output 을 읽지 못했습니다(apply 전이거나 자격 증명 없음)."
+  fi
+
+  # 2. 마커 개수 vs 파싱된 키 개수 — 빈 줄로 끊겨 유실된 마커를 잡는다.
+  # 실제 마커만 센다. 파일 상단의 규약 설명문(들여쓴 @secret)은 제외한다.
+  MARKERS="$(grep -cE '^#[[:space:]]?@secret([[:space:]]|$)' "$EXAMPLE_FILE" || true)"
+  PARSED="$(echo "$KEYS" | wc -l | tr -d ' ')"
+  if [ "$MARKERS" -ne "$PARSED" ]; then
+    echo "NG: @secret 마커 $MARKERS 개인데 파싱된 키는 $PARSED 개입니다." >&2
+    echo "    마커와 키 선언 사이에 빈 줄이 끼면 그 키는 로컬 전용이 됩니다." >&2
+    RC=1
+  fi
+
+  # 3. 숫자로 끝나는 키가 온전히 잡혔는지 — 정규식에서 0-9 를 빠뜨리면 여기서 드러난다.
+  for k in $KEYS; do
+    case "$k" in *[0-9]) echo "OK: 숫자로 끝나는 키 정상 인식 — $k" ;; esac
+  done
+
+  # 4. compose 가 보간하는데 아무도 공급하지 않는 변수.
+  COMPOSE_FILE="$REPO_DIR/docker/docker-compose-ec2.yml"
+  FETCH_TPL="$TF_DIR/templates/fetch-secrets.sh.tftpl"
+  if [ -f "$COMPOSE_FILE" ] && [ -f "$FETCH_TPL" ]; then
+    UNSUPPLIED=""
+    for v in $(grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*' "$COMPOSE_FILE" | sed 's/\${//' | sort -u); do
+      lv="$(lower "$v")"
+      case " $(echo $KEYS) " in *" $lv "*) continue ;; esac
+      grep -q "$v" "$FETCH_TPL" && continue
+      UNSUPPLIED="$UNSUPPLIED $v"
+    done
+    if [ -n "$UNSUPPLIED" ]; then
+      echo "NG: compose 가 쓰지만 공급자가 없는 변수:$UNSUPPLIED" >&2
+      echo "    compose 의 :- 기본값으로 조용히 돌게 됩니다." >&2
+      RC=1
+    else
+      echo "OK: compose 변수 전부 공급됨"
+    fi
+  fi
+
+  # 5. 프론트 도메인 미확정 경고(치명적이지 않으므로 RC 를 올리지 않는다).
+  if grep -q 'auth_redirect_uri.*localhost\|cors_allowed_origins.*localhost' "$TF_DIR/variables.tf" 2>/dev/null; then
+    if ! grep -qE '^\s*(auth_redirect_uri|cors_allowed_origins)' "$TF_DIR/terraform.tfvars" 2>/dev/null; then
+      echo "WARN: AUTH_REDIRECT_URI·CORS_ALLOWED_ORIGINS 가 아직 localhost 기본값입니다."
+      echo "      프론트 배포 후 terraform.tfvars 에서 실제 도메인으로 바꾸십시오."
+    fi
+  fi
+
+  exit "$RC"
+fi
+
 # ── 원격 현재값 ─────────────────────────────────────────────
 # 조회 실패는 곧바로 멈춘다(fail-closed). 잘못된 프로필·권한·일시 장애를 "원격 값 없음" 으로
 # 오인하면 mysql_* 를 새로 만들어 초기화된 MySQL 과 어긋난다. secret 은 Terraform 이 항상
@@ -128,10 +202,6 @@ env_keys() {
     | sed -E 's/^export //; s/=.*//' | sort -u
 }
 
-is_placeholder() { case "$1" in ''|change-me*|CHANGE_ME) return 0 ;; *) return 1 ;; esac; }
-wants_generate() { case "$GENERATE" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
-lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 
 umask 077
 TMP_NEW="$(mktemp)"; TMP_VAL="$(mktemp)"
