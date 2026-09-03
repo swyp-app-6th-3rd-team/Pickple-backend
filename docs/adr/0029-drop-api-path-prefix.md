@@ -14,6 +14,7 @@ prefix 가 **어디에 사는지**를 먼저 측정했다. 세 곳 중 두 곳�
 | `server.servlet.context-path` | **미설정.** `src/main/resources` · `docker/` 전수 grep 에 없다 |
 | `docker/Caddyfile` | **`/api` 를 라우팅 키로 쓰지 않는다.** `handle { reverse_proxy app:8080 }` 로 전량 전달하고, 분기하는 것은 `/actuator/*` 뿐이다 |
 | 컨트롤러 애노테이션 | **여기가 전부다.** 클래스 레벨 `@RequestMapping` 4개 + 메서드에 직접 박힌 1개 |
+| `springdoc.paths-to-match` | ⚠️ **`/api/**` 다**(`application.yml:165`). 아래 참조 — 이슈의 범위 조사에 없던 항목이다 |
 
 즉 prefix 는 설정도 인프라도 아니고 **컨트롤러에 손으로 반복해 적은 문자열**이다.
 그래서 제거 비용은 낮은데, 제거의 **파급**은 낮지 않다 — 이게 이 문서가 존재하는 이유다.
@@ -172,7 +173,8 @@ Spring Security 매처는 컨트롤러 매핑에서 파생되지 않는 **독립
 | 단계 | 이번 PR | 비고 |
 |---|---|---|
 | 결정 기록 (이 ADR) | ☑ | 충돌 없음 |
-| `ArchitectureTest` 규칙 — 클래스 레벨 매핑 금지 + 핸들러 경로 비어있지 않음 | ☑ | **먼저 넣는 것이 핵심.** 이후 들어오는 컨트롤러가 옛 관행을 다시 심지 못한다 |
+| `ArchitectureTest` 규칙 — 핸들러 경로 비어있지 않음 | ☑ **활성** | 경로 명시는 URL 을 바꾸지 않아 합의를 기다릴 이유가 없다. `PostController.findAll` 의 bare `@GetMapping` 을 `@GetMapping("/api/posts")` 로 바꿔 통과시켰다 — **URL 은 그대로다** |
+| `ArchitectureTest` 규칙 — 클래스 레벨 매핑 금지 | ☑ 코드는 들어감 / `@Disabled` | 켜면 `AuthController`·`UserProfileController`·`CommentController` 3개가 잡힌다. 이들을 고치는 것이 곧 계약 변경이라 합의 전에는 켤 수 없다. **규칙을 미리 넣어두면 일괄 변경 PR 이 `@Disabled` 한 줄만 지우면 된다** |
 | 문서 갱신(SPEC · PRD) | ☑ | 계획된 경로를 정본에 반영 |
 | 컨트롤러 5개 + `SecurityConfig` 매처 7개 + 통합 테스트 경로 | ☐ **후속 PR** | 위 브랜치들이 머지된 **뒤**에 일괄로. 그때 `grep -rn '@RequestMapping' src/main/` 으로 새로 들어온 클래스 레벨 매핑을 재확인한다 |
 | Caddy 과도기 rewrite | ☐ **후속 PR** | 프론트 합의(열린 질문 1·2) 후 |
@@ -180,6 +182,38 @@ Spring Security 매처는 컨트롤러 매핑에서 파생되지 않는 **독립
 ArchUnit 규칙을 먼저 넣으면 **후속 PR 의 안전망이 미리 깔린다.** 위에서 말한 조용한 손상
 — bare `@PostMapping` 이 살아남는 경우 — 이 머지 직후 **테스트 실패로 드러난다.**
 규칙이 뒤에 오면 그 창(window)이 열린 채로 남는다.
+
+### ⚠️ 머지 순서 — 이 PR 은 마지막에 머지해야 한다
+
+실측으로 확인한 구체적 사례다. PR #76(`feature/#17-post-creation`)이 `PostController` 에
+**경로 속성이 없는** `@PostMapping` 을 추가한다.
+
+```java
+@PostMapping                      // ← 경로 없음. @RequestMapping("/api/posts") 에 100% 의존
+@ResponseStatus(HttpStatus.CREATED)
+public ApiResponse<PostCreateResponse> create(…)
+```
+
+이 핸들러는 클래스 레벨 매핑이 있어야만 `/api/posts` 로 간다. 클래스 레벨 매핑이 걷힌 뒤에
+이 코드가 들어오면 **루트(`""`)로 떨어진다** — 컴파일 통과, 머지 충돌 없음, CI 초록.
+
+따라서 순서가 규칙의 값어치를 가른다.
+
+| 머지 순서 | 결과 |
+|---|---|
+| #76 · #21 · #24 **먼저** → 이 PR **나중** | ✅ 새로 들어온 bare 매핑을 ArchUnit 규칙이 **즉시 잡는다** |
+| 이 PR **먼저** → #76 나중 | ❌ 규칙은 머지 시점의 코드만 봤다. 나중에 들어온 bare 매핑은 **조용히 통과** |
+
+**이 PR 은 진행 중인 컨트롤러 추가 브랜치(#21 · #24 · #76)가 모두 머지된 뒤 마지막에 머지한다.**
+머지 직전 `git merge origin/develop` 후 아래 둘을 재확인한다.
+
+```bash
+grep -rn '@RequestMapping' src/main/java --include='*Controller*.java'
+./gradlew test --tests '*ArchitectureTest*'
+```
+
+> #76 의 코드는 이 PR 이 고치지 않는다(남의 PR 이다). 규칙이 잡아 **드러나게** 하는 것이
+> 이 PR 의 몫이고, 고치는 것은 컨트롤러 일괄 변경 PR 의 몫이다.
 
 ## 관련
 

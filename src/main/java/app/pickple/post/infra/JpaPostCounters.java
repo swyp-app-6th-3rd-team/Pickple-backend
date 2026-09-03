@@ -19,6 +19,18 @@ public class JpaPostCounters implements PostCounters {
 
     @Override
     @Transactional
+    public void increaseOptionVoteCount(Long postOptionId) {
+        repository.increaseOptionVoteCount(postOptionId);
+    }
+
+    @Override
+    @Transactional
+    public void decreaseOptionVoteCount(Long postOptionId) {
+        repository.decreaseOptionVoteCount(postOptionId);
+    }
+
+    @Override
+    @Transactional
     public void increaseCommenterCount(Long postId) {
         repository.increaseCommenterCount(postId);
     }
