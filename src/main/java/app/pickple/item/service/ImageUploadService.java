@@ -32,15 +32,21 @@ public class ImageUploadService {
     private final ImageStorageProperties properties;
 
     /**
-     * 파일 묶음을 S3에 올린 뒤 하나의 PRODUCT 컨테이너로 저장한다.
+     * 파일 묶음을 S3에 올린 뒤 하나의 컨테이너로 저장한다.
+     *
+     * <p>용도({@link AttachType})는 호출자가 정한다. 기본값을 두지 않는 이유는,
+     * 기본값이 있으면 용도를 넘기지 않은 호출이 조용히 상품으로 분류되기 때문이다.
      *
      * <p>S3는 DB 트랜잭션에 참여하지 않으므로, 일부 업로드나 DB 저장이 실패하면
      * 이번 요청에서 생성한 키를 best-effort로 보상 삭제한다.
      */
     @Transactional
-    public ItemContainer upload(Long ownerId, List<UploadImage> images) {
+    public ItemContainer upload(Long ownerId, AttachType attachType, List<UploadImage> images) {
         if (ownerId == null) {
             throw new ApiException(ResponseCode.UNAUTHORIZED);
+        }
+        if (attachType == null) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "이미지 용도가 없습니다.");
         }
         if (images == null || images.isEmpty()) {
             throw new ApiException(ResponseCode.INVALID_REQUEST, "업로드할 이미지가 없습니다.");
@@ -48,12 +54,12 @@ public class ImageUploadService {
 
         List<String> uploadedKeys = new ArrayList<>();
         registerTransactionRollbackCompensation(uploadedKeys);
-        ItemContainer container = new ItemContainer(ownerId, AttachType.PRODUCT);
+        ItemContainer container = new ItemContainer(ownerId, attachType);
 
         try {
             for (UploadImage image : images) {
                 ValidatedImage validated = validate(image);
-                String itemKey = createItemKey(ownerId, validated.type().extension());
+                String itemKey = createItemKey(ownerId, attachType, validated.type().extension());
                 // put 응답을 잃었어도 S3에 객체가 생겼을 수 있어 요청 전에 추적한다.
                 uploadedKeys.add(itemKey);
                 String accessUrl = objectStorage.put(
@@ -100,8 +106,8 @@ public class ImageUploadService {
         return name;
     }
 
-    private String createItemKey(Long ownerId, String extension) {
-        return "product-images/%d/%s.%s".formatted(ownerId, UUID.randomUUID(), extension);
+    private String createItemKey(Long ownerId, AttachType attachType, String extension) {
+        return "%s/%d/%s.%s".formatted(attachType.keyPrefix(), ownerId, UUID.randomUUID(), extension);
     }
 
     /**

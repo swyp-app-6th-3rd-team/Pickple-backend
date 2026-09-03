@@ -3,6 +3,7 @@ package app.pickple.item.controller;
 import app.pickple.auth.security.CurrentUser;
 import app.pickple.common.ApiResponse;
 import app.pickple.common.ResponseCode;
+import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.service.ImageUploadService;
 import app.pickple.item.service.ImageUploadService.UploadImage;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,13 +30,14 @@ public class ImageUploadController {
 
     private final ImageUploadService imageUploadService;
 
-    @Operation(summary = "상품 이미지 업로드", description = "multipart images를 S3에 저장하고 게시글 작성용 itemContainerId를 반환합니다.")
+    @Operation(summary = "이미지 업로드", description = "multipart images를 S3에 저장하고 부착에 쓸 itemContainerId를 반환합니다.")
     @PostMapping(path = "/api/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ImageUploadResponse> upload(
             @Parameter(hidden = true) @CurrentUser Long userId,
+            @Parameter(description = "이미지 용도", required = true) @RequestParam AttachType attachType,
             @RequestPart("images") List<MultipartFile> images) {
-        ItemContainer container = imageUploadService.upload(userId, toUploadImages(images));
+        ItemContainer container = imageUploadService.upload(userId, attachType, toUploadImages(images));
         return ApiResponse.of(ResponseCode.CREATED, ImageUploadResponse.from(container));
     }
 

@@ -2,6 +2,7 @@ package app.pickple.item.service;
 
 import app.pickple.error.ApiException;
 import app.pickple.item.config.ImageStorageProperties;
+import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ImageObjectStorage;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
@@ -57,7 +58,7 @@ class ImageUploadServiceTest {
         when(containerStore.save(any(ItemContainer.class)))
                 .thenThrow(new IllegalStateException("DB failure"));
 
-        assertThatThrownBy(() -> service.upload(1L, List.of(
+        assertThatThrownBy(() -> service.upload(1L, AttachType.PRODUCT, List.of(
                 image("first.jpg"), image("second.jpg"))))
                 .isInstanceOf(IllegalStateException.class);
 
@@ -75,12 +76,43 @@ class ImageUploadServiceTest {
                 .thenReturn("https://images.example/first")
                 .thenThrow(new ImageStorageException("S3 failure"));
 
-        assertThatThrownBy(() -> service.upload(2L, List.of(
+        assertThatThrownBy(() -> service.upload(2L, AttachType.PRODUCT, List.of(
                 image("first.jpg"), image("second.jpg"))))
                 .isInstanceOf(ImageStorageException.class);
 
         verify(objectStorage, times(2)).delete(anyString());
         verify(containerStore, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("용도에 따라 객체 키 접두어가 갈린다")
+    void usesKeyPrefixOfAttachType() {
+        when(objectStorage.put(anyString(), any(byte[].class), anyString()))
+                .thenAnswer(invocation -> "https://images.example/" + invocation.getArgument(0, String.class));
+        when(containerStore.save(any(ItemContainer.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.upload(7L, AttachType.COMMENT, List.of(image("comment.jpg")));
+
+        ArgumentCaptor<String> commentKey = ArgumentCaptor.forClass(String.class);
+        verify(objectStorage).put(commentKey.capture(), any(byte[].class), anyString());
+        assertThat(commentKey.getValue()).startsWith("comment-images/7/");
+
+        // PRODUCT 접두어는 이미 배포된 객체가 쓰고 있으므로 바뀌면 안 된다.
+        service.upload(7L, AttachType.PRODUCT, List.of(image("product.jpg")));
+
+        ArgumentCaptor<String> allKeys = ArgumentCaptor.forClass(String.class);
+        verify(objectStorage, times(2)).put(allKeys.capture(), any(byte[].class), anyString());
+        assertThat(allKeys.getAllValues().get(1)).startsWith("product-images/7/");
+    }
+
+    @Test
+    @DisplayName("용도가 없으면 400으로 거부한다")
+    void rejectsMissingAttachType() {
+        assertThatThrownBy(() -> service.upload(1L, null, List.of(image("product.jpg"))))
+                .isInstanceOf(ApiException.class);
+
+        verify(objectStorage, never()).put(anyString(), any(byte[].class), anyString());
     }
 
     @Test
@@ -93,7 +125,7 @@ class ImageUploadServiceTest {
         TransactionSynchronizationManager.initSynchronization();
 
         try {
-            service.upload(3L, List.of(image("product.jpg")));
+            service.upload(3L, AttachType.PRODUCT, List.of(image("product.jpg")));
             TransactionSynchronizationManager.getSynchronizations()
                     .forEach(synchronization -> synchronization.afterCompletion(
                             TransactionSynchronization.STATUS_ROLLED_BACK));
@@ -116,7 +148,7 @@ class ImageUploadServiceTest {
         TransactionSynchronizationManager.initSynchronization();
 
         try {
-            service.upload(4L, List.of(image("product.jpg")));
+            service.upload(4L, AttachType.PRODUCT, List.of(image("product.jpg")));
             TransactionSynchronizationManager.getSynchronizations()
                     .forEach(synchronization -> synchronization.afterCompletion(
                             TransactionSynchronization.STATUS_UNKNOWN));
@@ -133,7 +165,7 @@ class ImageUploadServiceTest {
         ImageUploadService.UploadImage fake = new ImageUploadService.UploadImage(
                 "fake.jpg", "image/jpeg", new byte[]{1, 2, 3});
 
-        assertThatThrownBy(() -> service.upload(1L, List.of(fake)))
+        assertThatThrownBy(() -> service.upload(1L, AttachType.PRODUCT, List.of(fake)))
                 .isInstanceOf(ApiException.class);
 
         verifyNoInteractions(objectStorage, containerStore);
