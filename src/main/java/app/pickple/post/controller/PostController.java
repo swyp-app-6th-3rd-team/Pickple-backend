@@ -11,14 +11,12 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 
 @RestController
-@RequestMapping("/api/posts")
 @RequiredArgsConstructor
 public class PostController {
 
@@ -33,7 +31,7 @@ public class PostController {
      */
     @Operation(summary = "게시글 목록 조회",
             description = "카테고리 필터와 정렬(최신순·인기순), 커서 기반 무한 스크롤. 게시글이 없으면 빈 배열이다.")
-    @GetMapping
+    @GetMapping("/api/posts")
     public ApiResponse<ScrollResponse<PostListItem>> findAll(
             @Parameter(description = "없으면 전체") @RequestParam(required = false) PostCategory category,
             @Parameter(description = "LATEST(기본) | POPULAR") @RequestParam(required = false) String sort,
