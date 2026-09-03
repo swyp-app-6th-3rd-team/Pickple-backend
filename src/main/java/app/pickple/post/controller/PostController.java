@@ -67,8 +67,7 @@ public class PostController {
             @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
             @Schema(description = "작성 시각") LocalDateTime createdAt,
             @Schema(description = "작성자 식별자") Long authorId,
-            @Schema(description = "작성자 닉네임") String authorNickname,
-            @Schema(description = "작성자 포인트 순위") long authorRanking) {
+            @Schema(description = "작성자 닉네임") String authorNickname) {
 
         static PostListItem from(PostQueryStore.PostListView view) {
             return new PostListItem(
@@ -82,8 +81,7 @@ public class PostController {
                     view.thumbnailUrl(),
                     view.createdAt(),
                     view.authorId(),
-                    view.authorNickname(),
-                    view.authorRanking());
+                    view.authorNickname());
         }
     }
 }

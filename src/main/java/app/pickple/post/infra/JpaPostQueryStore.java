@@ -73,8 +73,7 @@ public class JpaPostQueryStore implements PostQueryStore {
                 toCreatedAt(row[Column.CREATED_AT]),
                 (String) row[Column.THUMBNAIL_URL],
                 toLong(row[Column.AUTHOR_ID]),
-                (String) row[Column.AUTHOR_NICKNAME],
-                toLong(row[Column.AUTHOR_RANKING]));
+                (String) row[Column.AUTHOR_NICKNAME]);
     }
 
     private static LocalDateTime toCreatedAt(Object raw) {

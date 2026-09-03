@@ -266,6 +266,48 @@ class PostListApiIntegrationTest {
     }
 
     @Test
+    @DisplayName("인기순은 스크롤 도중 점수가 바뀌면 최선 노력이다")
+    void popularSortIsBestEffortWhileScoresChange() throws Exception {
+        // ERD 초안 §8.4 가 세 가지 일관성 모델을 놓고 <b>A(최선 노력)</b> 를 택했다.
+        // 스냅샷(B)·랭킹 에포크(C) 는 각각 낡은 순위와 배치 비용을 대가로 한다.
+        //
+        // 이 테스트는 "누락되지 않는다" 를 주장하지 않는다. 그 반대다 —
+        // 아직 못 본 글이 스크롤 도중 커서 위로 올라가면 이번 traversal 에서
+        // 빠질 수 있다는 것이 <b>합의된 계약</b>임을 고정한다. 계약을 바꾸려면
+        // 이 테스트가 먼저 실패해야 한다.
+        List<Post> posts = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            posts.add(saveAgreePost("최선 노력 " + i, EMPTY_CATEGORY, 1));
+        }
+        flush();
+
+        // 첫 조각 3건을 받는다.
+        String first = read("/api/posts?sort=POPULAR&category=" + EMPTY_CATEGORY + "&size=3");
+        String cursor = JsonPath.read(first, "$.returnObject.nextCursor");
+        List<Integer> seen = new ArrayList<>();
+        ((JSONArray) JsonPath.read(first, "$.returnObject.content[*].id"))
+                .forEach(id -> seen.add((Integer) id));
+
+        // 아직 보지 못한 글 하나가 표를 얻어 커서 위로 올라간다.
+        Post unseen = posts.get(0);
+        assertThat(seen).doesNotContain(unseen.id().intValue());
+        voteService.castOrChange(unseen.id(), firstOptionId(unseen.id()),
+                saveUser("late-voter-" + seed, "늦은표").id());
+        flush();
+
+        String second = read(
+                "/api/posts?sort=POPULAR&category=" + EMPTY_CATEGORY + "&size=3&cursor=" + cursor);
+        ((JSONArray) JsonPath.read(second, "$.returnObject.content[*].id"))
+                .forEach(id -> seen.add((Integer) id));
+
+        // 점수가 오른 그 글은 이번 traversal 에서 빠진다. 중복은 없다.
+        assertThat(seen).doesNotHaveDuplicates();
+        assertThat(seen)
+                .as("최선 노력 계약 — 스크롤 중 순위가 오른 글은 이번 회차에서 누락될 수 있다")
+                .doesNotContain(unseen.id().intValue());
+    }
+
+    @Test
     @DisplayName("점수가 조각 경계에서 바뀌어도 뒤쪽 글이 누락되지 않는다")
     void cursorSurvivesSortValueChangeAcrossSliceBoundary() throws Exception {
         // 이 케이스가 keyset 조건의 진짜 시험대다.
