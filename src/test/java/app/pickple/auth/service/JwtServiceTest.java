@@ -26,7 +26,7 @@ class JwtServiceTest {
 
     private static final User USER = User.restore(
             42L, SocialProvider.GOOGLE, "sub-1", "u@example.com", "홍길동",
-            Role.ROLE_USER, User.State.ACTIVE);
+            Role.ROLE_USER, User.State.ACTIVE, null, null);
 
     private JwtService jwtServiceAt(LocalDateTime now) {
         Clock clock = Clock.fixed(now.atZone(ZONE).toInstant(), ZONE);

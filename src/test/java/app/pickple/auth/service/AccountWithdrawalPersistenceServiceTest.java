@@ -30,7 +30,7 @@ class AccountWithdrawalPersistenceServiceTest {
     @Test
     void marksUserInactiveAndDeletesBothTokenTypes() {
         User user = User.restore(7L, SocialProvider.APPLE, "apple-sub", "user@example.com", "사용자",
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
         given(userStore.findById(7L)).willReturn(Optional.of(user));
         given(userStore.save(user)).willReturn(user);
         AccountWithdrawalPersistenceService service = new AccountWithdrawalPersistenceService(

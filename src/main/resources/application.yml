@@ -119,6 +119,10 @@ app:
       issuer: https://appleid.apple.com
       jwk-set-uri: https://appleid.apple.com/auth/keys
       client-secret-validity: PT10M
+  profile:
+    # 프로필 이미지를 등록하지 않은 사용자에게 무작위로 하나를 준다(명세 §1.5).
+    # 디자인이 이미지를 늘리거나 CDN 주소가 바뀌어도 배포 없이 교체할 수 있게 설정으로 받는다.
+    default-image-urls: ${PROFILE_DEFAULT_IMAGE_URLS:https://images.pickple.app/defaults/profile-1.png,https://images.pickple.app/defaults/profile-2.png,https://images.pickple.app/defaults/profile-3.png,https://images.pickple.app/defaults/profile-4.png}
   file:
     max-file-size: ${FILE_MAX_SIZE:5MB}
     s3:

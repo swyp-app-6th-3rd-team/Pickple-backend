@@ -76,6 +76,10 @@ app/pickple/
 | POST | `/api/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/api/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
 | DELETE | `/api/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
+| GET | `/api/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
+| GET | `/api/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
+| POST | `/api/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
+| PATCH | `/api/users/profile` | 필요 | 프로필 수정. 이미지 생략 시 쓰던 이미지 유지 |
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
@@ -156,6 +160,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V1__auth_tables.sql` | `db/migration` | 항상 |
 | `V3__pickple_domain.sql` | `db/migration` | 항상 |
 | `V4__apple_provider_tokens.sql` | `db/migration` | 항상 |
+| `V5__active_nickname_follows_state.sql` | `db/migration` | 항상 |
 
 ---
 
@@ -276,6 +281,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 |---|---|---|
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
 | 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |
+| 2026-09-03 | 탈퇴 정본을 `users.state` 로 통일하고 `deleted_at` 제거 | 생성 컬럼이 `deleted_at` 을 보는데 코드는 `state` 만 써서 탈퇴해도 닉네임이 잠겼다(#16) |
 | 2026-09-03 | `POST /api/images` 에 `attachType` 필수 파라미터 추가 | 상품 전용에서 범용으로 전환(#62). 기존 호출자는 400 |
 | 2026-08-15 | `Instant` → `LocalDateTime` | Sakila 컬럼이 `DATETIME`(타임존 없음) |
 | 2026-08-15 | `PageQuery`/`PageResult` 자체 래퍼 제거 → Spring Data 타입 직접 사용 | 무한 스크롤에 `Window` 가 필요 |

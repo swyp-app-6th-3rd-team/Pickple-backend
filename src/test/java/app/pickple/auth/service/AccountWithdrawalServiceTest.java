@@ -120,6 +120,6 @@ class AccountWithdrawalServiceTest {
 
     private static User user(SocialProvider provider) {
         return User.restore(7L, provider, "provider-sub", "user@example.com", "사용자",
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
     }
 }
