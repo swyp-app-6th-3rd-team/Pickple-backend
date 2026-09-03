@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
-class UserProfileApiIntegrationTest {
+class UserProfileApiIT {
 
     @Autowired
     private WebApplicationContext context;
