@@ -1,6 +1,6 @@
 package app.pickple.auth.apple;
 
-import app.pickple.auth.config.AppleProperties;
+import app.pickple.config.AppleProperties;
 import app.pickple.auth.domain.AppleProviderTokenStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

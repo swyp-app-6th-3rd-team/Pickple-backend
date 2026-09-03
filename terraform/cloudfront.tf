@@ -29,7 +29,7 @@ resource "aws_cloudfront_distribution" "images" {
 
   # 커스텀 도메인을 쓰지 않는다. 붙이려면 **us-east-1** 의 ACM 인증서가 필요한데
   # (CloudFront 는 버지니아 리전 인증서만 받는다) 6주 MVP 에 그 값어치가 없다.
-  # 나중에 붙일 때는 IMAGE_PUBLIC_BASE_URL 만 바꾸면 되므로 전환 비용이 낮다.
+  # 나중에 붙일 때는 FILE_PUBLIC_BASE_URL 만 바꾸면 되므로 전환 비용이 낮다.
   price_class = "PriceClass_200" # 한국을 포함하는 최소 등급
 
   origin {

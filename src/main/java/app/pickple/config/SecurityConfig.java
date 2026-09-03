@@ -1,4 +1,4 @@
-package app.pickple.auth.config;
+package app.pickple.config;
 
 import app.pickple.auth.oauth.CustomOAuth2UserService;
 import app.pickple.auth.oauth.HttpCookieOAuth2AuthorizationRequestRepository;

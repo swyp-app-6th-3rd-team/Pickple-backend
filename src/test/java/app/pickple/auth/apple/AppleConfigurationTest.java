@@ -1,6 +1,6 @@
 package app.pickple.auth.apple;
 
-import app.pickple.auth.config.AppleProperties;
+import app.pickple.config.AppleProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

@@ -6,7 +6,7 @@ package app.pickple.item.domain;
  * <p>서비스 계층은 S3 SDK를 직접 알지 않는다. 운영에서는 S3가, 통합 테스트에서는
  * 같은 포트 뒤의 LocalStack S3가 동작한다.
  */
-public interface ImageObjectStorage {
+public interface FileObjectStorage {
 
     /** 객체를 저장하고 클라이언트가 사용할 안정적인 접근 URL을 돌려준다. */
     String put(String itemKey, byte[] content, String contentType);

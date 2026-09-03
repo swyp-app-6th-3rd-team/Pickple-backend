@@ -1,7 +1,7 @@
 package app.pickple.auth.controller;
 
 import app.pickple.auth.apple.AppleAuthService;
-import app.pickple.auth.config.AuthProperties;
+import app.pickple.config.AuthProperties;
 import app.pickple.auth.service.AuthService;
 import app.pickple.auth.service.AccountWithdrawalService;
 import app.pickple.error.GlobalExceptionHandler;

@@ -22,7 +22,7 @@ app:
     access-token-validity: PT30M
     refresh-token-validity: P14D
     issuer: pickple-test
-  image:
+  file:
     max-file-size: 5MB
     s3:
       bucket: pickple-image-upload-it

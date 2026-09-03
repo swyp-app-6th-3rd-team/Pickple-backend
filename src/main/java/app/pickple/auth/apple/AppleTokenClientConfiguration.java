@@ -1,6 +1,6 @@
 package app.pickple.auth.apple;
 
-import app.pickple.auth.config.AppleProperties;
+import app.pickple.config.AppleProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;

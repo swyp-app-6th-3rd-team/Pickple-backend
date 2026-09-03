@@ -2,9 +2,9 @@ package app.pickple.item.service;
 
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
-import app.pickple.item.config.ImageStorageProperties;
+import app.pickple.config.FileStorageProperties;
 import app.pickple.item.domain.AttachType;
-import app.pickple.item.domain.ImageObjectStorage;
+import app.pickple.item.domain.FileObjectStorage;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
@@ -27,9 +27,9 @@ public class ImageUploadService {
 
     private static final int MAX_ORIGINAL_FILE_NAME_LENGTH = 255;
 
-    private final ImageObjectStorage objectStorage;
+    private final FileObjectStorage objectStorage;
     private final ItemContainerStore containerStore;
-    private final ImageStorageProperties properties;
+    private final FileStorageProperties properties;
 
     /**
      * 파일 묶음을 S3에 올린 뒤 하나의 컨테이너로 저장한다.
