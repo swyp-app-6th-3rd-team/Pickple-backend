@@ -57,6 +57,27 @@ EC2 인스턴스 프로파일도 `terraform/ec2.tf` 에 이미 부착돼 있어 
 |---|---|---|
 | 1 | `terraform output secret_keys` 가 변경 전후 동일 | 변경 전후 출력 `diff` — 0건이어야 기동 FATAL 위험이 없다 |
 | 2 | 배포 컨테이너가 버킷 미설정 예외 없이 기동 | 앱 로그에 `이미지 S3 버킷이 설정되지 않았습니다` 0건 |
+
+### 실측 결과 (2026-09-03, develop)
+
+| # | 판정 | 결과 |
+|---|---|---|
+| 1 | `secret_keys` 불변 | ✅ 변경 전후 `diff` 0건 |
+| 2 | 버킷 미설정 예외 없이 기동 | ✅ 컨테이너에 `IMAGE_S3_BUCKET` 주입 확인 |
+| 3 | **`POST /api/images` 201** | ✅ `{"code":"CREATED", ... "accessUrl":"https://d1rup0a1ke63t3.cloudfront.net/product-images/1/..."}` |
+| 4 | 익명 GET 200 | ✅ `200 image/jpeg 160` (자격증명 없이) |
+| 5 | 객체 실존 + `cache-control` 일치 | ✅ `{"len":160,"ct":"image/jpeg","cc":"public, max-age=31536000, immutable","sse":"AES256"}` — 앱이 박는 값과 일치하므로 **이 코드 경로가 썼다는 증거** |
+| 7 | **반증** — 권한 없으면 실패 | ✅ statement 제거 시 `AccessDeniedException: assumed-role/pickple-dev-ec2/i-02752e... is not authorized to perform: s3:PutObject ... because no identity-based policy allows` → 복구 후 재차 201. **인스턴스 프로파일 체인을 실제로 탄다는 증거이기도 하다** |
+| 8 | 최소 권한 | ✅ `simulate-principal-policy`: PutObject·DeleteObject=`allowed`, GetObject·ListBucket=`implicitDeny` |
+| — | 복구 후 IaC 정합 | ✅ `terraform plan` → `No changes` (수동 편집 흔적 없음) |
+| — | 테스트 데이터 정리 | ✅ S3 객체 0건, users/item_container/item_resource 0/0/0 |
+
+9·10·11 번은 #62·#63 구현 후 채운다.
+
+> **배포 함정(실측)**: `terraform apply` 만으로는 `/usr/local/bin/fetch-secrets.sh` 가 갱신되지 않는다.
+> user_data 는 cloud-init 최초 부팅에만 실행되므로 재부팅으로도 반영되지 않았고, 렌더링한 스크립트를
+> SSM 으로 직접 밀어 넣어야 했다. 이 구간에서 **헬스체크는 계속 초록인데 업로드만 실패**했다.
+> 상세와 후속 과제는 ADR-0027 참조.
 | 3 | 실제 이미지 업로드가 201 반환 | 인증된 `curl -F` 요청 |
 | 4 | 반환 `accessUrl` 이 CloudFront 도메인이고 익명 GET 200 | 자격증명 없이 `curl -I` → `200` + `image/jpeg` |
 | 5 | S3 에 객체 실존, `cache-control` 이 앱이 박은 값과 일치 | `aws s3api head-object` 의 `CacheControl` 이 `public, max-age=31536000, immutable` |

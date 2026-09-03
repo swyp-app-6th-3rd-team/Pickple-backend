@@ -78,6 +78,26 @@ CloudFront 배포가 살아 있는 한 계속 유효하다.
 | **EC2 역할에 `s3:GetObject` 부여** | 앱이 객체를 읽지 않으므로 불필요한 권한이다. 최소 권한 원칙에 어긋나고, 나중에 읽기 코드가 생겨도 그때 명시적으로 추가하는 편이 낫다 |
 | **커스텀 도메인(`images.pickple.app`)** | CloudFront 는 **us-east-1** 의 ACM 인증서만 받는다. 인증서 발급·검증 단계가 추가되는데 6주 MVP 에서 값어치가 없다. `public-base-url` 이 어댑터라 나중 전환 비용이 낮다 |
 
+## 배포 시 주의 — `fetch-secrets.sh` 는 user_data 로만 갱신된다
+
+`.env` 에 새 키를 추가할 때 **Terraform apply 만으로는 실행 중인 인스턴스에 반영되지 않는다.**
+실측으로 확인한 경로는 이렇다.
+
+| 파일 | 갱신 주체 | apply 로 반영되나 |
+|---|---|---|
+| `docker-compose-ec2.yml` | CD 워크플로가 매 배포마다 base64 로 덮어쓴다 | 배포하면 반영 |
+| `/usr/local/bin/fetch-secrets.sh` | **user_data(cloud-init) 뿐** | ❌ 반영 안 됨 |
+
+user_data 는 cloud-init 이 **최초 부팅에만** 실행하므로, `terraform apply` 로 user_data 가 바뀌어도
+재부팅만으로는 스크립트가 다시 써지지 않는다. 실제로 이 작업에서 apply·재시작·재부팅을 모두 거쳤는데도
+`.env` 에 `IMAGE_S3_BUCKET` 이 들어가지 않아, 렌더링한 스크립트를 SSM 으로 직접 밀어 넣어야 했다.
+
+**증상이 조용하다.** 앱은 정상 기동하고 헬스체크도 초록인 채로 업로드 요청만
+`이미지 S3 버킷이 설정되지 않았습니다` 로 실패한다. 배포 후 반드시 실제 업로드로 확인한다.
+
+> 후속 과제: CD 워크플로가 `fetch-secrets.sh` 도 함께 밀어 넣도록 하면 이 수동 단계가 사라진다.
+> compose 와 Caddyfile 은 이미 그렇게 하고 있으므로 같은 방식이면 된다.
+
 ## 관련
 
 - [ADR-0021](0021-s3-image-object-storage.md) — 이미지 객체를 S3 에 저장한다(이 결정의 전제)
