@@ -1,5 +1,6 @@
 package app.pickple.error;
 
+import app.pickple.comment.domain.DuplicatePickException;
 import app.pickple.common.ApiResponse;
 import app.pickple.common.ResponseCode;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +47,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException e) {
         return status(ResponseCode.NOT_FOUND);
+    }
+
+    /**
+     * 이 게시글에서 이미 원픽했다 (R-05).
+     *
+     * <p>도메인 예외를 여기서 번역한다 — {@code DuplicatePickException} 은
+     * {@code ApiException} 이 아니라 {@code RuntimeException} 을 직접 상속한다.
+     * 도메인 계층이 HTTP 개념({@code ResponseCode})을 알면 안 되기 때문이다(ADR-0008).
+     *
+     * <p>요청 자체는 올바른데 <b>상태가 충돌</b>한 경우라 409 다.
+     * 재시도해도 결과가 같으므로 클라이언트는 400 처럼 요청을 고쳐 보낼 것이 없다.
+     */
+    @ExceptionHandler(DuplicatePickException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDuplicatePick(DuplicatePickException e) {
+        log.warn("원픽 중복: {}", e.getMessage());
+        return status(ResponseCode.ALREADY_PICKED);
     }
 
     /**

@@ -137,6 +137,7 @@ app/pickple/
 | POST | `/api/posts/{postId}/comments` | 필요 | 댓글 작성 |
 | PATCH | `/api/comments/{id}` | 필요 (작성자) | 댓글 내용 수정 |
 | DELETE | `/api/comments/{id}` | 필요 (작성자) | 댓글 소프트 삭제 |
+| POST | `/api/comments/{commentId}/pick` | 필요 | 댓글 원픽 |
 
 - 목록은 `(created_at, id)` 오름차순이며 현재 계약에는 페이징이 없다.
 - 댓글·작성자 프로필·원픽 수를 단일 조회로 읽는다. `nickname`이 아직 설정되지 않은
@@ -145,6 +146,32 @@ app/pickple/
   `mine`을 함께 제공한다. 게스트 요청의 `mine`은 항상 `false`다.
 - 차단·신고와 게스트 로그인 유도 모달은 서버 댓글 CRUD가 아니라 후속 기능/UI 범위다.
 
+**원픽** (ADR-0018·ADR-0020)
+
+- **한 사람은 한 게시글에서 댓글 하나만 원픽한다**(R-05). 유일성 범위가 댓글이 아니라
+  **게시글**이라 같은 글의 다른 댓글을 고르는 것도 거부된다. 판정은 `UNIQUE(user_id, post_id)` 가
+  원자적으로 한다 — 확인 후 삽입은 동시 요청에서 뚫린다.
+- **원픽은 게시글 작성자만의 권한이 아니다.** 댓글 작성자 본인만 아니면 누구나 픽한다.
+  행위자를 한정하던 R-08 은 규칙 목록에서 제외됐다.
+- 취소·변경 경로가 없다(R-06). 요청 본문도 없다 — 대상은 경로가, 픽하는 사람은 토큰이 정한다.
+- 성공 시 `201 CREATED`, `returnObject` 는 `{ id, commentId }`. `id` 는 포인트 지급의 멱등키다.
+- 원픽 1건이 **두 사람**에게 지급한다 — 댓글 작성자 `+10P`, 픽한 사람 `+5P`(R-12).
+  같은 픽으로 재지급되지 않는다 — 멱등키 `UNIQUE(comment_pick_id, reason)`(R-13).
+
+| 실패 | 상태 | `code` |
+|---|---|---|
+| 이 게시글에서 이미 원픽함 (R-05) | 409 | `ALREADY_PICKED` |
+| 자기 댓글 원픽 (R-07) | 400 | `INVALID_REQUEST` |
+| 없는 댓글 · 삭제된 댓글 · 삭제된 게시글 | 400 | `INVALID_REQUEST` |
+| 미인증 | 401 | `UNAUTHORIZED` |
+
+> 중복 원픽이 409 인 이유는 요청이 아니라 **상태가 충돌**했기 때문이다. 요청을 고쳐 다시 보낼 것이
+> 없으므로 400 이 아니다. 반대로 자기 댓글 원픽은 요청 자체가 무효라 400 이며, 인가 실패가
+> 아니므로 403 도 아니다.
+>
+> 다른 게시글의 댓글을 픽하는 경우는 **API 로 표현되지 않는다** — `postId` 를 댓글에서 끌어오므로
+> 어긋난 쌍을 만들 수 없다. 복합 FK `(comment_id, post_id)` 는 그 경로의 버그를 막는
+> 최종 방어선이고, 검증은 `JpaOnePickStoreIT` 가 위조한 `OnePick` 으로 한다.
 ### 3.5 투표
 
 | Method | Path | 인증 | 설명 |
@@ -301,6 +328,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 미인증 · 토큰 오류 | `UNAUTHORIZED` / `INVALID_TOKEN` / `EXPIRED_TOKEN` | 401 |
 | 권한 없음 | `FORBIDDEN` | 403 |
 | 대상 없음 | `NOT_FOUND` | 404 |
+| 상태 충돌 — 닉네임 선점 · 이미 원픽함 | `NICKNAME_ALREADY_IN_USE` / `ALREADY_PICKED` | 409 |
 | Apple 키 미설정·Apple 서버 일시 장애 | `APPLE_LOGIN_UNAVAILABLE` | 503 |
 | Apple 회원 탈퇴 연결 해제 일시 장애 | `APPLE_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
 | Apple token 없는 기존 계정의 로컬 탈퇴 완료 | `APPLE_MANUAL_REVOCATION_REQUIRED` | 200 |
@@ -356,5 +384,6 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 2026-08-30 | refresh CAS·Apple 수동 해제 응답·보상 실패 관측 추가 | PR #12 리뷰 반영 |
 | 2026-09-03 | 댓글 CRUD·게스트 목록·원픽 수 조회 계약 추가 | Issue #23 |
 | 2026-09-03 | 게시글 목록 조회 계약 추가(카테고리·정렬·커서). 작성자 랭킹은 보류 | Issue #19. 랭킹은 요청당 154ms 라 사전 계산 과제로 분리 |
+| 2026-09-03 | 원픽 API 계약 추가. 중복 원픽을 `ALREADY_PICKED`(409) 로 매핑 | Issue #24. 매핑이 없어 정책 위반이 500 으로 나가고 있었음 |
 | 2026-09-03 | 목록 응답에 `authorRanking` 추가. 5분 주기 배치로 사전 계산 | Issue #73. 조회 시점 계산은 200k 기준 102ms/조각이라 배치로 옮김(ADR-0028) |
 | 2026-09-03 | 투표 참여 계약 추가. 선택지별 집계 카운터와 투표 시 락 순서 규정 | Issue #21. 동시 투표에서 `post` 행 락 승격으로 교착이 재현돼 순서를 못박음 |
