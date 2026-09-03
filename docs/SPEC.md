@@ -92,6 +92,22 @@ app/pickple/
 | `/v3/api-docs` | OpenAPI 스펙 |
 | `/llms.txt` · `/llms.md` | LLM 프롬프트용 마크다운 — 같은 스펙을 런타임 렌더 ([ADR-0011](adr/0011-llms-txt-runtime-rendering.md)) |
 
+### 3.3 댓글
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/api/posts/{postId}/comments` | 선택 (게스트 허용) | 활성 댓글 전체 목록 |
+| POST | `/api/posts/{postId}/comments` | 필요 | 댓글 작성 |
+| PATCH | `/api/comments/{id}` | 필요 (작성자) | 댓글 내용 수정 |
+| DELETE | `/api/comments/{id}` | 필요 (작성자) | 댓글 소프트 삭제 |
+
+- 목록은 `(created_at, id)` 오름차순이며 현재 계약에는 페이징이 없다.
+- 댓글·작성자 프로필·원픽 수를 단일 조회로 읽는다. `nickname`이 아직 설정되지 않은
+  기존 사용자는 소셜 `name`을 대체 표시값으로 사용한다.
+- 각 항목은 원본 `createdAt`과 화면용 `createdAgo`, 현재 요청자의 댓글인지 나타내는
+  `mine`을 함께 제공한다. 게스트 요청의 `mine`은 항상 `false`다.
+- 차단·신고와 게스트 로그인 유도 모달은 서버 댓글 CRUD가 아니라 후속 기능/UI 범위다.
+
 ---
 
 ## 4. 스키마
@@ -250,3 +266,4 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 2026-08-29 | Apple 네이티브 로그인과 모바일 JWT 회전 API 추가 | iOS Sign in with Apple 지원 |
 | 2026-08-30 | Apple provider RT 암호화 저장과 회원 탈퇴 시 revoke 추가 | 계정 삭제 시 Apple 연결 해제 필요 |
 | 2026-08-30 | refresh CAS·Apple 수동 해제 응답·보상 실패 관측 추가 | PR #12 리뷰 반영 |
+| 2026-09-03 | 댓글 CRUD·게스트 목록·원픽 수 조회 계약 추가 | Issue #23 |

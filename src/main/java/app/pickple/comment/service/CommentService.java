@@ -3,6 +3,8 @@ package app.pickple.comment.service;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.PostCommenterStore;
+import app.pickple.common.ResponseCode;
+import app.pickple.error.ApiException;
 import app.pickple.post.service.ActivePostGuard;
 import app.pickple.post.domain.PostCounters;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +45,15 @@ public class CommentService {
         return saved;
     }
 
+    /** 작성자만 자신의 활성 댓글 내용을 바꿀 수 있다. */
+    @Transactional
+    public Comment edit(Long commentId, Long requesterId, String content) {
+        Comment comment = findActiveForUpdate(commentId);
+        requireAuthor(comment, requesterId);
+        comment.edit(content);
+        return commentStore.save(comment);
+    }
+
     /**
      * 댓글을 지운다.
      *
@@ -51,11 +62,29 @@ public class CommentService {
      * 남은 댓글을 세야 해서 삭제가 무거워진다. 인기순이 조금 후하게 남는 쪽을 택한다.
      */
     @Transactional
-    public void delete(Long commentId) {
-        Comment comment = commentStore.findById(commentId)
-                .orElseThrow(() -> new IllegalArgumentException("댓글을 찾을 수 없습니다: id=" + commentId));
+    public void delete(Long commentId, Long requesterId) {
+        Comment comment = findActiveForUpdate(commentId);
+        requireAuthor(comment, requesterId);
         comment.delete();
         commentStore.save(comment);
         counters.decreaseCommentCount(comment.postId());
+    }
+
+    private Comment findActiveForUpdate(Long commentId) {
+        Comment comment = commentStore.findByIdForUpdate(commentId)
+                .orElseThrow(() -> new ApiException(
+                        ResponseCode.NOT_FOUND, "댓글을 찾을 수 없습니다: id=" + commentId));
+        if (comment.isDeleted()) {
+            throw new ApiException(ResponseCode.NOT_FOUND, "삭제된 댓글입니다: id=" + commentId);
+        }
+        return comment;
+    }
+
+    private void requireAuthor(Comment comment, Long requesterId) {
+        if (!comment.isWrittenBy(requesterId)) {
+            throw new ApiException(
+                    ResponseCode.FORBIDDEN,
+                    "댓글 작성자만 수정하거나 삭제할 수 있습니다: id=" + comment.id());
+        }
     }
 }

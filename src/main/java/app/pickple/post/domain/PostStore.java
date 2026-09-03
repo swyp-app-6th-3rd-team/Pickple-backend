@@ -8,4 +8,7 @@ public interface PostStore {
     Post save(Post post);
 
     Optional<Post> findById(Long id);
+
+    /** 삭제되지 않은 게시글의 존재 여부. 상호작용 전 가벼운 유효성 검사에 쓴다. */
+    boolean existsActiveById(Long id);
 }
