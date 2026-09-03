@@ -44,22 +44,32 @@ class PostListRepository {
      *
      * <p>{@code RANK} 를 쓰므로 동점자는 같은 순위를 갖고 다음 순위는 건너뛴다
      * (1, 1, 3). 동점 자체는 {@code created_at} 이 갈라주므로 드물다.
+     *
+     * <p>탈퇴 회원을 제외하지 않는다. 제외하면 남은 사람들의 순위 번호가 당겨져
+     * <b>글쓴이가 아무것도 하지 않았는데 순위가 오른다.</b> 목록에 실리는 것은
+     * 등수 자체이므로 모집단을 흔들지 않는 쪽을 택한다. 회원 상태 컬럼에도
+     * 의존하지 않게 되어 그 스키마가 바뀌어도 이 쿼리는 그대로다.
      */
     private static final String AUTHOR_RANKING = """
-            SELECT u.id AS user_id,
-                   RANK() OVER (ORDER BY u.point DESC, u.created_at ASC) AS ranking
-              FROM users u
-             WHERE u.deleted_at IS NULL
+            SELECT ru.id AS user_id,
+                   RANK() OVER (ORDER BY ru.point DESC, ru.created_at ASC) AS ranking
+              FROM users ru
             """;
 
     /**
      * 대표 사진 1장 (§4.2) — 찬반은 상품이 하나뿐이고, A/B 는 A 상품(display_order = 1)이다.
      * 두 경우 모두 {@code display_order = 1} 로 잡히므로 유형 분기가 필요 없다.
      *
-     * <p>사진 URL 은 {@code item_container.access_urls} 에서 첫 항목을 꺼낸다.
-     * {@code item_resource} 를 조인하면 상품 하나가 사진 3장을 가질 때(찬반, R-03)
-     * 게시글 행이 3배로 불어나 GROUP BY 가 필요해진다. 컨테이너에 이미 비정규화돼 있으므로
-     * 조인 하나를 아낀다.
+     * <p><b>스칼라 서브쿼리인 이유</b> — 찬반 상품은 사진을 최대 3장 갖는다(R-03).
+     * {@code item_resource} 를 그냥 조인하면 게시글 한 줄이 사진 수만큼 불어나
+     * 조각 크기가 어긋나고 GROUP BY 가 필요해진다. 서브쿼리는 게시글당 정확히 한 값이다.
+     *
+     * <p>"가장 처음 등록한 사진" 은 {@code item_resource.id} 최소값으로 정한다 —
+     * 같은 컨테이너 안에서 id 순서가 곧 등록 순서이고, {@code created_at} 은
+     * 한 번의 업로드에서 모두 같은 값이라 순서를 가르지 못한다.
+     *
+     * <p>{@code item_container.access_urls} 는 쓰지 않는다. 스키마에 있지만
+     * {@code ItemContainerEntity} 가 매핑하지 않아 <b>값이 채워지지 않는 컬럼</b>이다.
      */
     private static final String SELECT_LIST = """
             SELECT p.id                AS id,
@@ -71,7 +81,11 @@ class PostListRepository {
                    p.comment_count     AS commentCount,
                    p.created_at        AS createdAt,
                    p.popularity_score  AS popularityScore,
-                   SUBSTRING_INDEX(c.access_urls, ',', 1) AS thumbnailUrl,
+                   (SELECT ir.access_url
+                      FROM item_resource ir
+                     WHERE ir.item_container_id = pp.item_container_id
+                     ORDER BY ir.id ASC
+                     LIMIT 1)        AS thumbnailUrl,
                    p.user_id           AS authorId,
                    COALESCE(NULLIF(u.nickname, ''), NULLIF(u.name, ''), '알 수 없음') AS authorNickname,
                    COALESCE(r.ranking, 0) AS authorRanking
@@ -79,7 +93,6 @@ class PostListRepository {
               JOIN users u ON u.id = p.user_id
               LEFT JOIN (%s) r ON r.user_id = p.user_id
               LEFT JOIN post_product pp ON pp.post_id = p.id AND pp.display_order = 1
-              LEFT JOIN item_container c ON c.id = pp.item_container_id
              WHERE p.deleted_at IS NULL
             """.formatted(AUTHOR_RANKING);
 
