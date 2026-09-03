@@ -75,7 +75,7 @@ class AuthServiceTest {
         given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-1")).willReturn(Optional.empty());
         given(userStore.save(any(User.class))).willAnswer(inv -> {
             User u = inv.getArgument(0);
-            return User.restore(1L, u.provider(), u.providerId(), u.email(), u.name(), u.role(), u.state());
+            return User.restore(1L, u.provider(), u.providerId(), u.email(), u.name(), u.role(), u.state(), null, null);
         });
 
         User result = authService.loginOrRegister(googleUser("sub-1"));
@@ -89,7 +89,7 @@ class AuthServiceTest {
     @Test
     void syncsExistingUser() {
         User existing = User.restore(7L, SocialProvider.GOOGLE, "sub-1",
-                "old@example.com", "옛이름", Role.ROLE_USER, User.State.ACTIVE);
+                "old@example.com", "옛이름", Role.ROLE_USER, User.State.ACTIVE, null, null);
         given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-1")).willReturn(Optional.of(existing));
         given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
 
@@ -104,7 +104,7 @@ class AuthServiceTest {
     @Test
     void doesNotOverwriteAppleNameOnRelogin() {
         User existing = User.restore(8L, SocialProvider.APPLE, "apple-sub",
-                "old@example.com", "최초이름", Role.ROLE_USER, User.State.ACTIVE);
+                "old@example.com", "최초이름", Role.ROLE_USER, User.State.ACTIVE, null, null);
         given(userStore.findByProviderAndProviderId(SocialProvider.APPLE, "apple-sub"))
                 .willReturn(Optional.of(existing));
         given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
@@ -120,7 +120,7 @@ class AuthServiceTest {
     @Test
     void rejectsWithdrawnUser() {
         User withdrawn = User.restore(9L, SocialProvider.GOOGLE, "sub-1",
-                null, null, Role.ROLE_USER, User.State.INACTIVE);
+                null, null, Role.ROLE_USER, User.State.INACTIVE, null, null);
         given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-1")).willReturn(Optional.of(withdrawn));
 
         assertThatThrownBy(() -> authService.loginOrRegister(googleUser("sub-1")))
@@ -133,7 +133,7 @@ class AuthServiceTest {
     @Test
     void rejectsWithdrawnUserLookup() {
         User withdrawn = User.restore(9L, SocialProvider.GOOGLE, "sub-1",
-                null, null, Role.ROLE_USER, User.State.INACTIVE);
+                null, null, Role.ROLE_USER, User.State.INACTIVE, null, null);
         given(userStore.findById(9L)).willReturn(Optional.of(withdrawn));
 
         assertThatThrownBy(() -> authService.getById(9L))
@@ -146,7 +146,7 @@ class AuthServiceTest {
     @Test
     void storesRefreshTokenAsHash() {
         User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
 
         AuthService.TokenPair tokens = authService.issueTokens(user);
 
@@ -166,7 +166,7 @@ class AuthServiceTest {
     @Test
     void refreshesWithValidToken() {
         User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
         String refreshToken = jwtService.createRefreshToken(user);
 
         given(refreshTokenStore.findByUserId(1L)).willReturn(Optional.of(
@@ -194,7 +194,7 @@ class AuthServiceTest {
     @Test
     void rejectsHashMismatchWithoutRevokingCurrentToken() {
         User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
         String submitted = jwtService.createRefreshToken(user);
 
         // 저장소에는 다른 토큰의 해시가 있다 = 이미 회전됐거나 탈취 상황
@@ -214,7 +214,7 @@ class AuthServiceTest {
     @Test
     void rejectsLostRotationRaceWithoutRevokingWinner() {
         User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
         String submitted = jwtService.createRefreshToken(user);
         String submittedHash = JwtService.hash(submitted);
 
@@ -240,7 +240,7 @@ class AuthServiceTest {
     @Test
     void rejectsExpiredStoredToken() {
         User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
         String refreshToken = jwtService.createRefreshToken(user);
 
         given(refreshTokenStore.findByUserId(1L)).willReturn(Optional.of(
@@ -266,7 +266,7 @@ class AuthServiceTest {
     @Test
     void rejectsAccessTokenAsRefresh() {
         User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
         String accessToken = jwtService.createAccessToken(user);
 
         // typ 클레임으로 토큰 종류를 구분하므로 서로 바꿔 쓸 수 없다.

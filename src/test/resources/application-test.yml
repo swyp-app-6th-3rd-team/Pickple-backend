@@ -22,6 +22,10 @@ app:
     access-token-validity: PT30M
     refresh-token-validity: P14D
     issuer: pickple-test
+  profile:
+    default-image-urls:
+      - https://images.local.test/defaults/profile-1.png
+      - https://images.local.test/defaults/profile-2.png
   file:
     max-file-size: 5MB
     s3:

@@ -27,7 +27,7 @@ class AppleLoginCompletionServiceTest {
         AppleLoginCompletionService service = new AppleLoginCompletionService(authService, providerTokenService);
         AppleIdentity identity = new AppleIdentity("apple-sub", "user@example.com", "사용자");
         User user = User.restore(7L, SocialProvider.APPLE, "apple-sub", "user@example.com", "사용자",
-                Role.ROLE_USER, User.State.ACTIVE);
+                Role.ROLE_USER, User.State.ACTIVE, null, null);
         given(authService.loginOrRegister(identity)).willReturn(user);
         given(authService.issueTokens(user)).willReturn(new AuthService.TokenPair("access", "refresh"));
 
