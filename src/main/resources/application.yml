@@ -34,9 +34,9 @@ spring:
     multipart:
       # 서블릿 경계와 서비스 정책을 둘 다 둔다. MockMvc는 이 경계를 우회할 수 있어
       # 서비스에서도 파일당 크기를 다시 검증한다.
-      max-file-size: ${FILE_MAX_SIZE:${IMAGE_MAX_FILE_SIZE:5MB}}
+      max-file-size: ${FILE_MAX_SIZE:5MB}
       # 5MB 파일 3개의 multipart boundary/header 여유를 포함한다.
-      max-request-size: ${FILE_MAX_REQUEST_SIZE:${IMAGE_MAX_REQUEST_SIZE:16MB}}
+      max-request-size: ${FILE_MAX_REQUEST_SIZE:16MB}
 
   security:
     oauth2:
@@ -120,23 +120,14 @@ app:
       jwk-set-uri: https://appleid.apple.com/auth/keys
       client-secret-validity: PT10M
   file:
-    max-file-size: ${FILE_MAX_SIZE:${IMAGE_MAX_FILE_SIZE:5MB}}
+    max-file-size: ${FILE_MAX_SIZE:5MB}
     s3:
-      # ⚠️ FILE_* 로 개명하면서(#63) 구키를 폴백으로 남겼다.
-      #
-      # CD 는 compose 를 매 배포마다 덮어쓰지만 /usr/local/bin/fetch-secrets.sh 는
-      # user_data 최초 부팅에만 쓰인다(ADR-0027). 즉 머지 직후 인스턴스는 아직
-      # IMAGE_* 를 쓰는 옛 스크립트를 들고 있어, 폴백이 없으면 compose 의
-      # ${FILE_S3_BUCKET:-not-configured} 가 조용히 not-configured 로 메꿔져
-      # **헬스체크는 초록인데 업로드만 실패**한다.
-      #
-      # 인스턴스의 fetch-secrets.sh 가 FILE_* 를 쓰도록 갱신되면 이 폴백을 제거한다.
-      bucket: ${FILE_S3_BUCKET:${IMAGE_S3_BUCKET:not-configured}}
+      bucket: ${FILE_S3_BUCKET:not-configured}
       region: ${AWS_REGION:ap-northeast-2}
       # LocalStack 같은 S3 호환 저장소에서만 지정한다. AWS S3는 빈 값으로 둔다.
-      endpoint: ${FILE_S3_ENDPOINT:${IMAGE_S3_ENDPOINT:}}
+      endpoint: ${FILE_S3_ENDPOINT:}
       # CloudFront 등 안정적인 공개 URL의 base. 비면 SDK가 S3 객체 URL을 만든다.
-      public-base-url: ${FILE_PUBLIC_BASE_URL:${IMAGE_PUBLIC_BASE_URL:}}
+      public-base-url: ${FILE_PUBLIC_BASE_URL:}
 
 server:
   # 리버스 프록시(Caddy) 뒤에서 X-Forwarded-Proto 로 scheme 을 복원한다. 없으면 OAuth 의
