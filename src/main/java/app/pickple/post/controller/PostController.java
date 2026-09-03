@@ -51,8 +51,10 @@ public class PostController {
      * 쪼개면 클라이언트가 세 가지 파싱 분기를 갖게 되고, 목록은 세 유형이 섞여 내려오므로
      * 그 분기가 항목마다 필요해진다.
      *
-     * @param voteCount    찬반·A/B 만. 일반 게시글은 투표가 없어 {@code null} 이다
-     * @param thumbnailUrl 찬반=처음 등록한 사진, A/B=A 상품 사진, 일반={@code null}
+     * @param voteCount     찬반·A/B 만. 일반 게시글은 투표가 없어 {@code null} 이다
+     * @param thumbnailUrl  찬반=처음 등록한 사진, A/B=A 상품 사진, 일반={@code null}
+     * @param authorRanking 작성자의 TOP 피커 순위. 배치가 매기기 전이거나 탈퇴한 회원이면
+     *                      {@code null} 이다 — 0 이나 꼴찌 순위를 지어내지 않는다 (ADR-0028)
      */
     public record PostListItem(
             @Schema(description = "게시글 식별자") Long id,
@@ -65,7 +67,9 @@ public class PostController {
             @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
             @Schema(description = "작성 시각") LocalDateTime createdAt,
             @Schema(description = "작성자 식별자") Long authorId,
-            @Schema(description = "작성자 닉네임") String authorNickname) {
+            @Schema(description = "작성자 닉네임") String authorNickname,
+            @Schema(description = "작성자 TOP 피커 순위. 아직 산정되지 않았으면 null (최대 5분 지연)")
+            Integer authorRanking) {
 
         static PostListItem from(PostQueryStore.PostListView view) {
             return new PostListItem(
@@ -79,7 +83,8 @@ public class PostController {
                     view.thumbnailUrl(),
                     view.createdAt(),
                     view.authorId(),
-                    view.authorNickname());
+                    view.authorNickname(),
+                    view.authorRanking());
         }
     }
 }

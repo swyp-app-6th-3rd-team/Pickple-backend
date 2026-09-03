@@ -9,6 +9,7 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
+import app.pickple.point.service.RankingBatchService;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
@@ -81,6 +82,8 @@ class PostControllerIT {
     private EntityManager entityManager;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Autowired
+    private RankingBatchService rankingBatch;
 
     /**
      * 이 클래스만 쓰는 카테고리.
@@ -425,6 +428,68 @@ class PostControllerIT {
     private void stampCreatedAt(Long postId, int minutesAgo) {
         jdbcTemplate.update("UPDATE post SET created_at = ? WHERE id = ?",
                 LocalDateTime.now(clock).minusMinutes(minutesAgo), postId);
+    }
+
+    @Test
+    @DisplayName("목록 응답에 작성자 랭킹이 실린다 (#73)")
+    void exposesAuthorRanking() throws Exception {
+        // 완료 판정: "목록 응답에 작성자 랭킹이 포함된다".
+        // 순위는 전역 값이라 이 테스트가 만든 회원의 절대 등수를 단정할 수 없다
+        // (컨테이너 재사용으로 다른 클래스의 회원이 남아 있다). 확인할 것은
+        // "배치가 매긴 값이 응답까지 흐르는가" 이므로, 배치 후 DB 의 값과 응답을 대조한다.
+        Long postId = saveGeneralPost("랭킹 노출", EMPTY_CATEGORY).id();
+        stampCreatedAt(postId, 1);
+        flush();
+
+        rankingBatch.refresh();
+        flush();
+
+        Integer expected = jdbcTemplate.queryForObject(
+                "SELECT ranking FROM users WHERE id = ?", Integer.class, author.id());
+        assertThat(expected).isNotNull();
+
+        mockMvc.perform(get("/api/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content[0].id").value(postId))
+                .andExpect(jsonPath("$.returnObject.content[0].authorRanking").value(expected));
+    }
+
+    @Test
+    @DisplayName("아직 순위가 없으면 0 이 아니라 null 로 내려간다 (#73)")
+    void unrankedAuthorIsNull() throws Exception {
+        // 배치가 돌기 전 가입한 회원이다. 0 을 채우면 "아직 모른다" 가 "0위" 라는
+        // 거짓이 되고, 실제 꼴찌와 구분되지 않는다.
+        Long postId = saveGeneralPost("미산정 작성자", EMPTY_CATEGORY).id();
+        stampCreatedAt(postId, 1);
+        jdbcTemplate.update("UPDATE users SET ranking = NULL WHERE id = ?", author.id());
+        flush();
+
+        mockMvc.perform(get("/api/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content[0].id").value(postId))
+                .andExpect(jsonPath("$.returnObject.content[0].authorRanking").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("랭킹을 얹어도 쿼리는 여전히 한 번이다 (#73)")
+    void rankingAddsNoQuery() throws Exception {
+        // 랭킹은 이미 하고 있는 작성자 조인에 컬럼 하나로 얹힌다. 별도 조회가 붙으면
+        // 조각 크기만큼 쿼리가 늘어나므로(N+1) 횟수로 못박는다.
+        for (int i = 0; i < 3; i++) {
+            stampCreatedAt(saveGeneralPost("랭킹 " + i, EMPTY_CATEGORY).id(), i + 1);
+        }
+        rankingBatch.refresh();
+        flush();
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        mockMvc.perform(get("/api/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content.length()").value(3));
+
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
     }
 
     /** 저장된 작성자 닉네임. 픽스처가 유일성을 위해 붙인 일련번호까지 포함한다. */
