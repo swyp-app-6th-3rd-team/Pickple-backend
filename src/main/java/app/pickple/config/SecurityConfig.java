@@ -104,6 +104,8 @@ public class SecurityConfig {
                         .requestMatchers(mvc.matcher(HttpMethod.GET, "/")).permitAll()
                         .requestMatchers(toMatchers(mvc, PUBLIC_GET)).permitAll()
                         .requestMatchers(
+                                // 커뮤니티 진입 화면이라 로그인 전에 부른다.
+                                mvc.matcher(HttpMethod.GET, "/api/posts"),
                                 mvc.matcher(HttpMethod.GET, "/api/posts/{postId}/comments"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
                                 mvc.matcher(HttpMethod.GET, "/api/users/nickname/availability"))
