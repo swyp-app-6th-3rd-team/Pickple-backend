@@ -93,12 +93,18 @@ services:
       # 자격증명은 넣지 않는다. EC2 인스턴스 프로파일을 SDK 가 IMDS 로 가져간다(ADR-0013).
       # FILE_S3_ENDPOINT 는 일부러 빠져 있다 — 값이 있으면 endpointOverride 가 켜져
       # 실제 AWS 로 나가지 못하므로, 목록에 없는 편이 안전하다.
-      # ⚠️ 구키 폴백(#63). 인스턴스의 fetch-secrets.sh 가 아직 IMAGE_* 를 쓸 수 있어
-      # (user_data 최초 부팅에만 갱신 — ADR-0027) 신키가 비면 구키로 받는다.
-      # 인스턴스 스크립트가 FILE_* 로 갱신되면 이 폴백을 제거한다.
-      FILE_S3_BUCKET: ${FILE_S3_BUCKET:-${IMAGE_S3_BUCKET:-not-configured}}
+      # ⚠️ 전환기 폴백(#63). 인스턴스의 fetch-secrets.sh 는 user_data 최초 부팅에만
+      # 갱신되므로(ADR-0027) 머지 직후엔 아직 IMAGE_* 를 쓰는 옛 스크립트가 돈다.
+      # 구키를 컨테이너에 그대로 넘겨 application.yml 의 폴백이 받게 한다.
+      # 인스턴스 스크립트가 FILE_* 로 갱신되면 이 두 줄과 yml 폴백을 함께 제거한다.
+      # ⚠️ FILE_S3_BUCKET 을 여기서 넘기지 않는다.
+      # compose 의 빈 기본값은 **빈 문자열을 정의**하고, Spring 의 중첩 플레이스홀더는
+      # "정의되었는가"로 판단하므로 빈 값이면 폴백이 죽는다
+      # (FileStoragePlaceholderTest 가 이 동작을 고정한다).
+      # 전환기에는 구키만 넘기고, 값 결정은 application.yml 이 쥔다.
+      IMAGE_S3_BUCKET: ${IMAGE_S3_BUCKET:-}
       # 빈 값이 정상 동작이다(SDK 가 S3 객체 URL 로 폴백). not-configured 로 "고치지" 말 것.
-      FILE_PUBLIC_BASE_URL: ${FILE_PUBLIC_BASE_URL:-${IMAGE_PUBLIC_BASE_URL:-}}
+      IMAGE_PUBLIC_BASE_URL: ${IMAGE_PUBLIC_BASE_URL:-}
       AWS_REGION: ${AWS_REGION:-ap-northeast-2}
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       AUTH_COOKIE_SECURE: "true"
