@@ -38,4 +38,9 @@ public class JpaUserStore implements UserStore {
     public Optional<User> findByProviderAndProviderId(SocialProvider provider, String providerId) {
         return repository.findByProviderAndProviderId(provider, providerId).map(UserEntity::toDomain);
     }
+
+    @Override
+    public boolean existsActiveNickname(String nickname) {
+        return repository.countActiveNickname(nickname) > 0;
+    }
 }

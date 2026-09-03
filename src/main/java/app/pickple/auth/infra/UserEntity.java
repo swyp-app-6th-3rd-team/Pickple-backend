@@ -50,6 +50,12 @@ public class UserEntity {
     @Column(name = "state", nullable = false, length = 20)
     private User.State state;
 
+    @Column(name = "nickname", length = 5)
+    private String nickname;
+
+    @Column(name = "profile_image_url", length = 500)
+    private String profileImageUrl;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -64,6 +70,8 @@ public class UserEntity {
         this.name = user.name();
         this.role = user.role();
         this.state = user.state();
+        this.nickname = toNicknameValue(user);
+        this.profileImageUrl = user.profileImageUrl();
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -76,10 +84,17 @@ public class UserEntity {
         this.email = user.email();
         this.name = user.name();
         this.state = user.state();
+        this.nickname = toNicknameValue(user);
+        this.profileImageUrl = user.profileImageUrl();
         this.updatedAt = now;
     }
 
     public User toDomain() {
-        return User.restore(id, provider, providerId, email, name, role, state);
+        return User.restore(id, provider, providerId, email, name, role, state,
+                nickname, profileImageUrl);
+    }
+
+    private static String toNicknameValue(User user) {
+        return user.nickname() == null ? null : user.nickname().value();
     }
 }
