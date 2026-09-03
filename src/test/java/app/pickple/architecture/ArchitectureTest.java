@@ -1,5 +1,6 @@
 package app.pickple.architecture;
 
+import app.pickple.support.IntegrationTest;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -38,12 +39,28 @@ class ArchitectureTest {
     private static final String DOMAIN = "..domain..";
 
     private static JavaClasses classesUnderTest;
+    private static JavaClasses classesIncludingTests;
 
     @BeforeAll
     static void importClasses() {
         classesUnderTest = new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
                 .importPackages(BASE);
+        classesIncludingTests = new ClassFileImporter()
+                .importPackages(BASE);
+    }
+
+    @Nested
+    @DisplayName("테스트 네이밍")
+    class TestNaming {
+
+        @Test
+        @DisplayName("통합 테스트 클래스 이름은 IT 로 끝난다")
+        void integrationTestsEndWithIT() {
+            classes().that().areAnnotatedWith(IntegrationTest.class)
+                    .should().haveSimpleNameEndingWith("IT")
+                    .check(classesIncludingTests);
+        }
     }
 
     @Nested

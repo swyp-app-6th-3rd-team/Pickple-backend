@@ -1,4 +1,4 @@
-package app.pickple.comment;
+package app.pickple.comment.controller;
 
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
-class CommentApiIntegrationTest {
+class CommentControllerIT {
 
     @Autowired
     private WebApplicationContext context;
