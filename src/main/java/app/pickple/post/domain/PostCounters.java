@@ -15,6 +15,18 @@ public interface PostCounters {
     /** 투표한 사람이 늘었다. 재투표는 부르지 않는다 (R-22). */
     void increaseVoteCount(Long postId);
 
+    /** 이 선택지가 표를 하나 얻었다. 득표율 표시용 (R-22). */
+    void increaseOptionVoteCount(Long postOptionId);
+
+    /**
+     * 이 선택지가 표를 하나 잃었다. 선택 변경에서만 부른다 (R-22).
+     *
+     * <p>표를 되돌리는 경로가 여기뿐이라 0 아래로 갈 일이 없지만,
+     * {@code INT UNSIGNED} 는 언더플로에서 조용히 0 이 되는 게 아니라
+     * {@code ERROR 1690} 으로 요청을 통째로 죽인다. 바닥을 0 으로 막는다.
+     */
+    void decreaseOptionVoteCount(Long postOptionId);
+
     /** 이 게시글에 처음 댓글을 단 사람이 생겼다 (R-25). */
     void increaseCommenterCount(Long postId);
 
