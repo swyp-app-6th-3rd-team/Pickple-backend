@@ -28,7 +28,7 @@
   `/comments/{id}` 계열(PATCH·DELETE)을 소유하고 있어 경로 소유권이 갈리지 않게 한다
 - `ResponseCode.ALREADY_PICKED` (409) 신설
 - `GlobalExceptionHandler` 에 `DuplicatePickException` → 409 매핑
-- `OnePickApiIT` — HTTP 상태코드 계약
+- `OnePickControllerIT` — HTTP 상태코드 계약
 - `OnePickConcurrencyIT` — 동시 요청에서의 행 유일성
 - `docs/SPEC.md` 원픽 계약 + 변경 이력
 
@@ -51,16 +51,16 @@
 
 | # | 판정 | 검증 방법 | 결과 |
 |---|---|---|---|
-| 1 | 같은 게시글의 **다른 댓글** 두 번째 원픽 거부, `comment_pick` 행 1개 유지 (R-05) | `OnePickApiIT#secondPickOnSamePostConflicts` — 409 `ALREADY_PICKED` 후 `SELECT COUNT(*) FROM comment_pick WHERE user_id=? AND post_id=?` | ✅ 409, `COUNT=1` |
-| 2 | 같은 댓글 재픽도 거부 (R-26 은 R-05 에 흡수) | `OnePickApiIT#repickingSameCommentConflicts` — 같은 쿼리 | ✅ 409, `COUNT=1` |
+| 1 | 같은 게시글의 **다른 댓글** 두 번째 원픽 거부, `comment_pick` 행 1개 유지 (R-05) | `OnePickControllerIT#secondPickOnSamePostConflicts` — 409 `ALREADY_PICKED` 후 `SELECT COUNT(*) FROM comment_pick WHERE user_id=? AND post_id=?` | ✅ 409, `COUNT=1` |
+| 2 | 같은 댓글 재픽도 거부 (R-26 은 R-05 에 흡수) | `OnePickControllerIT#repickingSameCommentConflicts` — 같은 쿼리 | ✅ 409, `COUNT=1` |
 | 3 | **동시 원픽 요청에서도 행이 하나만** | `OnePickConcurrencyIT` — 8스레드가 `CyclicBarrier` 로 동시에 **서로 다른 댓글**을 픽. `SELECT COUNT(*) WHERE user_id=? AND post_id=?` | ✅ `COUNT=1`. 상태코드 분포 **201×1 + 409×7** |
-| 4 | 자기 댓글 원픽 거부 (R-07) | `OnePickApiIT#cannotPickOwnComment` — 400 + `COUNT=0` | ✅ 400 `INVALID_REQUEST`, `COUNT=0` |
-| 5 | 원픽 1회로 **포인트 이력 정확히 2행** — 작성자 +10P, 픽한 사람 +5P (R-12) | `OnePickApiIT#pickGrantsExactlyTwoRows` — `SELECT user_id, amount, reason FROM point_history WHERE comment_pick_id=?` 의 **행 수와 각 행의 값** | ✅ 2행. `(작성자, 10, PICKED)` · `(픽커, 5, PICKING)` |
+| 4 | 자기 댓글 원픽 거부 (R-07) | `OnePickControllerIT#cannotPickOwnComment` — 400 + `COUNT=0` | ✅ 400 `INVALID_REQUEST`, `COUNT=0` |
+| 5 | 원픽 1회로 **포인트 이력 정확히 2행** — 작성자 +10P, 픽한 사람 +5P (R-12) | `OnePickControllerIT#pickGrantsExactlyTwoRows` — `SELECT user_id, amount, reason FROM point_history WHERE comment_pick_id=?` 의 **행 수와 각 행의 값** | ✅ 2행. `(작성자, 10, PICKED)` · `(픽커, 5, PICKING)` |
 | 6 | 같은 원픽에 대한 **중복 지급 0건** (R-13) | 거부된 두 번째 시도 후 `SELECT COUNT(*) FROM point_history WHERE user_id=?` | ✅ `COUNT=1` (첫 픽분만) |
 | 7 | 동시 요청에서도 지급은 성공한 1건에 대해서만 | `OnePickConcurrencyIT` — 픽 전체에 딸린 `point_history` 행 수 | ✅ 2행 (두 사람 × 성공 1건) |
 | 8 | 다른 게시글의 댓글 원픽 거부 (복합 FK) | `JpaOnePickStoreIT#crossPostPickRejected` — **위조한 `OnePick`** 으로 `DataIntegrityViolationException` 확인 | ✅ 기존 테스트로 이미 충족 (아래 주석 참조) |
-| 9 | 미인증 요청 거부 | `OnePickApiIT#guestCannotPick` — 401 + `COUNT=0` | ✅ 401 `UNAUTHORIZED`, `COUNT=0` |
-| 10 | 삭제된 댓글·삭제된 게시글은 픽 불가 | `OnePickApiIT#deletedCommentRejected`·`#deletedPostRejected` — 400 + `COUNT=0` | ✅ 각각 400, `COUNT=0` |
+| 9 | 미인증 요청 거부 | `OnePickControllerIT#guestCannotPick` — 401 + `COUNT=0` | ✅ 401 `UNAUTHORIZED`, `COUNT=0` |
+| 10 | 삭제된 댓글·삭제된 게시글은 픽 불가 | `OnePickControllerIT#deletedCommentRejected`·`#deletedPostRejected` — 400 + `COUNT=0` | ✅ 각각 400, `COUNT=0` |
 
 ### 8번이 HTTP 테스트가 아닌 이유
 

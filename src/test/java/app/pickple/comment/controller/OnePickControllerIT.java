@@ -49,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
-class OnePickApiIT {
+class OnePickControllerIT {
 
     @Autowired
     private WebApplicationContext context;
