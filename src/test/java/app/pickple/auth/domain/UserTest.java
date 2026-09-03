@@ -116,4 +116,79 @@ class UserTest {
                     .withMessageContaining("지원하지 않는");
         }
     }
+
+    @Nested
+    @DisplayName("프로필 등록")
+    class ProfileRegistration {
+
+        @Test
+        @DisplayName("가입 직후에는 프로필이 비어 있다")
+        void startsWithoutProfile() {
+            User user = new User(SocialProvider.GOOGLE, "google-123", null, "홍길동");
+
+            assertThat(user.hasProfile()).isFalse();
+            assertThat(user.nickname()).isNull();
+            assertThat(user.profileImageUrl()).isNull();
+        }
+
+        @Test
+        @DisplayName("닉네임과 이미지를 등록한다")
+        void registersProfile() {
+            User user = new User(SocialProvider.GOOGLE, "google-123", null, "홍길동");
+
+            user.registerProfile(new Nickname("피클"), "https://cdn/p.png");
+
+            assertThat(user.hasProfile()).isTrue();
+            assertThat(user.nickname()).isEqualTo(new Nickname("피클"));
+            assertThat(user.profileImageUrl()).isEqualTo("https://cdn/p.png");
+        }
+
+        @Test
+        @DisplayName("닉네임 없이는 등록할 수 없다")
+        void requiresNickname() {
+            User user = new User(SocialProvider.GOOGLE, "google-123", null, "홍길동");
+
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> user.registerProfile(null, "https://cdn/p.png"))
+                    .withMessageContaining("닉네임");
+        }
+
+        @Test
+        @DisplayName("이미지를 주지 않으면 쓰던 이미지를 유지한다")
+        void keepsExistingImageWhenNotGiven() {
+            User user = new User(SocialProvider.GOOGLE, "google-123", null, "홍길동");
+            user.registerProfile(new Nickname("피클"), "https://cdn/first.png");
+
+            user.registerProfile(new Nickname("피클2"), null);
+            assertThat(user.profileImageUrl()).isEqualTo("https://cdn/first.png");
+
+            user.registerProfile(new Nickname("피클3"), "   ");
+            assertThat(user.profileImageUrl()).isEqualTo("https://cdn/first.png");
+        }
+
+        @Test
+        @DisplayName("탈퇴한 사용자는 프로필을 등록할 수 없다")
+        void withdrawnUserCannotRegister() {
+            User user = new User(SocialProvider.GOOGLE, "google-123", null, "홍길동");
+            user.withdraw();
+
+            assertThatIllegalStateException()
+                    .isThrownBy(() -> user.registerProfile(new Nickname("피클"), null))
+                    .withMessageContaining("탈퇴");
+        }
+
+        @Test
+        @DisplayName("탈퇴해도 닉네임 값 자체는 남는다")
+        void withdrawKeepsNicknameValue() {
+            // 반납은 값을 지워서가 아니라 스키마의 생성 컬럼이 state 를 보기 때문에 일어난다.
+            // 도메인이 값을 지우면 "누가 쓰던 닉네임인지" 를 잃는다.
+            User user = new User(SocialProvider.GOOGLE, "google-123", null, "홍길동");
+            user.registerProfile(new Nickname("피클"), null);
+
+            user.withdraw();
+
+            assertThat(user.nickname()).isEqualTo(new Nickname("피클"));
+            assertThat(user.isActive()).isFalse();
+        }
+    }
 }

@@ -36,6 +36,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -73,6 +75,8 @@ class PostControllerIT {
     private VoteService voteService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private Clock clock;
     @Autowired
     private EntityManager entityManager;
     @Autowired
@@ -125,6 +129,13 @@ class PostControllerIT {
         Long agreeId = saveAgreePost("가방 살까", EMPTY_CATEGORY, 3).id();
         Long abId = saveAbPost("A 냐 B 냐", EMPTY_CATEGORY).id();
         Long generalId = saveGeneralPost("그냥 잡담", EMPTY_CATEGORY).id();
+
+        // 순서를 <b>시각으로 명시</b>한다. 세 건이 같은 초에 저장되면 순서는 id 가 가르는데,
+        // 그 id 순서는 픽스처의 저장 방식(JPA vs JDBC)에 따라 달라질 수 있다.
+        // 이 테스트가 보려는 것은 유형별 필드이지 id 채번 순서가 아니므로 시각을 못박는다.
+        stampCreatedAt(agreeId, 3);
+        stampCreatedAt(abId, 2);
+        stampCreatedAt(generalId, 1);
         flush();
 
         // 다른 테스트가 남긴 게시글과 섞이지 않도록 이 실행이 만든 카테고리로 좁힌다.
@@ -155,6 +166,40 @@ class PostControllerIT {
                 // 찬반은 사진 3장 중 가장 처음 등록한 1장이다 (R-03).
                 .andExpect(jsonPath("$.returnObject.content[2].thumbnailUrl")
                         .value("https://cdn.test/agree-1-" + seed));
+    }
+
+    @Test
+    @DisplayName("작성 시각이 같아도 목록 순서가 매번 같다")
+    void orderIsDeterministicWhenCreatedAtTies() throws Exception {
+        // Clock 이 초 단위로 끊으므로(ClockConfig) 같은 초에 저장된 글은 created_at 이 같다.
+        // 정렬 키가 created_at 하나뿐이면 MySQL 이 동률 구간의 순서를 보장하지 않아
+        // 같은 요청이 매번 다른 순서를 낼 수 있다. (정렬키, id) 튜플이 그것을 막는다.
+        //
+        // CI 에서 이 클래스가 한 번 뒤집힌 적이 있다 — 원인은 정렬이 아니라 픽스처가
+        // 앱 Clock 과 DB NOW() 를 섞어 쓴 것이었다. 그 회귀를 여기서 잡는다.
+        List<Integer> ids = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            ids.add(saveGeneralPost("동시각 " + i, EMPTY_CATEGORY).id().intValue());
+        }
+        flush();
+
+        // 모두 같은 초에 들어갔는지 먼저 확인한다. 아니면 이 테스트는 아무것도 검증하지 않는다.
+        Long distinctInstants = jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT created_at) FROM post WHERE category = ?",
+                Long.class, EMPTY_CATEGORY.name());
+        assertThat(distinctInstants).as("같은 초에 저장돼야 동률을 검증할 수 있다").isEqualTo(1L);
+
+        // 조각을 나눠 끝까지 받는다. 여기가 동률의 진짜 시험대다 —
+        // 커서 조건이 (created_at, id) 튜플이 아니면, 같은 시각을 가진 12건에서
+        // 다음 조각 조건이 이미 준 행을 배제하지 못해 중복되거나 통째로 건너뛴다.
+        List<Integer> scrolled = scrollAll("/api/posts?category=" + EMPTY_CATEGORY, 5);
+
+        assertThat(scrolled).containsExactlyElementsOf(
+                ids.stream().sorted(java.util.Comparator.reverseOrder()).toList());
+
+        // 같은 요청을 반복해도 결과가 같다.
+        assertThat(scrollAll("/api/posts?category=" + EMPTY_CATEGORY, 5))
+                .containsExactlyElementsOf(scrolled);
     }
 
     @Test
@@ -376,6 +421,12 @@ class PostControllerIT {
         return saved;
     }
 
+    /** 게시글의 작성 시각을 기준 시각에서 {@code minutesAgo} 분 앞으로 못박는다. */
+    private void stampCreatedAt(Long postId, int minutesAgo) {
+        jdbcTemplate.update("UPDATE post SET created_at = ? WHERE id = ?",
+                LocalDateTime.now(clock).minusMinutes(minutesAgo), postId);
+    }
+
     /** 저장된 작성자 닉네임. 픽스처가 유일성을 위해 붙인 일련번호까지 포함한다. */
     private String authorNickname() {
         return jdbcTemplate.queryForObject(
@@ -408,10 +459,11 @@ class PostControllerIT {
         Long postId = saveWithoutOptions(draft);
         List<Long> productIds = jdbcTemplate.queryForList(
                 "SELECT id FROM post_product WHERE post_id = ? ORDER BY display_order", Long.class, postId);
+        LocalDateTime now = LocalDateTime.now(clock);
         jdbcTemplate.update("""
                 INSERT INTO post_option (post_id, post_product_id, label, display_order, vote_count, created_at)
-                VALUES (?, ?, NULL, 1, 0, NOW()), (?, ?, NULL, 2, 0, NOW())
-                """, postId, productIds.get(0), postId, productIds.get(1));
+                VALUES (?, ?, NULL, 1, 0, ?), (?, ?, NULL, 2, 0, ?)
+                """, postId, productIds.get(0), now, postId, productIds.get(1), now);
         entityManager.flush();
         entityManager.clear();
         return postStore.findById(postId).orElseThrow();
@@ -419,19 +471,24 @@ class PostControllerIT {
 
     /** R-04 를 우회해 상품만 먼저 넣는다. 선택지는 상품 id 를 알아야 만들 수 있다. */
     private Long saveWithoutOptions(Post draft) {
+        // 시각은 반드시 앱 Clock 에서 가져온다. DB 의 NOW() 를 쓰면 시간 원천이 둘로 갈린다 —
+        // Clock 은 초 단위로 내림(ClockConfig)하므로 12:00:00.9 를 12:00:00 으로 쓰는데,
+        // 같은 순간의 NOW() 는 12:00:01 이 되어 <b>나중에 만든 글이 더 이른 시각</b>을 갖는다.
+        // 그러면 최신순 정렬이 저장 순서와 어긋나 CI 에서만 순서가 뒤집힌다(실제로 겪었다).
+        LocalDateTime now = LocalDateTime.now(clock);
         jdbcTemplate.update("""
                 INSERT INTO post (user_id, type, category, title, description, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, author.id(), draft.type().name(), draft.category().name(),
-                draft.title(), draft.description());
+                draft.title(), draft.description(), now, now);
         Long postId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         for (PostProduct product : draft.products()) {
             jdbcTemplate.update("""
                     INSERT INTO post_product
                         (post_id, item_container_id, name, price, link_url, display_order, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, NULL, ?, NOW(), NOW())
+                    VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
                     """, postId, product.itemContainerId(), product.name(),
-                    product.price(), product.displayOrder());
+                    product.price(), product.displayOrder(), now, now);
         }
         return postId;
     }
