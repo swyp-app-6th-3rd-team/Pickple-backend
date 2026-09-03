@@ -32,6 +32,7 @@ ext {
     jjwtVersion = '0.12.6'
     archunitVersion = '1.4.1'
     testcontainersVersion = '1.21.3'
+    awsSdkVersion = '2.53.1'
 }
 
 dependencies {
@@ -57,6 +58,11 @@ dependencies {
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-mysql'
     runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // Object storage — 서비스 코드는 AWS SDK v2 S3 클라이언트만 알고,
+    // 테스트는 같은 클라이언트를 LocalStack endpoint 로 교체한다.
+    implementation platform("software.amazon.awssdk:bom:${awsSdkVersion}")
+    implementation 'software.amazon.awssdk:s3'
 
     // QueryDSL (OpenFeign fork)
     // 주의: annotationProcessor 의 classifier 는 ':jpa' 다. 본가에서 쓰던 ':jakarta' 가 아니다.
@@ -88,6 +94,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'org.testcontainers:mysql'
+    testImplementation 'org.testcontainers:localstack'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation "com.tngtech.archunit:archunit-junit5:${archunitVersion}"
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

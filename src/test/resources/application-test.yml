@@ -22,6 +22,13 @@ app:
     access-token-validity: PT30M
     refresh-token-validity: P14D
     issuer: pickple-test
+  image:
+    max-file-size: 5MB
+    s3:
+      bucket: pickple-image-upload-it
+      region: us-east-1
+      endpoint:
+      public-base-url: http://images.local.test
 
 management:
   # 운영에서는 관리 엔드포인트를 별도 포트로 분리한다(메트릭 외부 노출 방지).

@@ -17,6 +17,8 @@ public enum ResponseCode {
 
     // 요청 오류
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
+    INVALID_IMAGE(HttpStatus.BAD_REQUEST, "JPEG 또는 PNG 이미지 파일만 업로드할 수 있습니다."),
+    IMAGE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "이미지 파일 크기가 허용 범위를 초과했습니다."),
     NOT_FOUND(HttpStatus.NOT_FOUND, "대상을 찾을 수 없습니다."),
 
     // 인증 · 인가

@@ -10,6 +10,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @Slf4j
@@ -26,12 +28,19 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException.class,
             HttpMessageNotReadableException.class,
             MissingServletRequestParameterException.class,
+            MissingServletRequestPartException.class,
             MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleValidation(Exception e) {
         // rejected value에는 authorization code나 token이 들어갈 수 있으므로 상세 메시지를 기록하지 않는다.
         log.warn("요청 검증 실패: {}", e.getClass().getSimpleName());
         return status(ResponseCode.INVALID_REQUEST);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("업로드 용량 초과: {}", e.getMessage());
+        return status(ResponseCode.IMAGE_TOO_LARGE);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
