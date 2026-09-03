@@ -17,6 +17,20 @@
 - 통합 테스트는 MySQL Testcontainers를 사용하므로 로컬 Docker 사용 가능 여부를 먼저 구분한다.
 - 인증 코드와 비밀값을 다룰 때 실제 토큰, 키, 비밀번호를 코드·로그·문서·응답에 복사하지 않는다.
 
+## Git 규약
+
+- 브랜치 이름은 `타입/#이슈번호-작업명` 형식을 지킨다. 예: `feature/#12-profile-update`
+- 타입은 `feature` `feat` `fix` `hotfix` `refactor` `chore` `docs` `test` `perf` `build` `ci` 중 하나다.
+- 작업을 시작하기 전에 대상 이슈 번호를 확인한다. 이슈가 없으면 먼저 이슈를 만든다.
+- 셸에서 `#`은 주석이 될 수 있다. 브랜치 이름은 따옴표로 감싼다.
+  ```
+  git switch -c "feature/#12-profile-update"
+  ```
+- 이슈 번호는 프로젝트 보드의 `In Progress` 전이에 쓰인다. 번호가 없으면 보드가 움직이지 않는다.
+- `.githooks/pre-push`가 이 형식을 검사한다. `develop`과 `main`은 검사하지 않는다.
+- 훅은 `core.hooksPath`로 연결되며 Gradle 빌드가 한 번 돌면 자동 설정된다. 수동 설정은 `git config core.hooksPath .githooks`.
+- 규약을 벗어나야 하면 `git push --no-verify`로 우회하고 PR에 사유를 적는다.
+
 ## 작업 흐름
 
 1. 요청을 관찰 가능한 결과 한 문장으로 고정하고, 포함 범위와 제외 범위를 확인한다.
