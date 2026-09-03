@@ -162,6 +162,69 @@ class ImageUploadControllerIT {
     }
 
     @Test
+    @DisplayName("COMMENT 용도는 댓글 접두어로 저장되고 컨테이너에도 그대로 남는다")
+    void uploadsCommentImageUnderCommentPrefix() throws Exception {
+        MockMultipartFile image = new MockMultipartFile(
+                "images", "댓글 사진.png", "image/png", ONE_PIXEL_PNG);
+
+        MvcResult result = mockMvc.perform(multipart("/api/images")
+                        .file(image)
+                        .param("attachType", "COMMENT")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
+        long containerId = response.at("/returnObject/itemContainerId").asLong();
+
+        ItemContainer container = containerStore.findById(containerId).orElseThrow();
+        assertThat(container.attachType()).isEqualTo(AttachType.COMMENT);
+
+        String itemKey = (String) jdbcTemplate.queryForMap("""
+                SELECT item_key
+                FROM item_resource
+                WHERE item_container_id = ?
+                """, containerId).get("item_key");
+        assertThat(itemKey).startsWith("comment-images/" + userId + "/").endsWith(".png");
+
+        // 실제로 그 키로 S3에 올라갔는지까지 확인한다 — DB 문자열만 맞고 객체는 딴 데 있는 경우를 막는다.
+        ResponseBytes<GetObjectResponse> stored = s3Client.getObjectAsBytes(
+                GetObjectRequest.builder().bucket(BUCKET).key(itemKey).build());
+        assertThat(stored.asByteArray()).containsExactly(ONE_PIXEL_PNG);
+    }
+
+    @Test
+    @DisplayName("용도를 보내지 않으면 400으로 거부한다")
+    void rejectsMissingAttachType() throws Exception {
+        MockMultipartFile image = new MockMultipartFile(
+                "images", "상품 사진.png", "image/png", ONE_PIXEL_PNG);
+
+        mockMvc.perform(multipart("/api/images")
+                        .file(image)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        assertNoStoredImage();
+    }
+
+    @Test
+    @DisplayName("알 수 없는 용도는 400으로 거부한다")
+    void rejectsUnknownAttachType() throws Exception {
+        MockMultipartFile image = new MockMultipartFile(
+                "images", "상품 사진.png", "image/png", ONE_PIXEL_PNG);
+
+        mockMvc.perform(multipart("/api/images")
+                        .file(image)
+                        .param("attachType", "NOT_A_TYPE")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        assertNoStoredImage();
+    }
+
+    @Test
     @DisplayName("이미지가 아닌 Content-Type은 400으로 거부한다")
     void rejectsNonImageContentType() throws Exception {
         MockMultipartFile text = new MockMultipartFile(
