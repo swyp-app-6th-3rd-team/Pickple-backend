@@ -93,6 +93,11 @@ resource "aws_instance" "app" {
       auth_redirect_uri           = var.auth_redirect_uri
       auth_allowed_redirect_hosts = var.auth_allowed_redirect_hosts
       cors_allowed_origins        = var.cors_allowed_origins
+
+      # 이미지 저장소. 버킷 이름과 CDN 도메인 모두 Terraform 이 정본이라
+      # 사람이 옮겨 적는 단계가 없다(옮겨 적으면 반드시 어긋난다).
+      image_s3_bucket       = aws_s3_bucket.images.id
+      image_public_base_url = "https://${aws_cloudfront_distribution.images.domain_name}"
     })
   })
 

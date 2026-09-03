@@ -53,6 +53,26 @@ data "aws_iam_policy_document" "app_runtime" {
     actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
   }
+
+  # 이미지 객체 쓰기 (ADR-0021).
+  #
+  # 앱이 실제로 하는 일만 넣는다. S3ImageObjectStorage 는 putObject 와 deleteObject
+  # 두 가지만 호출한다.
+  #
+  # - s3:GetObject 는 넣지 않는다. accessUrl() 의 utilities().getUrl() 은 네트워크 호출이
+  #   아니라 URL 문자열을 조립할 뿐이다. 최종 사용자의 읽기는 CloudFront 가 버킷 정책으로
+  #   처리하지 이 역할이 아니다(ADR-0027).
+  # - s3:ListBucket 도 넣지 않는다. 앱에 목록 조회가 없다. 부수효과로 없는 키에 대한
+  #   DeleteObject 가 404 대신 204 를 반환하는데, 보상 삭제가 best-effort 라 무해하다.
+  # - s3:PutObjectAcl 은 BucketOwnerEnforced 가 ACL 자체를 거부하므로 주면 안 된다.
+  #
+  # ⚠️ 객체 연산이므로 ARN 은 "버킷/*" 형태다. 버킷 ARN(슬래시 없음)을 쓰면
+  # 조용히 AccessDenied 가 난다.
+  statement {
+    sid       = "WriteImageObjects"
+    actions   = ["s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.images.arn}/*"]
+  }
 }
 
 resource "aws_iam_role_policy" "app_runtime" {
