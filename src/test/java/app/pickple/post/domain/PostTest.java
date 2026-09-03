@@ -146,6 +146,40 @@ class PostTest {
 
             assertThatCode(post::verifyPublishable).doesNotThrowAnyException();
         }
+
+        @Test
+        @DisplayName("새 A/B 선택지는 상품 표시 순서로 A와 B를 각각 가리킨다")
+        void abOptionsCanTargetNewProductsByDisplayOrder() {
+            Post post = ab().addProduct(product(1)).addProduct(product(2))
+                    .addOption(PostOption.ofProductDisplayOrder(1, 1))
+                    .addOption(PostOption.ofProductDisplayOrder(2, 2));
+
+            assertThatCode(post::verifyPublishable).doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("A/B 선택지 둘이 같은 상품을 가리키면 거부한다")
+        void abOptionsCannotTargetSameProduct() {
+            Post post = ab().addProduct(product(1)).addProduct(product(2))
+                    .addOption(PostOption.ofProductDisplayOrder(1, 1))
+                    .addOption(PostOption.ofProductDisplayOrder(1, 2));
+
+            assertThatThrownBy(post::verifyPublishable)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("각각 한 번씩");
+        }
+
+        @Test
+        @DisplayName("새 A/B 게시글은 외부 상품 id를 선택지 대상으로 받을 수 없다")
+        void newAbPostCannotTargetProductIdsDirectly() {
+            Post post = ab().addProduct(product(1)).addProduct(product(2))
+                    .addOption(PostOption.ofProduct(101L, 1))
+                    .addOption(PostOption.ofProduct(102L, 2));
+
+            assertThatThrownBy(post::verifyPublishable)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("표시 순서");
+        }
     }
 
     @Nested
@@ -180,6 +214,18 @@ class PostTest {
 
             assertThatThrownBy(() -> post.verifyPhotoCount(p -> 0))
                     .isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        @DisplayName("사진 오류 메시지에 사용자 입력 상품명을 노출하지 않는다")
+        void photoErrorDoesNotExposeProductName() {
+            String forgedLogLine = "상품\r\nFORGED";
+            Post post = agree().addProduct(new PostProduct(1L, forgedLogLine, null, null, 1));
+
+            assertThatThrownBy(() -> post.verifyPhotoCount(p -> 0))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("1번 상품")
+                    .hasMessageNotContaining(forgedLogLine);
         }
     }
 

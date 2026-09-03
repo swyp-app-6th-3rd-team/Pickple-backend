@@ -47,7 +47,7 @@ public class PostProductEntity {
     @Column(name = "price")
     private Integer price;
 
-    @Column(name = "link_url", length = 2048)
+    @Column(name = "link_url", columnDefinition = "LONGTEXT")
     private String linkUrl;
 
     @Column(name = "display_order", nullable = false)

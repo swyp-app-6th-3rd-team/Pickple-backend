@@ -3,6 +3,8 @@ package app.pickple.post.domain;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 게시글. 상품과 선택지를 자기 안에 둔다.
@@ -110,6 +112,7 @@ public class Post {
         verifyProductCount();
         verifyOptionCount();
         verifyOptionShape();
+        verifyAbOptionTargets();
     }
 
     private void verifyProductCount() {
@@ -146,14 +149,58 @@ public class Post {
         }
     }
 
+    /** A/B 선택지는 A·B 상품을 각각 한 번씩 가리켜야 한다. */
+    private void verifyAbOptionTargets() {
+        if (type != PostType.A_B) {
+            return;
+        }
+
+        boolean allByDisplayOrder = options.stream()
+                .allMatch(option -> option.postProductDisplayOrder() != null);
+        boolean allById = options.stream()
+                .allMatch(option -> option.postProductId() != null);
+        if (!allByDisplayOrder && !allById) {
+            throw new IllegalStateException("A/B 선택지는 같은 방식으로 상품을 가리켜야 합니다.");
+        }
+
+        if (allByDisplayOrder) {
+            Set<Integer> productOrders = products.stream()
+                    .map(PostProduct::displayOrder)
+                    .collect(Collectors.toSet());
+            Set<Integer> optionTargets = options.stream()
+                    .map(PostOption::postProductDisplayOrder)
+                    .collect(Collectors.toSet());
+            if (optionTargets.size() != options.size() || !optionTargets.equals(productOrders)) {
+                throw new IllegalStateException("A/B 선택지는 A·B 상품을 각각 한 번씩 가리켜야 합니다.");
+            }
+            return;
+        }
+
+        Set<Long> optionTargets = options.stream()
+                .map(PostOption::postProductId)
+                .collect(Collectors.toSet());
+        if (optionTargets.size() != options.size()) {
+            throw new IllegalStateException("A/B 선택지는 같은 상품을 중복해서 가리킬 수 없습니다.");
+        }
+        if (products.stream().anyMatch(product -> product.id() == null)) {
+            throw new IllegalStateException("새 A/B 선택지는 상품 표시 순서로 상품을 가리켜야 합니다.");
+        }
+        Set<Long> productIds = products.stream()
+                .map(PostProduct::id)
+                .collect(Collectors.toSet());
+        if (!optionTargets.equals(productIds)) {
+            throw new IllegalStateException("A/B 선택지는 이 게시글의 상품만 가리킬 수 있습니다.");
+        }
+    }
+
     /** 상품 사진 장수가 유형에 맞는지 확인한다 (R-03). 컨테이너는 밖에서 조회해 넘긴다. */
     public void verifyPhotoCount(java.util.function.ToIntFunction<PostProduct> photoCounter) {
         for (PostProduct product : products) {
             int count = photoCounter.applyAsInt(product);
             if (count < type.minPhotos() || count > type.maxPhotos()) {
                 throw new IllegalStateException(
-                        "%s 게시글의 상품 사진은 %d~%d장이어야 합니다. '%s' 는 %d장입니다."
-                                .formatted(type, type.minPhotos(), type.maxPhotos(), product.name(), count));
+                        "%s 게시글의 %d번 상품 사진은 %d~%d장이어야 합니다. 현재 %d장입니다."
+                                .formatted(type, product.displayOrder(), type.minPhotos(), type.maxPhotos(), count));
             }
         }
     }

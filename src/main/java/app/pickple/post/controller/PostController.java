@@ -1,18 +1,27 @@
 package app.pickple.post.controller;
 
+import app.pickple.auth.security.CurrentUser;
 import app.pickple.common.ApiResponse;
+import app.pickple.common.ResponseCode;
 import app.pickple.common.ScrollResponse;
+import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostQueryStore;
 import app.pickple.post.domain.PostType;
+import app.pickple.post.service.PostCreationService;
 import app.pickple.post.service.PostQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
@@ -22,7 +31,20 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class PostController {
 
+    private final PostCreationService postCreationService;
     private final PostQueryService postQueryService;
+
+    @Operation(
+            summary = "게시글 작성",
+            description = "업로드 API가 반환한 itemContainerId를 상품에 연결하고 유형별 상품·사진·선택지 규칙을 검증합니다.")
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<PostCreateResponse> create(
+            @Parameter(hidden = true) @CurrentUser Long userId,
+            @Valid @RequestBody PostCreateRequest request) {
+        Post post = postCreationService.create(userId, request.toCommand());
+        return ApiResponse.of(ResponseCode.CREATED, PostCreateResponse.from(post));
+    }
 
     /**
      * 게시글 목록. 게스트도 부를 수 있는 진입 화면이라 인증을 요구하지 않는다.

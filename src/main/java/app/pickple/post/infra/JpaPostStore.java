@@ -15,6 +15,7 @@ import java.util.Optional;
 public class JpaPostStore implements PostStore {
 
     private final PostRepository repository;
+    private final PostProductRepository productRepository;
     private final Clock clock;
 
     /**
@@ -30,7 +31,11 @@ public class JpaPostStore implements PostStore {
         post.verifyPublishable();
         LocalDateTime now = LocalDateTime.now(clock);
         if (post.id() == null) {
-            return repository.save(PostEntity.from(post, now)).toDomain();
+            PostEntity entity = PostEntity.fromWithoutOptions(post, now);
+            repository.saveAndFlush(entity);
+            entity.addInitialOptions(post, now);
+            repository.flush();
+            return entity.toDomain();
         }
         PostEntity entity = repository.findById(post.id())
                 .orElseThrow(() -> new IllegalStateException("게시글을 찾을 수 없습니다: id=" + post.id()));
@@ -48,5 +53,11 @@ public class JpaPostStore implements PostStore {
     @Transactional(readOnly = true)
     public boolean existsActiveById(Long id) {
         return repository.existsByIdAndDeletedAtIsNull(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isItemContainerAttached(Long itemContainerId) {
+        return productRepository.existsByItemContainerId(itemContainerId);
     }
 }

@@ -171,17 +171,19 @@ class PostControllerIT {
     @Test
     @DisplayName("작성 시각이 같아도 목록 순서가 매번 같다")
     void orderIsDeterministicWhenCreatedAtTies() throws Exception {
-        // Clock 이 초 단위로 끊으므로(ClockConfig) 같은 초에 저장된 글은 created_at 이 같다.
         // 정렬 키가 created_at 하나뿐이면 MySQL 이 동률 구간의 순서를 보장하지 않아
         // 같은 요청이 매번 다른 순서를 낼 수 있다. (정렬키, id) 튜플이 그것을 막는다.
-        //
-        // CI 에서 이 클래스가 한 번 뒤집힌 적이 있다 — 원인은 정렬이 아니라 픽스처가
-        // 앱 Clock 과 DB NOW() 를 섞어 쓴 것이었다. 그 회귀를 여기서 잡는다.
         List<Integer> ids = new ArrayList<>();
         for (int i = 0; i < 12; i++) {
             ids.add(saveGeneralPost("동시각 " + i, EMPTY_CATEGORY).id().intValue());
         }
         flush();
+
+        // 실행이 초 경계를 넘더라도 테스트 목적이 바뀌지 않도록 동률을 직접 만든다.
+        // 실제 시계를 기다리는 방식은 머신 부하에 따라 간헐적으로 두 초에 걸칠 수 있다.
+        LocalDateTime tiedAt = LocalDateTime.now(clock).minusHours(1);
+        ids.forEach(id -> jdbcTemplate.update(
+                "UPDATE post SET created_at = ? WHERE id = ?", tiedAt, id));
 
         // 모두 같은 초에 들어갔는지 먼저 확인한다. 아니면 이 테스트는 아무것도 검증하지 않는다.
         Long distinctInstants = jdbcTemplate.queryForObject(
@@ -452,45 +454,12 @@ class PostControllerIT {
     }
 
     private Post saveAbPost(String title, PostCategory category) {
-        Post draft = new Post(author.id(), PostType.A_B, category, title, "설명")
+        Post post = new Post(author.id(), PostType.A_B, category, title, "설명")
                 .addProduct(new PostProduct(newContainer("ab-a", 1), "A 상품", 10_000L, null, 1))
-                .addProduct(new PostProduct(newContainer("ab-b", 1), "B 상품", 20_000L, null, 2));
-        // A/B 선택지는 상품 id 를 가리키므로 상품이 저장돼 id 를 얻은 뒤에 붙인다.
-        Long postId = saveWithoutOptions(draft);
-        List<Long> productIds = jdbcTemplate.queryForList(
-                "SELECT id FROM post_product WHERE post_id = ? ORDER BY display_order", Long.class, postId);
-        LocalDateTime now = LocalDateTime.now(clock);
-        jdbcTemplate.update("""
-                INSERT INTO post_option (post_id, post_product_id, label, display_order, vote_count, created_at)
-                VALUES (?, ?, NULL, 1, 0, ?), (?, ?, NULL, 2, 0, ?)
-                """, postId, productIds.get(0), now, postId, productIds.get(1), now);
-        entityManager.flush();
-        entityManager.clear();
-        return postStore.findById(postId).orElseThrow();
-    }
-
-    /** R-04 를 우회해 상품만 먼저 넣는다. 선택지는 상품 id 를 알아야 만들 수 있다. */
-    private Long saveWithoutOptions(Post draft) {
-        // 시각은 반드시 앱 Clock 에서 가져온다. DB 의 NOW() 를 쓰면 시간 원천이 둘로 갈린다 —
-        // Clock 은 초 단위로 내림(ClockConfig)하므로 12:00:00.9 를 12:00:00 으로 쓰는데,
-        // 같은 순간의 NOW() 는 12:00:01 이 되어 <b>나중에 만든 글이 더 이른 시각</b>을 갖는다.
-        // 그러면 최신순 정렬이 저장 순서와 어긋나 CI 에서만 순서가 뒤집힌다(실제로 겪었다).
-        LocalDateTime now = LocalDateTime.now(clock);
-        jdbcTemplate.update("""
-                INSERT INTO post (user_id, type, category, title, description, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, author.id(), draft.type().name(), draft.category().name(),
-                draft.title(), draft.description(), now, now);
-        Long postId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        for (PostProduct product : draft.products()) {
-            jdbcTemplate.update("""
-                    INSERT INTO post_product
-                        (post_id, item_container_id, name, price, link_url, display_order, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
-                    """, postId, product.itemContainerId(), product.name(),
-                    product.price(), product.displayOrder(), now, now);
-        }
-        return postId;
+                .addProduct(new PostProduct(newContainer("ab-b", 1), "B 상품", 20_000L, null, 2))
+                .addOption(PostOption.ofProductDisplayOrder(1, 1))
+                .addOption(PostOption.ofProductDisplayOrder(2, 2));
+        return postStore.save(post);
     }
 
     /** 사진 여러 장을 등록 순서대로 담은 상품용 컨테이너. */

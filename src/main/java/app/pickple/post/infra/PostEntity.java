@@ -2,6 +2,7 @@ package app.pickple.post.infra;
 
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
+import app.pickple.post.domain.PostOption;
 import app.pickple.post.domain.PostType;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -21,6 +22,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * {@code post} 한 행과 그에 딸린 상품·선택지.
@@ -96,11 +98,40 @@ public class PostEntity {
         this.createdAt = now;
         this.updatedAt = now;
         post.products().forEach(p -> this.products.add(PostProductEntity.from(this, p, now)));
-        post.options().forEach(o -> this.options.add(PostOptionEntity.from(this, o, now)));
     }
 
-    public static PostEntity from(Post post, LocalDateTime now) {
+    /** 상품 식별자를 먼저 발급하기 위해 새 게시글은 선택지 없이 1차 영속화한다. */
+    public static PostEntity fromWithoutOptions(Post post, LocalDateTime now) {
         return new PostEntity(post, now);
+    }
+
+    /**
+     * 1차 flush 뒤 선택지를 붙인다. A/B의 임시 상품 표시 순서를 실제 상품 식별자로 해석한다.
+     * 같은 트랜잭션 안에서만 호출하므로 선택지 없는 중간 상태는 외부에 공개되지 않는다.
+     */
+    public void addInitialOptions(Post post, LocalDateTime now) {
+        if (!options.isEmpty()) {
+            throw new IllegalStateException("새 게시글의 선택지는 한 번만 연결할 수 있습니다.");
+        }
+        post.options().forEach(option -> options.add(PostOptionEntity.from(this, option, now)));
+    }
+
+    Long resolvePostProductId(PostOption option) {
+        if (!option.pointsToProduct()) {
+            return null;
+        }
+        if (option.postProductId() != null) {
+            return option.postProductId();
+        }
+
+        Integer targetOrder = option.postProductDisplayOrder();
+        return products.stream()
+                .filter(product -> product.getDisplayOrder().intValue() == targetOrder)
+                .map(PostProductEntity::getId)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "선택지가 가리키는 상품 id가 아직 생성되지 않았습니다: order=" + targetOrder));
     }
 
     /**

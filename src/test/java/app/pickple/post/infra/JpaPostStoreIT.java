@@ -73,16 +73,19 @@ class JpaPostStoreIT {
     void savesAbPostWithProductOptions() {
         Long c1 = newProductContainer();
         Long c2 = newProductContainer();
-        // A/B 선택지는 상품 id 를 가리켜야 하는데, 그 id 는 저장 후에야 생긴다.
-        // 상품을 먼저 저장해 id 를 얻고, 그 id 로 선택지를 만들어 다시 저장한다.
-        Post draft = new Post(authorId, PostType.A_B, PostCategory.BEAUTY, "A vs B", null)
+        Post post = new Post(authorId, PostType.A_B, PostCategory.BEAUTY, "A vs B", null)
                 .addProduct(new PostProduct(c1, "A 상품", 10_000L, null, 1))
-                .addProduct(new PostProduct(c2, "B 상품", 20_000L, null, 2));
+                .addProduct(new PostProduct(c2, "B 상품", 20_000L, null, 2))
+                .addOption(PostOption.ofProductDisplayOrder(1, 1))
+                .addOption(PostOption.ofProductDisplayOrder(2, 2));
 
-        // 선택지 없이 저장하려 하면 R-04 가 막는다 — 이것이 이 모델의 제약이다.
-        assertThatThrownBy(() -> postStore.save(draft))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("선택지는 2개");
+        Post saved = postStore.save(post);
+
+        Post found = postStore.findById(saved.id()).orElseThrow();
+        assertThat(found.products()).hasSize(2);
+        assertThat(found.options()).hasSize(2);
+        assertThat(found.options()).extracting(PostOption::postProductId)
+                .containsExactly(found.products().get(0).id(), found.products().get(1).id());
     }
 
     @Test

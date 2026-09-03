@@ -20,6 +20,11 @@ public class ApiException extends RuntimeException {
         this.code = code;
     }
 
+    public ApiException(ResponseCode code, String detail, Throwable cause) {
+        super(detail, cause);
+        this.code = code;
+    }
+
     public ResponseCode code() {
         return code;
     }

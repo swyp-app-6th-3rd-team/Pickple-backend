@@ -102,8 +102,23 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
+| POST | `/api/posts` | 필요 | 게시글 작성 |
 | GET | `/api/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
 
+- 작성 요청은 `type`, `category`, `title`, `description`, `products[]`를 사용한다.
+  `products[]`의 각 항목은 `itemContainerId`, `name`, `price`, `linkUrl`을 가진다.
+- `AGREE`는 상품이 정확히 1개이고 `title`을 따로 요구하지 않는다. 저장되는 제목은 상품명이며,
+  서버가 `사자`·`말자` 선택지를 정확히 2개 만든다. 상품 사진은 1~3장이어야 한다.
+- `A_B`는 30자 이내 주제인 `title`과 상품이 정확히 2개 필요하다. 상품마다 사진은 정확히
+  1장이고, 서버가 A·B 상품을 각각 가리키는 선택지를 만든다.
+- `GENERAL`은 30자 이내 `title`이 필요하며 상품과 선택지가 없어야 한다.
+- 설명은 선택이고 300자 이내, 상품명은 필수이고 30자 이내, 가격은 선택이고
+  0~999,999,999다. 상품 URL은 선택 텍스트로 형식·업무 길이 제한을 두지 않으며, 서버는
+  해당 값에 접속하지 않고 MySQL `LONGTEXT`의 물리 한계 안에서 그대로 저장한다.
+- 상품의 `itemContainerId`는 작성자 본인이 업로드한 `PRODUCT` 용도여야 하며 한 상품에만
+  붙일 수 있다. 존재하지 않거나 타인 소유이거나 이미 사용된 컨테이너는 거부한다.
+- 작성 성공은 201 `CREATED`와 `{ "postId": number }`를 반환한다. `전체`는 저장 카테고리가
+  아니라 목록에서 `category`를 생략한 상태이므로 작성 값으로 받지 않는다.
 - `category` 는 없으면 **전체**다. `sort` 는 `LATEST`(기본) · `POPULAR` 둘이며,
   **모르는 값은 400 이 아니라 기본값으로 되돌린다** — 진입 화면이 오타 하나로 비지 않게.
 - `size` 는 기본 10, 상한 50. 무한 스크롤 한 조각이다.
@@ -185,6 +200,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V3__pickple_domain.sql` | `db/migration` | 항상 |
 | `V4__apple_provider_tokens.sql` | `db/migration` | 항상 |
 | `V5__active_nickname_follows_state.sql` | `db/migration` | 항상 |
+| `V6__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 
 ---
 
@@ -276,14 +292,15 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 ## 6. 아키텍처 규칙
 
-`ArchitectureTest` 17개. 규칙을 추가할 때는 **일부러 위반하는 코드를 넣어
+`ArchitectureTest` 19개. 규칙을 추가할 때는 **일부러 위반하는 코드를 넣어
 해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
 지킨다는 증거가 되지 않는다([ADR-0008](adr/0008-domain-entity-separation.md)).
 
 | 그룹 | 규칙 수 | 내용 |
 |---|---|---|
+| 테스트 네이밍 | 1 | `@IntegrationTest` 클래스는 `*IT` 접미사 사용 |
 | 도메인 순수성 | 6 | JPA·검증·Lombok·infra·web·부동소수점 의존 금지 |
-| 계층 경계 | 8 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / infra→service 금지 |
+| 계층 경계 | 9 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / 기능별 config 패키지 금지 / infra→service 금지 |
 | API 응답 계약 | 2 | 컨트롤러가 `Page`·`Window` 를 그대로 반환 금지 |
 | DI | 1 | `@Autowired` 필드 주입 금지 |
 
@@ -303,6 +320,8 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-03 | 게시글 작성 계약과 상품 URL `LONGTEXT` 마이그레이션 추가 | Issue #17. 유형별 상품·사진·선택지 규칙과 업로드 컨테이너 소유권·재사용 방지 |
+| 2026-09-03 | ArchitectureTest 현행 규칙 수를 19개로 교정 | 테스트 네이밍·config 위치 규칙이 표에 반영되지 않았음 |
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
 | 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |
 | 2026-09-03 | 탈퇴 정본을 `users.state` 로 통일하고 `deleted_at` 제거 | 생성 컬럼이 `deleted_at` 을 보는데 코드는 `state` 만 써서 탈퇴해도 닉네임이 잠겼다(#16) |
