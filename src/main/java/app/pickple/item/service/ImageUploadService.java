@@ -2,7 +2,7 @@ package app.pickple.item.service;
 
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
-import app.pickple.item.config.FileStorageProperties;
+import app.pickple.config.FileStorageProperties;
 import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.FileObjectStorage;
 import app.pickple.item.domain.ItemContainer;

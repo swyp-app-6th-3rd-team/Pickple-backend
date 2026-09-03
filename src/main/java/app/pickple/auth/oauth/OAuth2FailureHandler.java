@@ -1,6 +1,6 @@
 package app.pickple.auth.oauth;
 
-import app.pickple.auth.config.AuthProperties;
+import app.pickple.config.AuthProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;

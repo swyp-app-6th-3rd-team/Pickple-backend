@@ -1,6 +1,6 @@
 package app.pickple.item.infra;
 
-import app.pickple.item.config.FileStorageProperties;
+import app.pickple.config.FileStorageProperties;
 import app.pickple.item.domain.FileObjectStorage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;

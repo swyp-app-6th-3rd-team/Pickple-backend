@@ -1,6 +1,6 @@
 package app.pickple.auth.service;
 
-import app.pickple.auth.config.AuthProperties;
+import app.pickple.config.AuthProperties;
 import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.User;
 import app.pickple.common.ResponseCode;

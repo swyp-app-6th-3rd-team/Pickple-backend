@@ -1,4 +1,4 @@
-package app.pickple.item.config;
+package app.pickple.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;

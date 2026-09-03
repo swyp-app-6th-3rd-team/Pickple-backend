@@ -1,7 +1,7 @@
 package app.pickple.auth.apple;
 
 import com.nimbusds.jose.RemoteKeySourceException;
-import app.pickple.auth.config.AppleProperties;
+import app.pickple.config.AppleProperties;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import io.jsonwebtoken.Claims;

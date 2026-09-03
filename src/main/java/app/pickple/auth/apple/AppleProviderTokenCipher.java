@@ -1,6 +1,6 @@
 package app.pickple.auth.apple;
 
-import app.pickple.auth.config.AppleProperties;
+import app.pickple.config.AppleProperties;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import org.springframework.beans.factory.annotation.Autowired;
