@@ -72,7 +72,9 @@ EXAMPLE_FILE="$REPO_DIR/.env.example"
 
 # key<TAB>generate<TAB>remote_wins<TAB>default 레코드. bash 3.2 라 연관배열을 쓸 수 없다.
 POLICY="$(mktemp)"
-trap 'rm -f "$POLICY"' EXIT
+# 정리 대상은 한 곳에 모은다. trap 은 덮어쓰기이므로 뒤에서 다시 걸면 앞의 것이 사라진다.
+CLEANUP="$POLICY"
+trap 'rm -f $CLEANUP' EXIT
 awk '
   { sub(/\r$/, "") }
   /^[[:space:]]*$/ { blk=""; next }
@@ -205,7 +207,8 @@ env_keys() {
 
 umask 077
 TMP_NEW="$(mktemp)"; TMP_VAL="$(mktemp)"
-trap 'rm -f "$TMP_NEW" "$TMP_NEW.next" "$TMP_VAL"' EXIT
+CLEANUP="$CLEANUP $TMP_NEW $TMP_NEW.next $TMP_VAL"
+trap 'rm -f $CLEANUP' EXIT
 echo '{}' > "$TMP_NEW"
 
 printf '\n%-36s %-10s %s\n' "키" "출처" "길이"
