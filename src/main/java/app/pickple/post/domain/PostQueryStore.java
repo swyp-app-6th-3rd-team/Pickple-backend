@@ -41,10 +41,13 @@ public interface PostQueryStore {
      * @param commentCount  댓글 <b>건수</b>. 화면 표시용이라 인기순 점수와 다르다 (R-24·R-25)
      * @param thumbnailUrl  대표 상품 사진 1장. 찬반=가장 처음 등록한 사진, A/B=A 상품 사진,
      *                      일반=사진이 없으므로 {@code null}
+     * @param authorRanking 작성자의 TOP 피커 순위. 배치가 미리 매겨둔 값이며
+     *                      아직 산정되지 않았으면 {@code null} 이다 (ADR-0028)
      *
-     * <p><b>작성자 랭킹은 아직 없다.</b> 순위는 전역 값이라 조회 시점에 구하면
-     * 회원 전체를 정렬해야 한다 — 실측에서 한 조각에 154ms 가 들었고, 랭킹만 빼면
-     * 0.23ms 였다. 사전 계산해 둘 자리이지 요청마다 셀 값이 아니므로 후속 과제로 넘긴다.
+     * <p><b>랭킹은 조회 시점에 세지 않는다.</b> 순위는 전역 값이라 요청마다 구하면
+     * 회원 전체를 정렬해야 한다(200k 실측 97.6ms/조각). 배치가 사전 계산한
+     * {@code users.ranking} 을 읽기만 하므로 조각 비용이 랭킹 없던 때와 같다.
+     * 대가는 <b>순위가 최대 한 배치 주기(5분)만큼 낡는다</b>는 것이다.
      */
     record PostListView(
             Long id,
@@ -57,6 +60,7 @@ public interface PostQueryStore {
             LocalDateTime createdAt,
             String thumbnailUrl,
             Long authorId,
-            String authorNickname) {
+            String authorNickname,
+            Integer authorRanking) {
     }
 }
