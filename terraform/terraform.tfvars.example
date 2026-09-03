@@ -56,3 +56,20 @@
 #   "@"   = { type = "A",     ttl = 300, records = ["76.76.21.21"] }
 #   "www" = { type = "CNAME", ttl = 300, records = ["cname.vercel-dns.com"] }
 # }
+
+# ── 런타임 설정 (비밀 아님, ADR-0026) ───────────────────────
+#
+# 아래 값들은 fetch-secrets.sh 가 EC2 의 .env 에 직접 쓴다.
+# 기본값이 variables.tf 에 있으므로 바꿀 때만 적는다.
+#
+# 로그 보관 정책. 기본 30일 / 3GB.
+# log_max_history    = 30
+# log_total_size_cap = "3GB"
+#
+# ⚠️ 프론트 배포 전까지는 아래 3개가 localhost 기본값이다.
+#    프론트 도메인이 정해지면 반드시 실제 값으로 바꾼다 —
+#    그전까지 OAuth 콜백과 CORS 가 로컬 주소를 가리킨다.
+#    allowed_redirect_hosts 는 오픈 리다이렉트 방어선이므로 필요한 호스트만 적는다.
+# auth_redirect_uri           = "https://pickple.app/oauth/callback"
+# auth_allowed_redirect_hosts = "pickple.app"
+# cors_allowed_origins        = "https://pickple.app"

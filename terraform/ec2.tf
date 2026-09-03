@@ -84,6 +84,15 @@ resource "aws_instance" "app" {
       ecr_registry       = "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com"
       ecr_repository     = aws_ecr_repository.app.name
       default_image_tag  = var.github_deploy_branch
+
+      # 런타임 설정(ADR-0026). compose 기본값에 기대지 않고 명시적으로 공급한다.
+      spring_profiles_active      = var.spring_profiles_active
+      site_address                = local.api_fqdn
+      log_max_history             = var.log_max_history
+      log_total_size_cap          = var.log_total_size_cap
+      auth_redirect_uri           = var.auth_redirect_uri
+      auth_allowed_redirect_hosts = var.auth_allowed_redirect_hosts
+      cors_allowed_origins        = var.cors_allowed_origins
     })
   })
 
