@@ -12,3 +12,4 @@
 | [007](PRD-007-develop배포인프라.md) | develop 배포 인프라 (EC2 + Terraform) | 검증 완료 (실측 후 teardown) |
 | [008](PRD-008-develop도메인연결과자동배포.md) | develop 도메인 연결과 자동 배포 (Route53 + Caddy TLS) | 진행 중 |
 | [011](PRD-011-이미지업로드인프라와API범용화.md) | 이미지 업로드 인프라 연결과 API 범용화 | 진행 중 |
+| [014](PRD-014-작성자랭킹사전계산.md) | 작성자 랭킹 사전 계산 (배치 + 목록 노출) | 진행 중 |
