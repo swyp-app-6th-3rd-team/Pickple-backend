@@ -73,7 +73,19 @@ public class JpaPostQueryStore implements PostQueryStore {
                 toCreatedAt(row[Column.CREATED_AT]),
                 (String) row[Column.THUMBNAIL_URL],
                 toLong(row[Column.AUTHOR_ID]),
-                (String) row[Column.AUTHOR_NICKNAME]);
+                (String) row[Column.AUTHOR_NICKNAME],
+                toRanking(row[Column.AUTHOR_RANKING]));
+    }
+
+    /**
+     * 랭킹은 <b>없을 수 있다</b> — 가입 직후 다음 배치까지, 그리고 탈퇴 회원이 그렇다.
+     *
+     * <p>{@link #toLong} 을 쓰지 않는 이유가 여기 있다. 그쪽은 null 을 0 으로 접는데,
+     * 순위 0 은 존재하지 않는 값이라 "아직 모른다" 를 "0위" 라는 거짓으로 바꾼다.
+     * 미산정은 {@code null} 로 그대로 올려보내고 화면이 비운다.
+     */
+    private static Integer toRanking(Object raw) {
+        return raw == null ? null : ((Number) raw).intValue();
     }
 
     private static LocalDateTime toCreatedAt(Object raw) {
