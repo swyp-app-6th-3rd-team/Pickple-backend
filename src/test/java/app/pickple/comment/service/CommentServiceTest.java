@@ -6,6 +6,8 @@ import app.pickple.comment.domain.PostCommenterStore;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import app.pickple.post.domain.PostCounters;
+import app.pickple.item.domain.AttachType;
+import app.pickple.item.service.AttachableContainerGuard;
 import app.pickple.post.service.ActivePostGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -33,6 +36,8 @@ class CommentServiceTest {
     @Mock
     private ActivePostGuard activePost;
     @Mock
+    private AttachableContainerGuard attachableContainer;
+    @Mock
     private PostCommenterStore commenterStore;
     @Mock
     private PostCounters counters;
@@ -41,7 +46,7 @@ class CommentServiceTest {
 
     @BeforeEach
     void setUp() {
-        commentService = new CommentService(commentStore, activePost, commenterStore, counters);
+        commentService = new CommentService(commentStore, activePost, attachableContainer, commenterStore, counters);
     }
 
     @Test
@@ -131,6 +136,32 @@ class CommentServiceTest {
         assertThatThrownBy(() -> commentService.delete(COMMENT_ID, AUTHOR_ID))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.code()).isEqualTo(ResponseCode.NOT_FOUND));
+    }
+
+    @Test
+    void rejectsContainerThatIsNotUsableForComments() {
+        // 상품용 컨테이너를 댓글에 붙이려는 요청. 관문이 막아 저장까지 가지 않아야 한다.
+        Comment comment = new Comment(POST_ID, AUTHOR_ID, "사진 댓글", 99L);
+        willThrow(new ApiException(ResponseCode.INVALID_REQUEST, "PRODUCT 용 컨테이너를 COMMENT 에 붙일 수 없습니다."))
+                .given(attachableContainer).requireUsableAs(99L, AttachType.COMMENT);
+
+        assertThatThrownBy(() -> commentService.write(comment))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+
+        // DB 까지 내려가면 복합 FK 가 DataIntegrityViolationException 으로 뭉갠다.
+        verify(commentStore, never()).save(comment);
+        verify(counters, never()).increaseCommentCount(POST_ID);
+    }
+
+    @Test
+    void checksContainerPurposeBeforeSaving() {
+        Comment comment = new Comment(POST_ID, AUTHOR_ID, "사진 댓글", 99L);
+        given(commentStore.save(comment)).willReturn(activeComment("사진 댓글"));
+
+        commentService.write(comment);
+
+        verify(attachableContainer).requireUsableAs(99L, AttachType.COMMENT);
     }
 
     private Comment activeComment(String content) {
