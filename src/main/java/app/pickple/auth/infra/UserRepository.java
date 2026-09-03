@@ -2,9 +2,11 @@ package app.pickple.auth.infra;
 
 import app.pickple.auth.domain.SocialProvider;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
@@ -30,4 +32,34 @@ interface UserRepository extends JpaRepository<UserEntity, Long> {
      */
     @Query(value = "SELECT COUNT(*) FROM users WHERE active_nickname = :nickname", nativeQuery = true)
     long countActiveNickname(@Param("nickname") String nickname);
+
+    /** 닉네임의 현재 주인. 본인이 쓰던 닉네임을 다시 내는 경우를 중복과 가르는 데 쓴다. */
+    @Query(value = "SELECT id FROM users WHERE active_nickname = :nickname", nativeQuery = true)
+    Optional<Long> findIdByActiveNickname(@Param("nickname") String nickname);
+
+    /**
+     * 프로필을 쓴다. 닉네임 유일성은 {@code uk_users_active_nickname} 이 판정한다.
+     *
+     * <p><b>왜 조건 없는 UPDATE 인가.</b> {@code NOT EXISTS} 로 점유를 먼저 확인하면
+     * 그 서브쿼리가 유니크 인덱스에 갭 잠금을 잡는다. 같은 닉네임으로 동시에 몰리면
+     * 여러 트랜잭션이 서로 다른 순서로 잠금을 얻어 <b>데드락</b>이 난다(에러 1213).
+     * 실측에서 8개 동시 요청 중 7개가 그렇게 죽었다.
+     *
+     * <p>조건을 빼면 각 트랜잭션은 자기 행만 잠그고 유니크 인덱스 항목 하나만 다툰다 —
+     * 승자 하나가 잡고 나머지는 곧바로 제약 위반으로 떨어진다. 판정을 인덱스에 맡기는 편이
+     * 갭 잠금을 걸고 스스로 판정하려는 것보다 경합이 적다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE users
+               SET nickname = :nickname,
+                   profile_image_url = :profileImageUrl,
+                   updated_at = :updatedAt
+             WHERE id = :id
+               AND state = 'ACTIVE'
+            """, nativeQuery = true)
+    int updateProfile(@Param("id") Long id,
+                      @Param("nickname") String nickname,
+                      @Param("profileImageUrl") String profileImageUrl,
+                      @Param("updatedAt") LocalDateTime updatedAt);
 }

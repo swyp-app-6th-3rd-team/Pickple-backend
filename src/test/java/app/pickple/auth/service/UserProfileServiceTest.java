@@ -42,7 +42,8 @@ class UserProfileServiceTest {
         DefaultProfileImages defaults = new DefaultProfileImages(
                 new ProfileProperties(List.of(IMAGE_A, IMAGE_B)), random);
         service = new UserProfileService(userStore, defaults);
-        given(userStore.save(any(User.class))).willAnswer(call -> call.getArgument(0));
+        given(userStore.saveProfileIfNicknameFree(any(User.class)))
+                .willAnswer(call -> Optional.of(call.getArgument(0)));
     }
 
     private User activeUser() {
@@ -101,7 +102,6 @@ class UserProfileServiceTest {
         @DisplayName("이미지를 주지 않으면 기본 프로필이 채워진다")
         void fillsDefaultImage() {
             given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
-            given(userStore.existsActiveNickname("피클")).willReturn(false);
 
             User saved = service.saveProfile(1L, "피클", null);
 
@@ -113,7 +113,6 @@ class UserProfileServiceTest {
         @DisplayName("기본 프로필은 후보 중에서 고른다")
         void picksFromCandidates() {
             given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
-            given(userStore.existsActiveNickname(anyString())).willReturn(false);
             random.next = 0;
 
             assertThat(service.saveProfile(1L, "피클", "").profileImageUrl()).isEqualTo(IMAGE_A);
@@ -123,7 +122,6 @@ class UserProfileServiceTest {
         @DisplayName("이미지를 주면 그대로 쓴다")
         void usesGivenImage() {
             given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
-            given(userStore.existsActiveNickname("피클")).willReturn(false);
 
             User saved = service.saveProfile(1L, "피클", "https://cdn/mine.png");
 
@@ -131,31 +129,15 @@ class UserProfileServiceTest {
         }
 
         @Test
-        @DisplayName("이미 쓰이는 닉네임은 409 다")
+        @DisplayName("저장소가 저장하지 않았다고 알리면 409 로 해석한다")
         void rejectsTakenNickname() {
             given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
-            given(userStore.existsActiveNickname("피클")).willReturn(true);
+            given(userStore.saveProfileIfNicknameFree(any(User.class))).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.saveProfile(1L, "피클", null))
                     .isInstanceOf(ApiException.class)
                     .extracting(e -> ((ApiException) e).code())
                     .isEqualTo(ResponseCode.NICKNAME_ALREADY_IN_USE);
-
-            verify(userStore, never()).save(any(User.class));
-        }
-
-        @Test
-        @DisplayName("본인이 쓰던 닉네임을 그대로 다시 내면 중복이 아니다")
-        void ownNicknameIsNotConflict() {
-            User user = activeUser();
-            user.registerProfile(new Nickname("피클"), "https://cdn/mine.png");
-            given(userStore.findById(1L)).willReturn(Optional.of(user));
-            // 본인 행이 있으므로 존재 검사는 true 다 — 그대로 409 로 보내면 이미지만 바꿀 수 없다.
-            given(userStore.existsActiveNickname("피클")).willReturn(true);
-
-            User saved = service.saveProfile(1L, "피클", "https://cdn/new.png");
-
-            assertThat(saved.profileImageUrl()).isEqualTo("https://cdn/new.png");
         }
 
         @Test

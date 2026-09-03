@@ -6,7 +6,6 @@ import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,31 +43,23 @@ public class UserProfileService {
      * <p>등록과 수정을 한 메서드로 다룬다. 저장 규칙(닉네임 필수·유일, 이미지 없으면 기본)이
      * 양쪽에서 같아, 나누면 한쪽만 고쳐 어긋날 자리가 생긴다.
      */
-    @Transactional
+    /**
+     * <p><b>이 메서드에 {@code @Transactional} 을 붙이지 않는다.</b> 저장소가 닉네임
+     * 제약 위반을 잡아 "저장되지 않았다" 는 사실로 바꾸는데, 바깥 트랜잭션이 열려 있으면
+     * 그 위반이 트랜잭션을 rollback-only 로 만들어 커밋 단계에서 다시 터진다.
+     * 이 흐름은 조회 한 번과 쓰기 한 번이라 묶어야 할 원자 구간도 없다.
+     */
     public User saveProfile(Long userId, String nickname, String profileImageUrl) {
         User user = activeUser(userId);
-        Nickname requested = new Nickname(nickname);
-
-        // 조기 피드백. 본인이 이미 쓰던 닉네임을 그대로 다시 내는 것은 중복이 아니다.
-        if (!requested.equals(user.nickname()) && userStore.existsActiveNickname(requested.value())) {
-            throw new ApiException(ResponseCode.NICKNAME_ALREADY_IN_USE);
-        }
-
         String imageUrl = hasImage(profileImageUrl)
                 ? profileImageUrl
                 : orDefault(user.profileImageUrl());
-        user.registerProfile(requested, imageUrl);
+        user.registerProfile(new Nickname(nickname), imageUrl);
 
-        try {
-            return userStore.save(user);
-        } catch (DataIntegrityViolationException e) {
-            // 사전 확인을 통과한 뒤 유니크 제약이 거부했다 = 확인과 저장 사이에 선점당했다.
-            // 무결성 위반 전부를 중복으로 뭉뚱그리지 않기 위해 원인을 좁혀 확인한다.
-            if (isActiveNicknameConflict(e)) {
-                throw new ApiException(ResponseCode.NICKNAME_ALREADY_IN_USE);
-            }
-            throw e;
-        }
+        // 저장소는 "저장됐다 / 안 됐다" 는 사실만 알린다.
+        // 그것을 "이미 쓰는 닉네임" 이라는 정책으로 해석하는 것이 이 층의 일이다 (ADR-0019).
+        return userStore.saveProfileIfNicknameFree(user)
+                .orElseThrow(() -> new ApiException(ResponseCode.NICKNAME_ALREADY_IN_USE));
     }
 
     private User activeUser(Long userId) {
@@ -90,21 +81,5 @@ public class UserProfileService {
 
     private boolean hasImage(String url) {
         return url != null && !url.isBlank();
-    }
-
-    /**
-     * 닉네임 유니크 제약 위반인지 가려낸다.
-     *
-     * <p>{@code DataIntegrityViolationException} 에는 FK 위반·길이 초과도 섞인다.
-     * 전부 "이미 쓰는 닉네임"으로 보고하면 원인을 엉뚱한 곳에서 찾게 된다 (ADR-0019).
-     */
-    private boolean isActiveNicknameConflict(DataIntegrityViolationException e) {
-        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            String message = cause.getMessage();
-            if (message != null && message.contains("uk_users_active_nickname")) {
-                return true;
-            }
-        }
-        return false;
     }
 }

@@ -22,4 +22,16 @@ public interface UserStore {
      * 유니크 제약이 막는다.
      */
     boolean existsActiveNickname(String nickname);
+
+    /**
+     * 닉네임이 비어 있으면 프로필을 저장하고, 이미 점유돼 있으면 저장하지 않는다.
+     *
+     * <p>반환값은 <b>사실</b>이다 — "저장됐다 / 저장되지 않았다". 그것이
+     * "이미 쓰는 닉네임입니다" 라는 정책인지는 위층이 해석한다 (ADR-0019).
+     *
+     * <p>존재 확인과 저장 사이의 틈은 {@code uk_users_active_nickname} 이 막는다.
+     * 구현은 반드시 이 메서드 <b>안에서</b> flush 해야 한다 —
+     * 커밋까지 미루면 제약 위반이 이 경계 밖에서 터져 사실로 바꿀 수 없다.
+     */
+    Optional<User> saveProfileIfNicknameFree(User user);
 }
