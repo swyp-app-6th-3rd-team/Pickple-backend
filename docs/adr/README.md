@@ -35,3 +35,4 @@
 | [0025](0025-single-log-file.md) | 로그를 레벨로 나누지 않고 한 파일에 남긴다 | Accepted |
 | [0026](0026-env-example-as-secret-schema-source.md) | 비밀 스키마의 정본은 `.env.example` 이고 키 누락은 기동 시 잡는다 | Accepted |
 | [0027](0027-image-public-access-via-cloudfront.md) | 이미지 공개 접근은 CloudFront + OAC 로 제공한다 | Accepted |
+| [0029](0029-drop-api-path-prefix.md) | API 경로에서 `/api` prefix 를 걷어낸다 | **Proposed** (프론트 합의 전) |
