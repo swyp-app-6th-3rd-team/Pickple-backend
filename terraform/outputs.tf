@@ -54,7 +54,7 @@ output "images_bucket" {
 }
 
 output "images_cdn_domain" {
-  description = "이미지 공개 URL 의 base(ADR-0027). IMAGE_PUBLIC_BASE_URL 은 user_data 가 자동 주입한다"
+  description = "이미지 공개 URL 의 base(ADR-0027). FILE_PUBLIC_BASE_URL 은 user_data 가 자동 주입한다"
   value       = "https://${aws_cloudfront_distribution.images.domain_name}"
 }
 

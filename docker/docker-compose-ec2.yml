@@ -91,11 +91,11 @@ services:
       # https 가 된다. 8080 은 compose 네트워크 안에만 있고 SG 에도 없어 Caddy 가 유일한 입구다.
       # 이미지 업로드 S3 (ADR-0021, ADR-0027).
       # 자격증명은 넣지 않는다. EC2 인스턴스 프로파일을 SDK 가 IMDS 로 가져간다(ADR-0013).
-      # IMAGE_S3_ENDPOINT 는 일부러 빠져 있다 — 값이 있으면 endpointOverride 가 켜져
+      # FILE_S3_ENDPOINT 는 일부러 빠져 있다 — 값이 있으면 endpointOverride 가 켜져
       # 실제 AWS 로 나가지 못하므로, 목록에 없는 편이 안전하다.
-      IMAGE_S3_BUCKET: ${IMAGE_S3_BUCKET:-not-configured}
+      FILE_S3_BUCKET: ${FILE_S3_BUCKET:-not-configured}
       # 빈 값이 정상 동작이다(SDK 가 S3 객체 URL 로 폴백). not-configured 로 "고치지" 말 것.
-      IMAGE_PUBLIC_BASE_URL: ${IMAGE_PUBLIC_BASE_URL:-}
+      FILE_PUBLIC_BASE_URL: ${FILE_PUBLIC_BASE_URL:-}
       AWS_REGION: ${AWS_REGION:-ap-northeast-2}
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       AUTH_COOKIE_SECURE: "true"

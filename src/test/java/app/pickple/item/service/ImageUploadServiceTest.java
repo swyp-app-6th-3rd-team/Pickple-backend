@@ -1,12 +1,12 @@
 package app.pickple.item.service;
 
 import app.pickple.error.ApiException;
-import app.pickple.item.config.ImageStorageProperties;
+import app.pickple.item.config.FileStorageProperties;
 import app.pickple.item.domain.AttachType;
-import app.pickple.item.domain.ImageObjectStorage;
+import app.pickple.item.domain.FileObjectStorage;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
-import app.pickple.item.infra.ImageStorageException;
+import app.pickple.item.infra.FileStorageException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,7 +36,7 @@ class ImageUploadServiceTest {
     private static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00};
 
     @Mock
-    private ImageObjectStorage objectStorage;
+    private FileObjectStorage objectStorage;
     @Mock
     private ItemContainerStore containerStore;
 
@@ -44,9 +44,9 @@ class ImageUploadServiceTest {
 
     @BeforeEach
     void setUp() {
-        ImageStorageProperties properties = new ImageStorageProperties(
+        FileStorageProperties properties = new FileStorageProperties(
                 DataSize.ofMegabytes(5),
-                new ImageStorageProperties.S3("test", "us-east-1", null, null));
+                new FileStorageProperties.S3("test", "us-east-1", null, null));
         service = new ImageUploadService(objectStorage, containerStore, properties);
     }
 
@@ -74,11 +74,11 @@ class ImageUploadServiceTest {
     void compensatesAttemptedKeysWhenLaterUploadFails() {
         when(objectStorage.put(anyString(), any(byte[].class), anyString()))
                 .thenReturn("https://images.example/first")
-                .thenThrow(new ImageStorageException("S3 failure"));
+                .thenThrow(new FileStorageException("S3 failure"));
 
         assertThatThrownBy(() -> service.upload(2L, AttachType.PRODUCT, List.of(
                 image("first.jpg"), image("second.jpg"))))
-                .isInstanceOf(ImageStorageException.class);
+                .isInstanceOf(FileStorageException.class);
 
         verify(objectStorage, times(2)).delete(anyString());
         verify(containerStore, never()).save(any());
