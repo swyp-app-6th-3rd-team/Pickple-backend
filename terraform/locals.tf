@@ -44,23 +44,20 @@ locals {
   )
 
   # Secrets Manager JSON 의 키 목록.
-  # .env.example 에서 도출했다. fetch-secrets.sh 가 이 키들을 .env 로 펼친다.
+  #
+  # 정본은 .env.example 이다(ADR-0026). 키 선언 직전의 연속 주석 블록에 있는
+  # @secret 마커를 읽는다 — 여기에 목록을 다시 적지 않는다.
+  # sync-secrets.sh 도 같은 파일을 파싱하므로 둘이 어긋날 수 없다.
+  #
+  # 정규식 주의: 식별자 문자군에 숫자를 포함한다([A-Za-z0-9_]).
+  # 빠뜨리면 oauth_apple_private_key_base64 가 "base64" 의 64 에서 잘린다.
+  # 주석 처리된 선언(#OAUTH_GOOGLE_CLIENT_ID=)도 스키마에 포함해야 하므로 ^#? 를 허용한다.
+  # 중간 주석은 '=' 를 포함할 수 있다(예: keyring 설명 k1=..). 비탐욕(*?)으로 첫 키 선언에서 멈춘다
+  # — awk 파서와 규칙을 일치시키기 위한 것이다. sync-secrets.sh --check 가 둘을 대조한다.
   secret_keys = [
-    "mysql_root_password",
-    "mysql_password",
-    "jwt_secret_key",
-    "oauth_google_client_id",
-    "oauth_google_client_secret",
-    "oauth_kakao_client_id",
-    "oauth_kakao_client_secret",
-    "oauth_naver_client_id",
-    "oauth_naver_client_secret",
-    "oauth_apple_enabled",
-    "oauth_apple_team_id",
-    "oauth_apple_key_id",
-    "oauth_apple_client_id",
-    "oauth_apple_private_key_base64",
-    "oauth_apple_token_encryption_keys",
-    "oauth_apple_token_active_key_id",
+    for m in regexall(
+      "(?m)^#[^\\n]*@secret[^\\n]*\\n(?:#[^\\n]*\\n)*?#?[ \\t]*(?:export[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)=[^\\n]*$",
+      file("${path.module}/../.env.example")
+    ) : lower(m[0])
   ]
 }

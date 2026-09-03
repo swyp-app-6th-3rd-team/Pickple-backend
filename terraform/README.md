@@ -72,17 +72,61 @@ terraform plan -no-color | grep -E "nat_gateway|_lb\.|db_instance|vpc_endpoint|c
 
 자리표시자(`CHANGE_ME`) 상태로는 앱이 뜨지 않는다. `fetch-secrets.sh` 가 먼저 막는다.
 
-로컬 `.env` 를 읽어 Secrets Manager 에 넣는 스크립트가 있다. 키 스키마는 `terraform output secret_keys`
-에서 읽으므로 `locals.secret_keys` 에 키를 추가하면 그대로 따라온다.
+로컬 `.env` 를 읽어 Secrets Manager 에 넣는 스크립트가 있다. **키 스키마의 정본은 `.env.example`
+이다**(ADR-0026) — 키 선언 직전의 주석 블록에 `@secret` 마커를 달면 스크립트와 `locals.tf` 가
+그대로 따라온다. **목록을 다른 곳에 또 적지 않는다.**
 
 ```bash
+terraform/scripts/sync-secrets.sh --check     # 아무것도 쓰지 않고 스키마 정합만 본다
 terraform/scripts/sync-secrets.sh --dry-run   # 키 · 출처 · 길이 표만 본다. 값은 찍지 않는다
 terraform/scripts/sync-secrets.sh
 ```
 
 키마다 값은 이 순서로 정해진다: `.env` 값(자리표시자 `change-me*` 제외) → 원격에 이미 있는 값 →
-MySQL 패스워드·JWT 는 생성 → 그 외 `not-configured`. 재실행해도 이미 초기화된 MySQL 패스워드는
-바뀌지 않는다.
+`@generate=N` 이 달린 키는 생성 → `@default=V` 또는 `not-configured`. `@remote-wins` 가 달린
+MySQL 패스워드는 원격을 먼저 보므로, 재실행해도 이미 초기화된 MySQL 패스워드는 바뀌지 않는다.
+
+#### 새 비밀을 추가할 때
+
+`.env.example` **한 곳만** 고친다.
+
+```
+# 새 키에 대한 설명
+# @secret @generate=32
+NEW_SECRET_KEY=
+```
+
+| 마커 | 뜻 |
+|---|---|
+| `@secret` | Secrets Manager 에 올린다. **없으면 로컬 전용이라 올라가지 않는다** |
+| `@generate=N` | 값이 없을 때 `openssl rand -base64 N` 으로 생성 |
+| `@remote-wins` | 원격 값이 로컬 `.env` 보다 우선(초기화된 MySQL 보호) |
+| `@default=V` | 최종 폴백. 기본은 `not-configured` |
+
+주의할 점 두 가지.
+
+- **마커와 키 선언 사이에 빈 줄을 두지 않는다.** 빈 줄이 블록을 끊어 그 키는 로컬 전용이 된다
+  (안전한 방향으로 실패한다). `--check` 가 마커 개수와 파싱된 키 개수를 대조해 잡는다.
+- **같은 키를 두 번 선언하지 않는다.** 첫 선언의 정책만 적용되어 `@remote-wins` 같은 보호가
+  조용히 사라진다. 이것도 `--check` 가 잡는다.
+
+`--check` 는 이 다섯 가지를 본다 — `terraform output` 과의 스키마 일치, 마커 유실, 중복 선언,
+로컬 전용 키(`SPRING_PROFILES_ACTIVE` 등)에 `@secret` 이 붙었는지, compose 가 쓰는 변수의 공급 여부.
+- **컨테이너에 전달하려면 `docker-compose-ec2.yml` 의 `environment:` 에도 추가해야 한다**(ADR-0017).
+  이건 최소권한 경계라 자동화하지 않는다. 빠뜨리면 아래 검사가 배포를 멈춘다.
+
+#### 동기화를 잊으면 배포가 멈춘다
+
+`fetch-secrets.sh` 가 기동할 때마다 기대 키 집합과 원격을 대조해, 빠진 키가 있으면 **배포를
+실패시킨다**(ADR-0026). 값은 찍지 않고 빠진 키 이름만 알린다.
+
+```
+FATAL: Secrets Manager 에 다음 키가 없습니다: oauth_apple_private_key_base64
+  로컬에서 terraform/scripts/sync-secrets.sh 를 실행한 뒤 다시 배포하십시오.
+```
+
+이 검사가 없던 시절 Apple 7키가 스키마에만 추가되고 동기화되지 않아, compose 의 `:-` 기본값이
+조용히 메꾸면서 **Apple 로그인이 약 4일간 꺼진 채 운영됐다.** 헬스체크는 계속 초록이었다.
 
 스크립트 없이 손으로 넣을 때:
 

@@ -30,3 +30,7 @@
 | [0020](0020-onepick-uniqueness-scope.md) | 원픽의 유일성 범위는 게시글이다 | Accepted |
 | [0021](0021-s3-image-object-storage.md) | 이미지 객체는 S3에 저장한다 | Accepted |
 | [0022](0022-route53-and-caddy-tls.md) | 도메인은 Route53 이 관리하고 TLS 는 Caddy 가 종단한다 | Accepted |
+| [0023](0023-external-db-ssh-access.md) | MySQL 과 SSH 를 비표준 포트로 외부에 연다 | Accepted |
+| [0024](0024-local-run-environment.md) | 로컬 실행은 `.env` 임포트로, compose 는 local 과 ec2 둘만 둔다 | Accepted |
+| [0025](0025-single-log-file.md) | 로그를 레벨로 나누지 않고 한 파일에 남긴다 | Accepted |
+| [0026](0026-env-example-as-secret-schema-source.md) | 비밀 스키마의 정본은 `.env.example` 이고 키 누락은 기동 시 잡는다 | Accepted |

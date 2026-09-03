@@ -231,3 +231,52 @@ variable "state_bucket" {
   type        = string
   default     = "buyorpass-tfstate-251128835262"
 }
+
+# ── 런타임 설정 (비밀 아님) ─────────────────────────────────
+#
+# compose 가 보간하지만 그동안 아무도 공급하지 않아 `:-` 기본값으로 돌던 값들이다(ADR-0026).
+# 비밀이 아니므로 Secrets Manager 가 아니라 fetch-secrets.sh 가 직접 .env 에 쓴다.
+
+variable "spring_profiles_active" {
+  description = "EC2 에서 활성화할 Spring 프로파일. local 이 올라가면 운영이 SQL 로그를 쏟으므로 prod 로 고정한다"
+  type        = string
+  default     = "prod"
+
+  validation {
+    condition     = var.spring_profiles_active != "local"
+    error_message = "EC2 에 local 프로파일을 쓸 수 없습니다."
+  }
+}
+
+variable "log_max_history" {
+  description = "로그 보관 일수. .env.example 이 의도한 값은 30 이다"
+  type        = number
+  default     = 30
+}
+
+variable "log_total_size_cap" {
+  description = "로그 총 용량 상한. .env.example 이 의도한 값은 3GB 다"
+  type        = string
+  default     = "3GB"
+}
+
+# 아래 3개는 프론트 배포 위치가 정해지기 전까지 compose 기본값과 동일하게 둔다.
+# 프론트가 뜨면 terraform.tfvars 에서 실제 도메인으로 바꾼다.
+
+variable "auth_redirect_uri" {
+  description = "OAuth 로그인 후 리다이렉트할 프론트 주소"
+  type        = string
+  default     = "http://localhost:3000/oauth/callback"
+}
+
+variable "auth_allowed_redirect_hosts" {
+  description = "리다이렉트를 허용할 호스트 목록(쉼표 구분). 오픈 리다이렉트 방어선이므로 넓히지 않는다"
+  type        = string
+  default     = "localhost"
+}
+
+variable "cors_allowed_origins" {
+  description = "CORS 허용 오리진(쉼표 구분). 쿠키 인증이므로 와일드카드를 쓰지 않는다"
+  type        = string
+  default     = "http://localhost:3000"
+}

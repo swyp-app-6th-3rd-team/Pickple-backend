@@ -73,15 +73,26 @@ resource "aws_instance" "app" {
     app_dir          = local.app_dir
 
     fetch_secrets_script = templatefile("${path.module}/templates/fetch-secrets.sh.tftpl", {
-      secret_arn        = aws_secretsmanager_secret.app.arn
-      region            = var.region
-      app_dir           = local.app_dir
-      project           = var.project
-      mysql_database    = var.project
-      mysql_user        = var.project
-      ecr_registry      = "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com"
-      ecr_repository    = aws_ecr_repository.app.name
-      default_image_tag = var.github_deploy_branch
+      secret_arn = aws_secretsmanager_secret.app.arn
+      region     = var.region
+      # 기동 시 키 누락을 잡기 위한 기대 키 목록(ADR-0026). 값이 아니라 키 이름만 넘어간다.
+      expected_keys_json = jsonencode(local.secret_keys)
+      app_dir            = local.app_dir
+      project            = var.project
+      mysql_database     = var.project
+      mysql_user         = var.project
+      ecr_registry       = "${local.account_id}.dkr.ecr.${var.region}.amazonaws.com"
+      ecr_repository     = aws_ecr_repository.app.name
+      default_image_tag  = var.github_deploy_branch
+
+      # 런타임 설정(ADR-0026). compose 기본값에 기대지 않고 명시적으로 공급한다.
+      spring_profiles_active      = var.spring_profiles_active
+      site_address                = local.api_fqdn
+      log_max_history             = var.log_max_history
+      log_total_size_cap          = var.log_total_size_cap
+      auth_redirect_uri           = var.auth_redirect_uri
+      auth_allowed_redirect_hosts = var.auth_allowed_redirect_hosts
+      cors_allowed_origins        = var.cors_allowed_origins
     })
   })
 
