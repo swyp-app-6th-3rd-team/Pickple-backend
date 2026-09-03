@@ -126,6 +126,7 @@ class ImageUploadControllerIT {
 
         MvcResult result = mockMvc.perform(multipart("/api/images")
                         .file(image)
+                        .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("CREATED"))
@@ -168,6 +169,7 @@ class ImageUploadControllerIT {
 
         mockMvc.perform(multipart("/api/images")
                         .file(text)
+                        .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_IMAGE"));
@@ -183,6 +185,7 @@ class ImageUploadControllerIT {
 
         mockMvc.perform(multipart("/api/images")
                         .file(fakePng)
+                        .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_IMAGE"));
@@ -200,6 +203,7 @@ class ImageUploadControllerIT {
 
         mockMvc.perform(multipart("/api/images")
                         .file(image)
+                        .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isPayloadTooLarge())
                 .andExpect(jsonPath("$.code").value("IMAGE_TOO_LARGE"));
