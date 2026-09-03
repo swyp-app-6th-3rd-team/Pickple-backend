@@ -45,6 +45,11 @@ resource "aws_s3_bucket_public_access_block" "images" {
   restrict_public_buckets = true
 }
 
+# ⚠️ 버저닝을 켜지 않았다(ADR-0027 "감수한 위험").
+# 런타임 역할에 s3:DeleteObject 가 있으므로 앱 버그나 자격증명 탈취로 객체가 지워지면
+# 복구 경로가 없다. 6주 MVP 라 감수하지만, 수명이 긴 환경에 이 구성을 재사용한다면
+# aws_s3_bucket_versioning 을 먼저 켠다.
+
 # SSE-S3. KMS 는 요청당 과금이고 역할에 kms:GenerateDataKey 를 추가로 줘야 한다.
 resource "aws_s3_bucket_server_side_encryption_configuration" "images" {
   bucket = aws_s3_bucket.images.id
