@@ -174,7 +174,7 @@ Spring Security 매처는 컨트롤러 매핑에서 파생되지 않는 **독립
 |---|---|---|
 | 결정 기록 (이 ADR) | ☑ | 충돌 없음 |
 | `ArchitectureTest` 규칙 — 핸들러 경로 비어있지 않음 | ☑ **활성** | 경로 명시는 URL 을 바꾸지 않아 합의를 기다릴 이유가 없다. `PostController.findAll` 의 bare `@GetMapping` 을 `@GetMapping("/api/posts")` 로 바꿔 통과시켰다 — **URL 은 그대로다** |
-| `ArchitectureTest` 규칙 — 클래스 레벨 매핑 금지 | ☑ 코드는 들어감 / `@Disabled` | 켜면 `AuthController`·`UserProfileController`·`CommentController` 3개가 잡힌다. 이들을 고치는 것이 곧 계약 변경이라 합의 전에는 켤 수 없다. **규칙을 미리 넣어두면 일괄 변경 PR 이 `@Disabled` 한 줄만 지우면 된다** |
+| `ArchitectureTest` 규칙 — 클래스 레벨 매핑 금지 | ☑ 코드는 들어감 / `@Disabled` | 켜면 `AuthController`·`UserProfileController`·`CommentController`·`VoteController` **4개**가 잡힌다(2026-09-03 재측정 — `VoteController` 는 #21 이 머지되며 뒤늦게 합류했다). 이들을 고치는 것이 곧 계약 변경이라 합의 전에는 켤 수 없다. **규칙을 미리 넣어두면 일괄 변경 PR 이 `@Disabled` 한 줄만 지우면 된다** |
 | 문서 갱신(SPEC · PRD) | ☑ | 계획된 경로를 정본에 반영 |
 | 컨트롤러 5개 + `SecurityConfig` 매처 7개 + 통합 테스트 경로 | ☐ **후속 PR** | 위 브랜치들이 머지된 **뒤**에 일괄로. 그때 `grep -rn '@RequestMapping' src/main/` 으로 새로 들어온 클래스 레벨 매핑을 재확인한다 |
 | Caddy 과도기 rewrite | ☐ **후속 PR** | 프론트 합의(열린 질문 1·2) 후 |
@@ -182,6 +182,39 @@ Spring Security 매처는 컨트롤러 매핑에서 파생되지 않는 **독립
 ArchUnit 규칙을 먼저 넣으면 **후속 PR 의 안전망이 미리 깔린다.** 위에서 말한 조용한 손상
 — bare `@PostMapping` 이 살아남는 경우 — 이 머지 직후 **테스트 실패로 드러난다.**
 규칙이 뒤에 오면 그 창(window)이 열린 채로 남는다.
+
+### 위반 대상은 고정된 목록이 아니다 (실측)
+
+이 ADR 작성 시점의 위반 컨트롤러는 3개였다. **#21(투표 참여 API)이 머지되며
+`VoteController` 가 `@RequestMapping("/api")` 를 들고 합류해 4개가 됐다.**
+
+`@Disabled` 를 잠시 풀어 확인한 실제 출력(2026-09-03 재측정):
+
+```
+Rule 'no classes that are annotated with @RestController should be annotated with
+@RequestMapping' was violated (4 times):
+  app.pickple.auth.controller.AuthController
+  app.pickple.auth.controller.UserProfileController
+  app.pickple.comment.controller.CommentController
+  app.pickple.vote.controller.VoteController      ← #21 로 새로 들어옴
+```
+
+그러므로 **후속 일괄 변경 PR 은 이 목록을 다시 세어야 한다.** 여기 적힌 숫자는
+그 시점의 관측값이지 고정된 명세가 아니다. 세는 방법은 `@Disabled` 를 지우고
+`./gradlew test --tests '*ArchitectureTest*'` 를 돌려 규칙이 지목하게 하는 것이다 —
+손으로 grep 해 세면 새로 들어온 것을 놓친다.
+
+### 후속 일괄 변경 PR 이 손대야 할 것 (2026-09-03 실측 전수)
+
+| 대상 | 개수 | 위치 |
+|---|---|---|
+| 컨트롤러 클래스 레벨 `@RequestMapping` | **4** | `AuthController`(`/api/auth`) · `UserProfileController`(`/api/users`) · `CommentController`(`/api`) · `VoteController`(`/api`) |
+| 메서드에 직접 박힌 `/api` | **1** | `PostController#findAll` — `@GetMapping("/api/posts")` (이 PR 에서 클래스 레벨을 걷으며 옮겨 놓은 것) |
+| `SecurityConfig` 매처 | **7** | `GET /api/posts` · `GET /api/posts/{postId}/comments` · `GET /api/users/nickname/availability` · `POST /api/auth/{apple,refresh,mobile/refresh,logout}` |
+| `springdoc.paths-to-match` | **1** | `application.yml` — `/api/**`. **이슈의 범위 조사에 없던 항목이다.** 바꾸지 않으면 경로 변경 후 OAS 에서 엔드포인트가 통째로 사라진다 |
+| 테스트의 `/api` 경로 | **12 파일** | 통합 테스트 전반 |
+
+`ImageUploadController`·`LlmsTxtController`·`PostController` 는 클래스 레벨 매핑이 이미 없다.
 
 ### ⚠️ 머지 순서 — 이 PR 은 마지막에 머지해야 한다
 

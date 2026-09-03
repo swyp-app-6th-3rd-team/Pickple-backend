@@ -75,7 +75,7 @@
 | 규칙 | 주입한 위반 | 결과 |
 |---|---|---|
 | 핸들러 경로 비어있음 금지 | `PostController.findAll` 을 bare `@GetMapping` 으로 되돌림 | ✅ **이 규칙만** FAILED, 나머지 19개 PASSED. 메시지가 위반 메서드를 정확히 지목 |
-| 클래스 레벨 매핑 금지 | `@Disabled` 를 뗌 (현재 코드가 이미 위반 상태) | ✅ **이 규칙만** FAILED, `AuthController`·`UserProfileController`·`CommentController` 3개를 정확히 지목 |
+| 클래스 레벨 매핑 금지 | `@Disabled` 를 뗌 (현재 코드가 이미 위반 상태) | ✅ **이 규칙만** FAILED. 작성 시점엔 3개였으나 **#21 머지 후 재측정에서 `VoteController` 가 합류해 4개**를 정확히 지목한다(ADR-0029 §위반 대상은 고정된 목록이 아니다) |
 
 확인 후 둘 다 되돌렸다. 부수 확인 하나 — `ImageUploadController` 는 **위반으로 잡히지 않았다.**
 `@PostMapping(path = "/api/images")` 로 `path` 속성을 쓰는데, ArchUnit 은 바이트코드를 읽어
