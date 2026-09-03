@@ -40,3 +40,5 @@ crash.log
 # 실제 변수값에는 계정 ID·CIDR 등이 들어간다. example 만 공유한다.
 *.tfvars
 !*.tfvars.example
+
+.claude/worktrees
