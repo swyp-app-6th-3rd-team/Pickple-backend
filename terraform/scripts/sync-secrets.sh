@@ -57,8 +57,42 @@ SECRET_ID="$(tf_out secret_arn)"
 REGION="$(tf_out region)"
 [ -n "$PROFILE" ] || PROFILE="$(tf_out aws_profile)"
 INSTANCE_ID="$(tf_out instance_id)"
-KEYS="$(terraform -chdir="$TF_DIR" output -json secret_keys | jq -r '.[]')"
-[ -n "$KEYS" ] || { echo "FATAL: secret_keys output 이 비어 있습니다. apply 가 됐는지 확인하십시오" >&2; exit 1; }
+
+# ── 스키마 정본: .env.example (ADR-0026) ─────────────────────
+# terraform output 이 아니라 파일을 직접 읽는다. terraform apply 없이도 새 키가 따라온다.
+# locals.tf 도 같은 파일을 파싱하므로 둘이 어긋날 수 없다(--check 가 대조한다).
+#
+# 마커는 키 선언 직전의 "연속 주석 블록" 안 어디든 올 수 있다. 빈 줄이 블록을 끊는다.
+# 식별자 문자군에 숫자를 포함한다 — 빠뜨리면 oauth_apple_private_key_base64 가 64 에서 잘린다.
+EXAMPLE_FILE="$REPO_DIR/.env.example"
+[ -f "$EXAMPLE_FILE" ] || { echo "FATAL: $EXAMPLE_FILE 이 없습니다" >&2; exit 1; }
+
+# key<TAB>generate<TAB>remote_wins<TAB>default 레코드. bash 3.2 라 연관배열을 쓸 수 없다.
+POLICY="$(mktemp)"
+trap 'rm -f "$POLICY"' EXIT
+awk '
+  { sub(/\r$/, "") }
+  /^[[:space:]]*$/ { blk=""; next }
+  /^#?[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=/ {
+    line=$0; sub(/^#[[:space:]]*/, "", line); sub(/^export[[:space:]]+/, "", line)
+    key=line; sub(/=.*/, "", key)
+    if (blk ~ /@secret/) {
+      gen=""; if (match(blk, /@generate=[0-9]+/))  gen=substr(blk, RSTART+10, RLENGTH-10)
+      def=""; if (match(blk, /@default=[^ \t]+/)) def=substr(blk, RSTART+9,  RLENGTH-9)
+      rw = (blk ~ /@remote-wins/) ? "1" : "0"
+      print tolower(key) "\t" gen "\t" rw "\t" def
+    }
+    blk=""; next
+  }
+  /^#/ { blk = blk " " $0; next }
+  { blk="" }
+' "$EXAMPLE_FILE" > "$POLICY"
+
+KEYS="$(cut -f1 "$POLICY")"
+[ -n "$KEYS" ] || { echo "FATAL: $EXAMPLE_FILE 에서 @secret 키를 찾지 못했습니다" >&2; exit 1; }
+
+# 정책 조회. bash 3.2 호환 — 연관배열 대신 탭 구분 레코드를 grep 한다.
+policy_field() { awk -F'\t' -v k="$1" -v n="$2" '$1==k { print $n; exit }' "$POLICY"; }
 
 AWS="aws --region $REGION --profile $PROFILE"
 
@@ -113,29 +147,30 @@ for key in $KEYS; do
   remote_val="$(echo "$REMOTE_JSON" | jq -r --arg k "$key" '.[$k] // ""')"
   src=""; val=""
 
+  # 정책은 .env.example 의 마커에서 온다(ADR-0026). 키 이름을 여기에 적지 않는다.
+  gen_len="$(policy_field "$key" 2)"
+  remote_wins="$(policy_field "$key" 3)"
+  default_val="$(policy_field "$key" 4)"
+
   if wants_generate "$key"; then
     src="generated"
+  elif [ "$remote_wins" = "1" ]; then
+    # @remote-wins — 이미 초기화된 리소스(예: MySQL)의 값을 로컬 .env 가 덮지 못하게 한다.
+    if ! is_placeholder "$remote_val"; then src="remote"; val="$remote_val"
+    elif ! is_placeholder "$local_val"; then src="env"; val="$local_val"
+    fi
   else
-    case "$key" in
-      mysql_root_password|mysql_password)
-        # 원격 우선. 초기화된 MySQL 의 패스워드를 로컬 .env 가 실수로 덮지 못하게 한다.
-        if ! is_placeholder "$remote_val"; then src="remote"; val="$remote_val"
-        elif ! is_placeholder "$local_val"; then src="env"; val="$local_val"
-        fi ;;
-      *)
-        if ! is_placeholder "$local_val"; then src="env"; val="$local_val"
-        elif ! is_placeholder "$remote_val"; then src="remote"; val="$remote_val"
-        fi ;;
-    esac
+    if ! is_placeholder "$local_val"; then src="env"; val="$local_val"
+    elif ! is_placeholder "$remote_val"; then src="remote"; val="$remote_val"
+    fi
   fi
 
   if [ -z "$src" ] || [ "$src" = "generated" ]; then
-    case "$key" in
-      mysql_root_password|mysql_password) src="generated"; val="$(openssl rand -base64 24)" ;;
-      jwt_secret_key)                     src="generated"; val="$(openssl rand -base64 48)" ;;
-      oauth_apple_enabled)                src="default";   val="false" ;;
-      *)                                  src="default";   val="not-configured" ;;
-    esac
+    if [ -n "$gen_len" ]; then
+      src="generated"; val="$(openssl rand -base64 "$gen_len")"
+    else
+      src="default"; val="${default_val:-not-configured}"
+    fi
   fi
 
   [ "$val" != "$remote_val" ] && CHANGED=1
@@ -144,12 +179,10 @@ for key in $KEYS; do
   jq --arg k "$key" --rawfile v "$TMP_VAL" '.[$k] = $v' "$TMP_NEW" > "$TMP_NEW.next" && mv "$TMP_NEW.next" "$TMP_NEW"
   printf '%-36s %-10s %s\n' "$key" "$src" "${#val}"
 
-  case "$key" in
-    mysql_root_password|mysql_password)
-      if ! is_placeholder "$remote_val" && [ "$val" != "$remote_val" ]; then
-        echo "WARN: $key 가 바뀝니다. 이미 초기화된 MySQL 에는 ALTER USER 가 필요합니다 (README 참조)." >&2
-      fi ;;
-  esac
+  # @remote-wins 키가 실제로 바뀌면 알린다 — 이미 초기화된 리소스와 어긋날 수 있다.
+  if [ "$remote_wins" = "1" ] && ! is_placeholder "$remote_val" && [ "$val" != "$remote_val" ]; then
+    echo "WARN: $key 가 바뀝니다. 이미 초기화된 MySQL 에는 ALTER USER 가 필요합니다 (README 참조)." >&2
+  fi
 done
 rm -f "$TMP_VAL"
 
