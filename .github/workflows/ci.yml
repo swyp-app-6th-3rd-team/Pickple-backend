@@ -60,3 +60,16 @@ jobs:
             exit 1
           fi
           echo "classpath 중복 없음"
+
+  # 비밀 스키마 정합 검사(ADR-0026).
+  #
+  # .env 도 AWS 자격 증명도 쓰지 않는다 — 커밋된 .env.example·compose·템플릿만 대조한다.
+  # 마커 유실·중복 선언·로컬 전용 키 업로드·compose 변수 미공급을 잡는다.
+  secrets-schema:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify secret schema consistency
+        run: terraform/scripts/sync-secrets.sh --check

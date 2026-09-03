@@ -49,17 +49,27 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-for bin in aws jq openssl terraform; do
-  command -v "$bin" >/dev/null || { echo "FATAL: $bin 이 필요합니다" >&2; exit 1; }
-done
-[ -f "$ENV_FILE" ] || { echo "FATAL: $ENV_FILE 이 없습니다" >&2; exit 1; }
+# --check 는 커밋된 파일만 읽는다. .env(gitignore)도 AWS 자격 증명도 필요 없어
+# 깨끗한 CI 체크아웃에서 그대로 돈다. 나머지 모드는 전부 필요하다.
+if [ "$CHECK" -eq 1 ]; then
+  command -v jq >/dev/null || { echo "FATAL: jq 가 필요합니다" >&2; exit 1; }
+else
+  for bin in aws jq openssl terraform; do
+    command -v "$bin" >/dev/null || { echo "FATAL: $bin 이 필요합니다" >&2; exit 1; }
+  done
+  [ -f "$ENV_FILE" ] || { echo "FATAL: $ENV_FILE 이 없습니다" >&2; exit 1; }
+fi
 
 # ── Terraform output (정본) ──────────────────────────────────
 tf_out() { terraform -chdir="$TF_DIR" output -raw "$1"; }
-SECRET_ID="$(tf_out secret_arn)"
-REGION="$(tf_out region)"
-[ -n "$PROFILE" ] || PROFILE="$(tf_out aws_profile)"
-INSTANCE_ID="$(tf_out instance_id)"
+# set -u 아래에서 --check 경로가 이 값들을 참조해도 터지지 않게 미리 비워 둔다.
+SECRET_ID=""; REGION=""; INSTANCE_ID=""
+if [ "$CHECK" -eq 0 ]; then
+  SECRET_ID="$(tf_out secret_arn)"
+  REGION="$(tf_out region)"
+  [ -n "$PROFILE" ] || PROFILE="$(tf_out aws_profile)"
+  INSTANCE_ID="$(tf_out instance_id)"
+fi
 
 # ── 스키마 정본: .env.example (ADR-0026) ─────────────────────
 # terraform output 이 아니라 파일을 직접 읽는다. terraform apply 없이도 새 키가 따라온다.
