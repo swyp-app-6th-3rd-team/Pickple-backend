@@ -43,4 +43,10 @@ public class JpaPostStore implements PostStore {
     public Optional<Post> findById(Long id) {
         return repository.findById(id).map(PostEntity::toDomain);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsActiveById(Long id) {
+        return repository.existsByIdAndDeletedAtIsNull(id);
+    }
 }

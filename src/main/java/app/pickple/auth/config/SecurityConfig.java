@@ -103,6 +103,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(mvc.matcher(HttpMethod.GET, "/")).permitAll()
                         .requestMatchers(toMatchers(mvc, PUBLIC_GET)).permitAll()
+                        .requestMatchers(
+                                mvc.matcher(HttpMethod.GET, "/api/posts/{postId}/comments"))
+                        .permitAll()
                         .requestMatchers(mvc.matcher("/oauth2/**"), mvc.matcher("/login/oauth2/**")).permitAll()
                         .requestMatchers(
                                 mvc.matcher(HttpMethod.POST, "/api/auth/apple"),
