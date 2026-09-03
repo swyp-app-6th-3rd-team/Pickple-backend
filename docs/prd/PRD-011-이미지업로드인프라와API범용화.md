@@ -100,3 +100,7 @@ EC2 인스턴스 프로파일도 `terraform/ec2.tf` 에 이미 부착돼 있어 
 ## 변경 이력
 
 - 2026-09-03 — 신규 작성(#61 구현 시점)
+- 2026-09-03 — #63 에서 이름이 바뀌었다. 본문은 당시 사실을 그대로 두고 대응만 적는다.
+  `ImageObjectStorage`→`FileObjectStorage`, `S3ImageObjectStorage`→`S3FileObjectStorage`,
+  `ImageStorageProperties`→`FileStorageProperties`, `ImageStorageException`→`FileStorageException`,
+  `app.image`→`app.file`, `IMAGE_*` 환경변수→`FILE_*`.

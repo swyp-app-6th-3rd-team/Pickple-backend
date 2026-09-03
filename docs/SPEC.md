@@ -31,6 +31,10 @@ app/pickple/
 ├── common/          ApiResponse · ResponseCode · PageResponse · ScrollResponse
 │                    CursorCodec · CorrelationIdFilter
 ├── config/          ClockConfig · QuerydslConfig · ScalarConfig
+│                    SecurityConfig · AuthProperties · AppleProperties
+│                    FileStorageProperties · S3FileStorageConfig
+│                    ※ 설정은 여기 하나로 모은다. 도메인별 config 하위 패키지는
+│                      ArchitectureTest 가 막는다(#63)
 ├── docs/            LlmsTxtController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
@@ -44,13 +48,11 @@ app/pickple/
     ├── security/    JwtAuthenticationFilter · @CurrentUser
     │                RestAuthenticationEntryPoint · RestAccessDeniedHandler
     ├── apple/       client secret · code 교환/revoke · ID token 검증 · provider token 암호화
-    ├── config/      SecurityConfig · AuthProperties · AppleProperties
     └── controller/  AuthController
 ```
 
-> **도메인 패키지가 아직 없다.** 템플릿의 참조 구현(`rental`)과 예제(`sakila`)를 걷어낸 뒤
-> Pickple 도메인을 아직 세우지 않았다. 현재 있는 것은 인증과 공통 골격뿐이다.
-> 도메인 모델링은 별도 사이클에서 다룬다.
+> 위 트리는 `auth` 만 펼친 것이다. 같은 형태(`domain`·`service`·`infra`·`controller`)로
+> `item`(이미지 업로드·컨테이너) · `post` · `vote` · `comment` · `point` 가 있다.
 
 ---
 
@@ -272,6 +274,8 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
+| 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |
 | 2026-09-03 | `POST /api/images` 에 `attachType` 필수 파라미터 추가 | 상품 전용에서 범용으로 전환(#62). 기존 호출자는 400 |
 | 2026-08-15 | `Instant` → `LocalDateTime` | Sakila 컬럼이 `DATETIME`(타임존 없음) |
 | 2026-08-15 | `PageQuery`/`PageResult` 자체 래퍼 제거 → Spring Data 타입 직접 사용 | 무한 스크롤에 `Window` 가 필요 |
