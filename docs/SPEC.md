@@ -110,6 +110,25 @@ app/pickple/
 
 ---
 
+### 3.4 이미지
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| POST | `/api/images` | 필요 | 이미지 업로드 후 부착용 `itemContainerId` 반환 |
+
+- `multipart/form-data` 로 `images`(파일, 복수)와 `attachType`(폼 필드)을 받는다.
+- **`attachType` 은 필수이며 기본값이 없다.** `PRODUCT`(상품 사진) 또는 `COMMENT`(댓글 사진).
+  기본값을 두면 용도를 넘기지 않은 호출이 조용히 상품으로 분류되므로 두지 않는다.
+  누락하거나 알 수 없는 값이면 `INVALID_REQUEST`(400)다.
+- JPEG·PNG 만 허용하고 Content-Type 과 실제 파일 시그니처가 다르면 `INVALID_IMAGE`(400),
+  파일당 5MB 를 넘으면 `IMAGE_TOO_LARGE`(413)다.
+- 객체 키 접두어는 용도에 따라 갈린다 — `product-images/{userId}/{uuid}.{ext}`,
+  `comment-images/{userId}/{uuid}.{ext}`. 접두어는 `AttachType` 상수가 소유한다.
+- 응답의 `accessUrl` 은 CloudFront 도메인 기준이며 `item_resource` 에 영속된다(ADR-0021, ADR-0027).
+  만료되지 않아야 하므로 presigned URL 을 쓰지 않는다.
+- S3 와 DB 사이에 분산 트랜잭션이 없다. 업로드 후 저장이 실패하면 이번 요청에서 만든 객체를
+  best-effort 로 보상 삭제한다.
+
 ## 4. 스키마
 
 ### 4.1 인증 3개
@@ -253,6 +272,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-03 | `POST /api/images` 에 `attachType` 필수 파라미터 추가 | 상품 전용에서 범용으로 전환(#62). 기존 호출자는 400 |
 | 2026-08-15 | `Instant` → `LocalDateTime` | Sakila 컬럼이 `DATETIME`(타임존 없음) |
 | 2026-08-15 | `PageQuery`/`PageResult` 자체 래퍼 제거 → Spring Data 타입 직접 사용 | 무한 스크롤에 `Window` 가 필요 |
 | 2026-08-15 | `film.length` `Integer` → `Short` | `ddl-auto=validate` 가 `smallint unsigned` 불일치 검출 |
