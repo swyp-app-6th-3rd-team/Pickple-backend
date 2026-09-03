@@ -136,6 +136,25 @@ if [ "$CHECK" -eq 1 ]; then
     RC=1
   fi
 
+  # 2-b. 중복 선언 — policy_field 는 첫 레코드만 쓰므로 뒤쪽 정책이 조용히 무시된다.
+  DUPES="$(echo "$KEYS" | sort | uniq -d | tr '\n' ' ')"
+  if [ -n "$(echo "$DUPES" | tr -d ' ')" ]; then
+    echo "NG: .env.example 에 중복 선언된 키가 있습니다: $DUPES" >&2
+    echo "    첫 선언의 정책만 적용되어 @remote-wins 같은 보호가 무력화됩니다." >&2
+    RC=1
+  fi
+
+  # 2-c. 로컬 전용이어야 하는 키에 @secret 이 붙었는지(업로드 금지 목록).
+  # SPRING_PROFILES_ACTIVE 가 올라가면 compose 의 :-prod 가 무력화돼 운영이 local 로 뜬다.
+  for forbidden in spring_profiles_active mysql_port app_port management_port; do
+    case " $(echo $KEYS) " in
+      *" $forbidden "*)
+        echo "NG: $forbidden 는 로컬 전용입니다. @secret 마커를 제거하십시오." >&2
+        echo "    올라가면 EC2 .env 에 기록되어 compose 의 기본값을 덮습니다." >&2
+        RC=1 ;;
+    esac
+  done
+
   # 3. 숫자로 끝나는 키가 온전히 잡혔는지 — 정규식에서 0-9 를 빠뜨리면 여기서 드러난다.
   for k in $KEYS; do
     case "$k" in *[0-9]) echo "OK: 숫자로 끝나는 키 정상 인식 — $k" ;; esac
@@ -149,7 +168,8 @@ if [ "$CHECK" -eq 1 ]; then
     for v in $(grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*' "$COMPOSE_FILE" | sed 's/\${//' | sort -u); do
       lv="$(lower "$v")"
       case " $(echo $KEYS) " in *" $lv "*) continue ;; esac
-      grep -q "$v" "$FETCH_TPL" && continue
+      # 주석에 이름이 스쳐도 "공급"으로 세지 않는다. 실제 대입(echo "VAR=)만 인정한다.
+      grep -qE "^[[:space:]]*echo \"$v=" "$FETCH_TPL" && continue
       UNSUPPLIED="$UNSUPPLIED $v"
     done
     if [ -n "$UNSUPPLIED" ]; then

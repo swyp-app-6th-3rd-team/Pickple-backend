@@ -52,9 +52,11 @@ locals {
   # 정규식 주의: 식별자 문자군에 숫자를 포함한다([A-Za-z0-9_]).
   # 빠뜨리면 oauth_apple_private_key_base64 가 "base64" 의 64 에서 잘린다.
   # 주석 처리된 선언(#OAUTH_GOOGLE_CLIENT_ID=)도 스키마에 포함해야 하므로 ^#? 를 허용한다.
+  # 중간 주석은 '=' 를 포함할 수 있다(예: keyring 설명 k1=..). 비탐욕(*?)으로 첫 키 선언에서 멈춘다
+  # — awk 파서와 규칙을 일치시키기 위한 것이다. sync-secrets.sh --check 가 둘을 대조한다.
   secret_keys = [
     for m in regexall(
-      "(?m)^#[^\\n]*@secret[^\\n]*\\n(?:#[^\\n=]*\\n)*#?[ \\t]*(?:export[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)=",
+      "(?m)^#[^\\n]*@secret[^\\n]*\\n(?:#[^\\n]*\\n)*?#?[ \\t]*(?:export[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)=[^\\n]*$",
       file("${path.module}/../.env.example")
     ) : lower(m[0])
   ]
