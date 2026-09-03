@@ -48,6 +48,16 @@ output "data_volume_id" {
   value       = aws_ebs_volume.data.id
 }
 
+output "images_bucket" {
+  description = "이미지 객체 버킷. 이름이 전역 유일해야 해 계정 ID 가 접미어로 붙는다"
+  value       = aws_s3_bucket.images.id
+}
+
+output "images_cdn_domain" {
+  description = "이미지 공개 URL 의 base(ADR-0027). IMAGE_PUBLIC_BASE_URL 은 user_data 가 자동 주입한다"
+  value       = "https://${aws_cloudfront_distribution.images.domain_name}"
+}
+
 output "route53_name_servers" {
   description = "Gabia 네임서버 설정에 넣을 4개. 이것이 도메인 쪽 유일한 수동 단계다(ADR-0022)"
   value       = aws_route53_zone.main.name_servers
