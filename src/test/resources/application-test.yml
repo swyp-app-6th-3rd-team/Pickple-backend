@@ -26,6 +26,13 @@ app:
     default-image-urls:
       - https://images.local.test/defaults/profile-1.png
       - https://images.local.test/defaults/profile-2.png
+  ranking:
+    # 배치를 끄고 테스트가 RankingBatchService 를 직접 부른다.
+    # 켜두면 스케줄러가 픽스처를 중간에 건드려 결과가 실행 시점에 따라 달라진다.
+    enabled: false
+    # 스케줄러는 꺼져도 @Scheduled 의 placeholder 는 빈 정의 시점에 해석된다.
+    # 값이 없으면 컨텍스트 로딩 자체가 실패한다.
+    cron: "-"
   file:
     max-file-size: 5MB
     s3:

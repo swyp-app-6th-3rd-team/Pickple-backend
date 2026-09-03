@@ -38,6 +38,13 @@ import java.util.List;
  *       인덱스 범위 스캔으로 접지 못한다.</li>
  * </ul>
  *
+ * <p><b>작성자 랭킹이 공짜인 이유</b> — {@code u.ranking} 은 배치가 미리 채워둔 값이고
+ * (ADR-0028), 작성자 조인은 원래도 그 행을 {@code PRIMARY} 로 한 건 읽고 있었다.
+ * 컬럼 하나가 얹힐 뿐이라 실행계획이 랭킹 없던 때와 같다 —
+ * 실측 0.123ms(랭킹 없음) → 0.158ms(랭킹 포함). 조회 시점에 세면 97.6ms 다.
+ * "먼저 자르고 나중에 붙인다" 가 여기서 배당금을 낸다: 조인은 이미 11행으로
+ * 좁혀진 뒤에 일어나므로 붙는 컬럼의 비용이 조각 크기에만 비례한다.
+ *
  * <p>package-private 이다. 바깥은 {@link app.pickple.post.domain.PostQueryStore} 만 본다.
  */
 @Repository
@@ -104,7 +111,8 @@ class PostListRepository {
                        page.vote_count, page.comment_count, page.created_at, page.popularity_score,
                        %s AS thumbnail_url,
                        page.user_id,
-                       COALESCE(NULLIF(u.nickname, ''), NULLIF(u.name, ''), '알 수 없음') AS author_nickname
+                       COALESCE(NULLIF(u.nickname, ''), NULLIF(u.name, ''), '알 수 없음') AS author_nickname,
+                       u.ranking AS author_ranking
                   FROM (%s) page
                   JOIN users u ON u.id = page.user_id
                  ORDER BY page.%s DESC, page.id DESC
@@ -151,6 +159,7 @@ class PostListRepository {
         static final int THUMBNAIL_URL = 9;
         static final int AUTHOR_ID = 10;
         static final int AUTHOR_NICKNAME = 11;
+        static final int AUTHOR_RANKING = 12;
 
         private Column() {
         }
