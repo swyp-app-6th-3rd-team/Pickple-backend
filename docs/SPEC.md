@@ -119,8 +119,15 @@ app/pickple/
   서버가 존재하지 않는 더미 게시글을 지어내지 않는다(지어내면 탭했을 때 갈 곳이 없다).
 - 인기순 무한 스크롤은 **최선 노력**이다. 스크롤 도중 점수가 올라 커서 위로 이동한 글은
   그 회차에서 빠질 수 있다. 의도된 선택이며 근거는 ERD 초안 8.4.
-- **작성자 랭킹은 아직 응답에 없다.** 전역 순위라 조회 시점에 구하면 회원 전체를
-  정렬해야 한다(실측 154ms/조각). 사전 계산 컬럼이 생기면 추가한다.
+- **작성자 랭킹(`authorRanking`)은 사전 계산 값이다**([ADR-0028](adr/0028-author-ranking-precompute.md)).
+  전역 순위라 조회 시점에 구하면 회원 전체를 정렬해야 한다(200k 실측 102ms/조각).
+  배치가 미리 매겨둔 `users.ranking` 을 작성자 조인에서 함께 읽으므로 조각 비용이
+  랭킹 없던 때와 같다(0.117ms → 0.232ms).
+  - **순위 정의**: 포인트 내림차순, 동점이면 가입이 빠른 쪽. 동점을 공동 순위로 묶지 않는다.
+  - **지연 상한 5분.** 포인트가 바뀌면 다음 배치(기본 `0 */5 * * * *`)에서 반영된다.
+    지금 이 순간의 정확한 등수가 아니다.
+  - 아직 산정되지 않은 회원과 탈퇴 회원은 **`null`** 이다. 0 이나 꼴찌 순위를 지어내지 않는다 —
+    지어낸 값은 실제 꼴찌와 구분되지 않는다.
 
 ### 3.4 댓글
 
@@ -185,6 +192,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V3__pickple_domain.sql` | `db/migration` | 항상 |
 | `V4__apple_provider_tokens.sql` | `db/migration` | 항상 |
 | `V5__active_nickname_follows_state.sql` | `db/migration` | 항상 |
+| `V7__users_ranking_precompute.sql` | `db/migration` | 항상 |
 
 ---
 
@@ -322,3 +330,4 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 2026-08-30 | refresh CAS·Apple 수동 해제 응답·보상 실패 관측 추가 | PR #12 리뷰 반영 |
 | 2026-09-03 | 댓글 CRUD·게스트 목록·원픽 수 조회 계약 추가 | Issue #23 |
 | 2026-09-03 | 게시글 목록 조회 계약 추가(카테고리·정렬·커서). 작성자 랭킹은 보류 | Issue #19. 랭킹은 요청당 154ms 라 사전 계산 과제로 분리 |
+| 2026-09-03 | 목록 응답에 `authorRanking` 추가. 5분 주기 배치로 사전 계산 | Issue #73. 조회 시점 계산은 200k 기준 102ms/조각이라 배치로 옮김(ADR-0028) |
