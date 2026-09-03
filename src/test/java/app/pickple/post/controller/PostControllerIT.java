@@ -1,4 +1,4 @@
-package app.pickple.post;
+package app.pickple.post.controller;
 
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
@@ -55,7 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
-class PostListApiIntegrationTest {
+class PostControllerIT {
 
     @Autowired
     private WebApplicationContext context;
