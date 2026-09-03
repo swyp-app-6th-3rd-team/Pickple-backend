@@ -39,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
-class AuthFlowIntegrationTest {
+class AuthFlowIT {
 
     @Autowired
     private WebApplicationContext context;

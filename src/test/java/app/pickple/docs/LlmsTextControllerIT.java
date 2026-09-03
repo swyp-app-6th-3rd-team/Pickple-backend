@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
-class LlmsTxtIntegrationTest {
+class LlmsTextControllerIT {
 
     @Autowired
     private WebApplicationContext context;
