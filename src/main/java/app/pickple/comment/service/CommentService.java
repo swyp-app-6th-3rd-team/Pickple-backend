@@ -5,6 +5,8 @@ import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.PostCommenterStore;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
+import app.pickple.item.domain.AttachType;
+import app.pickple.item.service.AttachableContainerGuard;
 import app.pickple.post.service.ActivePostGuard;
 import app.pickple.post.domain.PostCounters;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ public class CommentService {
 
     private final CommentStore commentStore;
     private final ActivePostGuard activePost;
+    private final AttachableContainerGuard attachableContainer;
     private final PostCommenterStore commenterStore;
     private final PostCounters counters;
 
@@ -36,6 +39,9 @@ public class CommentService {
     @Transactional
     public Comment write(Comment comment) {
         activePost.requireActive(comment.postId());
+        // 상품용 컨테이너를 댓글에 붙이는 경로를 여기서 끊는다. 복합 FK 가 최종 방어선이지만
+        // 거기까지 가면 DataIntegrityViolationException 하나로 뭉개져 원인을 잃는다.
+        attachableContainer.requireUsableAs(comment.itemContainerId(), AttachType.COMMENT);
         Comment saved = commentStore.save(comment);
 
         counters.increaseCommentCount(saved.postId());
