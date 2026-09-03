@@ -64,6 +64,20 @@ app/pickple/
 { "code": "OK", "message": "정상 처리되었습니다.", "returnObject": { } }
 ```
 
+> ### ⚠️ `/api` prefix 는 걷어내기로 결정됐다 — 아직 적용 전이다
+>
+> 배포 도메인이 이미 `dev-api.pickple.app` 라 경로의 `/api` 는 의미가 중복된다.
+> **[ADR-0029](adr/0029-drop-api-path-prefix.md) 가 제거를 결정했다**(대안 1 채택,
+> 과도기는 Caddy 가 `/api/*` → `/*` 를 rewrite 하는 브릿지로 흡수).
+>
+> **아래 표의 경로는 아직 `/api` 를 포함한 현재 동작 그대로다.** 결정이 `Proposed` 이고
+> **프론트 합의가 끝나지 않았기 때문이다** — 서버만 바꾸면 기존 호출이 전부 404 다.
+> 합의 후 후속 PR 이 경로를 바꾸면 이 표도 그때 함께 갱신한다(`/api/posts` → `/posts`).
+>
+> 관련 변경이 함께 걸리는 자리 — 후속 PR 이 **한 번에** 처리해야 조용히 깨지지 않는다:
+> `SecurityConfig` 매처 7개 · `springdoc.paths-to-match: /api/**`(`application.yml:165`,
+> 안 바꾸면 Swagger·`/llms.txt` 가 **빈 문서**가 된다) · 통합 테스트 경로.
+
 ### 3.1 인증
 
 | Method | Path | 인증 | 설명 |
@@ -276,15 +290,17 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 ## 6. 아키텍처 규칙
 
-`ArchitectureTest` 17개. 규칙을 추가할 때는 **일부러 위반하는 코드를 넣어
-해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
+`ArchitectureTest` 21개(1개는 의도적으로 `@Disabled`). 규칙을 추가할 때는 **일부러 위반하는
+코드를 넣어 해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
 지킨다는 증거가 되지 않는다([ADR-0008](adr/0008-domain-entity-separation.md)).
 
 | 그룹 | 규칙 수 | 내용 |
 |---|---|---|
+| 테스트 네이밍 | 1 | 통합 테스트 클래스 이름은 `IT` 로 끝난다 |
 | 도메인 순수성 | 6 | JPA·검증·Lombok·infra·web·부동소수점 의존 금지 |
 | 계층 경계 | 8 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / infra→service 금지 |
 | API 응답 계약 | 2 | 컨트롤러가 `Page`·`Window` 를 그대로 반환 금지 |
+| 컨트롤러 매핑 | 2 | 핸들러 매핑 경로 비어있음 금지 / 클래스 레벨 `@RequestMapping` 금지(**`@Disabled` — `/api` prefix 제거 시 해제**, [ADR-0029](adr/0029-drop-api-path-prefix.md)) |
 | DI | 1 | `@Autowired` 필드 주입 금지 |
 
 ---
@@ -303,6 +319,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-03 | `/api` prefix 제거를 결정(ADR-0029)하고 컨트롤러 매핑 규칙을 ArchUnit 으로 강제. **경로 자체는 아직 안 바뀜** — 프론트 합의 대기 | Issue #75. `api.` 서브도메인과 의미 중복. 계약 변경이라 백엔드 단독으로 못 민다 |
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
 | 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |
 | 2026-09-03 | 탈퇴 정본을 `users.state` 로 통일하고 `deleted_at` 제거 | 생성 컬럼이 `deleted_at` 을 보는데 코드는 `state` 만 써서 탈퇴해도 닉네임이 잠겼다(#16) |
