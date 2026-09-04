@@ -1,0 +1,76 @@
+#!/bin/sh
+#
+# develop·main 을 rebase 로 당겨오는 것을 막는다.
+#
+#   git pull --rebase          차단
+#   pull.rebase=true 설정       차단
+#   git pull (merge)           통과
+#   git rebase -i HEAD~3       통과
+#
+# 왜 막나 — develop 을 rebase 로 당기면 이미 push 된 커밋의 SHA 가 바뀐다.
+# 되돌리려면 force-push 가 필요하고, 여럿이 같은 develop 을 보는 저장소에서
+# 이건 팀 전체의 히스토리를 깨뜨린다. 팀은 이미 merge 로 동기화하고 있다.
+#
+# 왜 pre-rebase 인가 — `git pull --rebase` 는 이 훅을 반드시 거치고,
+# exit≠0 이면 HEAD 가 움직이기 전에 중단된다. 되돌릴 것이 남지 않는다.
+#
+# 왜 전면 차단이 아닌가 — 내 브랜치의 커밋을 `git rebase -i` 로 정리하는 것은
+# 공유 히스토리를 건드리지 않는다. 막을 이유가 없다. 판정은 아래 $1 로 한다.
+#
+# 판정 — git 이 넘기는 첫 인자가 upstream 이다.
+#   git pull --rebase          40자 hex SHA   (origin/develop 의 커밋)
+#   git rebase origin/develop  origin/develop (revspec)
+#   git rebase -i HEAD~2       HEAD~2         (revspec)
+# 즉 40자 hex 면 pull --rebase 다. 그 SHA 가 develop·main 의 것인지 본다.
+# 현재 서 있는 브랜치는 보지 않는다 — feature 브랜치에서 develop 을
+# 당겨오는 경우도 똑같이 히스토리를 깨뜨리기 때문이다.
+#
+# 우회 — `git -c core.hooksPath= rebase ...` 로 뚫린다.
+# `git push --no-verify` 와 달리 --no-verify 는 이 훅에 통하지 않는다.
+# 우회했다는 사실이 로그에 남지 않으므로 PR 에서 사유를 밝힌다.
+
+set -eu
+
+# 인자가 없으면 무엇을 당겨오는지 판단할 수 없다. 통과시킨다.
+[ $# -ge 1 ] || exit 0
+
+upstream=$1
+
+# 40자 hex 가 아니면 revspec 이다 = 로컬 rebase. 통과시킨다.
+case "$upstream" in
+	*[!0-9a-f]* | "") exit 0 ;;
+	????????????????????????????????????????) ;;
+	*) exit 0 ;;
+esac
+
+# 원격 추적 브랜치가 없을 수 있다. set -e 하에서 실패를 허용한다.
+for protected in origin/develop origin/main origin/master; do
+	sha=$(git rev-parse --verify --quiet "$protected" 2>/dev/null) || continue
+	[ "$sha" = "$upstream" ] || continue
+
+	cat >&2 <<EOF
+
+  $protected 을 rebase 로 당길 수 없다.
+
+  rebase 로 당기면 이미 push 된 커밋의 SHA 가 바뀐다. 되돌리려면
+  force-push 가 필요하고, 그러면 팀 전체의 히스토리가 깨진다.
+
+  대신 merge 로 당긴다:
+    git pull --no-rebase
+
+  pull.rebase 가 켜져 있으면 끈다. 전역 설정도 함께 확인한다:
+    git config --get pull.rebase
+    git config --global --get pull.rebase
+    git config --global --unset pull.rebase
+
+  IntelliJ 를 쓴다면 Settings > Version Control > Git 의
+  Update method 를 Merge 로 둔다.
+
+  내 브랜치를 정리하는 rebase(git rebase -i)는 막지 않는다.
+  이 훅은 --no-verify 로 우회되지 않는다.
+
+EOF
+	exit 1
+done
+
+exit 0
