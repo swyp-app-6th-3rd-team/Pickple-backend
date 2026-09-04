@@ -52,7 +52,7 @@ app/pickple/
 ```
 
 > 위 트리는 `auth` 만 펼친 것이다. 같은 형태(`domain`·`service`·`infra`·`controller`)로
-> `item`(이미지 업로드·컨테이너) · `post` · `vote` · `comment` · `point` 가 있다.
+> `item`(이미지 업로드·컨테이너) · `post` · `vote` · `comment` · `point` · `grade` 가 있다.
 
 ---
 
@@ -233,6 +233,41 @@ app/pickple/
 - S3 와 DB 사이에 분산 트랜잭션이 없다. 업로드 후 저장이 실패하면 이번 요청에서 만든 객체를
   best-effort 로 보상 삭제한다.
 
+### 3.7 등급
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/api/users/me/grade` | 필요 | 내 등급·누적 포인트·투표 횟수·다음 등급까지 달성률 |
+| GET | `/api/grades` | 필요 | 전체 등급의 승급 필요 조건 |
+
+- **승급은 AND 조건이다(R-15).** 누적 포인트와 누적 투표 횟수를 **모두** 충족해야 오른다.
+  임계값은 정책 요약표 §2 다 — LV.1 0P / LV.2 200P·20회 / LV.3 1,000P·100회 /
+  LV.4 3,500P·300회 / LV.5 10,000P·1,000회. 정본은 `Grade` enum 이고 기준 테이블을
+  두지 않는다(ADR-0030). DB 에 두면 정책 요약표와 두 곳이 정본이 된다.
+- **판정 입력값은 캐시가 아니라 원장에서 읽는다(ADR-0030).** `users.point` 는 랭킹 배치가
+  5분마다 채우는 캐시라 실시간 게이지(기능명세 §7.3)를 만족하지 못하고, `users.vote_count` 는
+  **아무도 채우지 않아** 읽으면 전원 0 이다. 정본은 `point_history` 와 `vote` 다(R-14).
+  랭킹이 배치인 근거(전역 집계)는 여기 적용되지 않는다 — 등급의 입력값은 `user_id` 로
+  좁혀지는 로컬 집계이고 `idx_point_user_created`·`idx_vote_user_created` 가 그 선행 컬럼을 갖는다.
+- **재투표는 누적 투표 횟수를 늘리지 않는다(R-22).** 쿼리에 별도 조건이 없다 —
+  `UNIQUE (post_id, user_id)` 라 한 사람이 한 게시글에 가질 수 있는 행이 최대 1개이고
+  선택 변경은 UPDATE 라, `COUNT(*)` 가 행을 세는 것만으로 이미 사람 단위다.
+- **등급은 내려가지 않는다(R-16).** 도달한 최고 등급을 `users.highest_grade` 에 남기고
+  계산값과 저장값 중 높은 쪽을 쓴다. 오늘은 포인트가 줄어들 경로가 없어 둘이 항상 같지만,
+  저장하지 않으면 R-16 이 "회수 경로가 없어서 저절로 참" 인 상태로 남는다.
+- **조회에 쓰기가 있다.** 원장 판정이 저장된 등급보다 높으면 그 자리에서 올린다 —
+  갱신은 오를 때만 일어나고, 조건부 UPDATE(`WHERE highest_grade < :level`)라
+  동시 요청에서 낮은 값이 높은 값을 덮지 못한다.
+- **달성률은 두 조건 중 덜 채운 쪽이다.** 승급이 AND 라 그쪽이 병목이다 — 평균을 내면
+  포인트 90%·투표 10% 인 사람에게 "50% 왔다" 고 말하게 된다. 기준선은 0 이 아니라
+  현재 등급의 조건이라 승급 직후 0 에서 시작한다. 최고 등급이면 100 이다.
+- **등급 일러스트는 응답에 없다.** 이미지의 정본은 화면설계서인데 확정 전이라
+  서버가 URL 을 지어내면 그것이 계약이 된다. 프론트가 `level` 로 매핑한다.
+- 두 경로 모두 `anyRequest().authenticated()` 에 걸린다. 등급 화면은 마이페이지 하위라
+  게스트 진입 경로가 없다(기능명세 §11.2 트리거).
+
+---
+
 ## 4. 스키마
 
 ### 4.1 인증 3개
@@ -260,6 +295,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V4__apple_provider_tokens.sql` | `db/migration` | 항상 |
 | `V5__active_nickname_follows_state.sql` | `db/migration` | 항상 |
 | `V7__users_ranking_precompute.sql` | `db/migration` | 항상 |
+| `V8__grade.sql` | `db/migration` | 항상 |
 
 ---
 
@@ -381,6 +417,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-04 | 등급 도메인 신설. 승급 판정 입력값을 캐시가 아니라 원장에서 읽고, 도달 등급만 `users.highest_grade` 에 저장(ADR-0030) | Issue #25. `users.vote_count` 는 선언만 있고 **쓰는 코드가 0건**이라 읽으면 전원 0 — 아무도 승급하지 못하는데 테스트는 초록인 상태가 됐을 것 |
 | 2026-09-03 | `/api` prefix 제거를 결정(ADR-0029)하고 컨트롤러 매핑 규칙을 ArchUnit 으로 강제. **경로 자체는 아직 안 바뀜** — 프론트 합의 대기 | Issue #75. `api.` 서브도메인과 의미 중복. 계약 변경이라 백엔드 단독으로 못 민다 |
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
 | 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |

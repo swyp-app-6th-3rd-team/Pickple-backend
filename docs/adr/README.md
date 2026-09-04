@@ -37,3 +37,4 @@
 | [0027](0027-image-public-access-via-cloudfront.md) | 이미지 공개 접근은 CloudFront + OAC 로 제공한다 | Accepted |
 | [0028](0028-author-ranking-precompute.md) | 작성자 랭킹은 배치로 사전 계산하고 목록은 그 값을 읽는다 | Accepted |
 | [0029](0029-drop-api-path-prefix.md) | API 경로에서 `/api` prefix 를 걷어낸다 | **Proposed** (프론트 합의 전) |
+| [0030](0030-grade-derives-from-ledger-and-only-rises.md) | 등급은 원장에서 판정하고, 도달한 등급만 저장한다 | Accepted |
