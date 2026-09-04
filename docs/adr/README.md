@@ -39,3 +39,4 @@
 | [0029](0029-drop-api-path-prefix.md) | API 경로에서 `/api` prefix 를 걷어낸다 | **Proposed** (프론트 합의 전) |
 | [0030](0030-grade-derives-from-ledger-and-only-rises.md) | 등급은 원장에서 판정하고, 도달한 등급만 저장한다 | Accepted |
 | [0031](0031-badge-daily-activity-aggregate.md) | 뱃지 판정은 날짜별 집계 테이블에서 하고, 뱃지 이름은 데이터로 둔다 | Accepted |
+| [0032](0032-ranking-read-path.md) | 랭킹 조회는 사전 계산된 `ranking` 을 인덱스로 읽는다 | Accepted |

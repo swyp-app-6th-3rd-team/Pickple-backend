@@ -29,10 +29,14 @@ public class RankingBatchService {
     private final RankingStore rankingStore;
 
     /**
-     * 원장 합계를 반영한 뒤 순위를 다시 매긴다.
+     * 캐시 컬럼을 정본과 맞춘 뒤 순위를 다시 매긴다.
      *
-     * <p>두 단계는 각각 별도 트랜잭션이다. 포인트 동기화까지만 끝나고 순위 갱신이 실패해도
-     * 다음 주기가 같은 자리에서 이어받는다 — 두 연산 모두 <b>현재 상태에서 다시 계산</b>하는
+     * <p>동기화가 두 갈래인 이유는 화면이 읽는 값이 서로 다른 정본에서 오기 때문이다 —
+     * 포인트는 {@code point_history} 원장에서(R-14), 누적 투표 수는 {@code vote} 에서
+     * (ADR-0032). 둘 다 순위·등급을 판정하기 <b>전에</b> 최신이어야 한다.
+     *
+     * <p>세 단계는 각각 별도 트랜잭션이다. 앞 단계까지만 끝나고 뒤가 실패해도
+     * 다음 주기가 같은 자리에서 이어받는다 — 세 연산 모두 <b>현재 상태에서 다시 계산</b>하는
      * 형태라 중간에 끊겨도 어긋난 상태가 남지 않는다.
      *
      * <p>{@code fixedDelay} 가 아니라 cron 인 이유는 지연 상한을 벽시계로 말하기 위해서다.
@@ -44,11 +48,12 @@ public class RankingBatchService {
         long startedAt = System.nanoTime();
         try {
             int pointsSynced = rankingStore.syncPointsFromLedger();
+            int voteCountsSynced = rankingStore.syncVoteCountsFromVotes();
             int rankingsChanged = rankingStore.recalculateRankings();
             long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
 
-            log.info("랭킹 재계산 완료: 포인트 갱신 {}명, 순위 변동 {}명, {}ms",
-                    pointsSynced, rankingsChanged, elapsedMs);
+            log.info("랭킹 재계산 완료: 포인트 갱신 {}명, 투표 수 갱신 {}명, 순위 변동 {}명, {}ms",
+                    pointsSynced, voteCountsSynced, rankingsChanged, elapsedMs);
         } catch (RuntimeException e) {
             // 삼키지 않는다. 스케줄러가 다음 주기에 다시 부르므로 한 번의 실패는 회복되지만,
             // 계속 실패하면 순위가 조용히 낡는다 — 그 사실이 로그에 남아야 한다.
