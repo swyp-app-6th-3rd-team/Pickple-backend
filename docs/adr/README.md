@@ -42,3 +42,4 @@
 | [0032](0032-ranking-read-path.md) | 랭킹 조회는 사전 계산된 `ranking` 을 인덱스로 읽는다 | Accepted |
 | [0033](0033-drop-api-prefix-implemented.md) | `/api` prefix 를 걷어내고, 문서 노출은 제외 목록으로 가른다 | Accepted |
 | [0034](0034-security-requirement-on-authenticated-endpoints.md) | 인증 표시는 인증을 요구하는 엔드포인트에 직접 붙인다 | Accepted |
+| [0035](0035-withdrawn-user-central-authorization.md) | 탈퇴 회원 차단을 인가 계층 한 곳으로 모은다 | **Proposed** |
