@@ -108,6 +108,9 @@ public class SecurityConfig {
                         .requestMatchers(
                                 // 커뮤니티 진입 화면이라 로그인 전에 부른다.
                                 mvc.matcher(HttpMethod.GET, "/posts"),
+                                // 홈 화면의 인기 게시글 Top 10. /posts 패턴은 이 경로를 덮지 않는다 —
+                                // PathPattern 은 세그먼트가 정확히 맞아야 하므로 따로 적어야 한다.
+                                mvc.matcher(HttpMethod.GET, "/posts/popular"),
                                 mvc.matcher(HttpMethod.GET, "/posts/{postId}/comments"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
                                 mvc.matcher(HttpMethod.GET, "/users/nickname/availability"),
