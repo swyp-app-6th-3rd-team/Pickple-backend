@@ -29,7 +29,12 @@
 - 이슈 번호는 프로젝트 보드의 `In Progress` 전이에 쓰인다. 번호가 없으면 보드가 움직이지 않는다.
 - `.githooks/pre-push`가 이 형식을 검사한다. `develop`과 `main`은 검사하지 않는다.
 - 훅은 `core.hooksPath`로 연결되며 Gradle 빌드가 한 번 돌면 자동 설정된다. 수동 설정은 `git config core.hooksPath .githooks`.
-- 규약을 벗어나야 하면 `git push --no-verify`로 우회하고 PR에 사유를 적는다.
+- 브랜치 이름 규약을 벗어나야 하면 `git push --no-verify`로 우회하고 PR에 사유를 적는다.
+- `develop`은 rebase로 당기지 않는다. `git pull`(merge)만 쓴다.
+- `.githooks/pre-rebase`가 `git pull --rebase`와 `pull.rebase=true`를 막는다. 내 브랜치의 `git rebase -i`는 막지 않는다.
+- `pre-rebase`는 `--no-verify`로 우회되지 않는다. `--no-verify`가 통하는 훅은 `pre-push`뿐이다.
+- `pull.rebase`가 켜져 있으면 끈다. 전역 설정도 `git config --global --get pull.rebase`로 확인한다.
+- develop PR은 `Merge pull request`로만 병합한다. `Rebase and merge`는 저장소 설정에서 꺼져 있다.
 
 ## 작업 흐름
 
