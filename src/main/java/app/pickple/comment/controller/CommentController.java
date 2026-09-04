@@ -38,8 +38,9 @@ public class CommentController {
     private final OnePickService onePickService;
 
     @Operation(summary = "댓글 목록 조회",
-            description = "게스트도 부를 수 있다. 토큰을 함께 보내면 각 항목의 `mine` 이 채워지고, "
-                    + "게스트면 항상 false 다.")
+            description = "인증 사용자가 게시글의 활성 댓글 목록을 조회한다. "
+                    + "각 항목의 `mine`은 현재 사용자 기준이다.")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/posts/{postId}/comments")
     public ApiResponse<CommentListResponse> findAll(
             @PathVariable Long postId,
@@ -143,7 +144,7 @@ public class CommentController {
             @Schema(description = "화면용 상대 시각", example = "3시간 전") String createdAgo,
             @Schema(description = "댓글 내용") String content,
             @Schema(description = "이 댓글이 받은 원픽 수") long onePickCount,
-            @Schema(description = "현재 요청자가 쓴 댓글인지. 게스트 요청은 항상 false")
+            @Schema(description = "현재 요청자가 쓴 댓글인지")
             boolean mine) {
 
         static CommentResponse from(CommentQueryService.CommentResult comment) {

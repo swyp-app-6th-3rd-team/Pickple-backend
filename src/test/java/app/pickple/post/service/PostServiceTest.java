@@ -22,6 +22,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.ScrollPosition;
+import org.springframework.data.domain.Window;
 
 import java.util.List;
 import java.util.Map;
@@ -221,6 +222,29 @@ class PostServiceTest {
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
     }
 
+    @Test
+    @DisplayName("인기 Top 10 은 전체·인기순·첫 조각·10건으로 조회한다")
+    void popularTopFixesEveryParameter() {
+        given(postQueryStore.findSlice(
+                isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
+                .willReturn(emptyWindow());
+
+        service.findPopularTop();
+
+        verify(postQueryStore).findSlice(
+                isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10));
+    }
+
+    @Test
+    @DisplayName("인기 Top 10 은 게시글이 없으면 빈 목록이다")
+    void popularTopReturnsEmptyList() {
+        given(postQueryStore.findSlice(
+                isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
+                .willReturn(emptyWindow());
+
+        assertThat(service.findPopularTop()).isEmpty();
+    }
+
     private CreateCommand agreeCommand(Long containerId) {
         return new CreateCommand(
                 PostType.AGREE,
@@ -240,5 +264,9 @@ class PostServiceTest {
                     "https://images.test/image-" + index));
         }
         return container;
+    }
+
+    private Window<PostQueryStore.PostListView> emptyWindow() {
+        return Window.from(List.of(), index -> ScrollPosition.keyset(), false);
     }
 }

@@ -35,7 +35,7 @@ app/pickple/
 │                    FileStorageProperties · S3FileStorageConfig
 │                    ※ 설정은 여기 하나로 모은다. 도메인별 config 하위 패키지는
 │                      ArchitectureTest 가 막는다(#63)
-├── docs/            LlmsTxtController · OpenApiMarkdownRenderer · DocsConfig
+├── docs/            LlmsTextController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
 └── auth/            OAuth2 + Apple native login + JWT
@@ -115,6 +115,7 @@ app/pickple/
 |---|---|---|---|
 | POST | `/posts` | 필요 | 게시글 작성 |
 | GET | `/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
+| GET | `/posts/popular` | 선택 (게스트 허용) | 인기 게시글 Top 10 (홈 화면) |
 
 - 작성 요청은 `type`, `category`, `title`, `description`, `products[]`를 사용한다.
   `products[]`의 각 항목은 `itemContainerId`, `name`, `price`, `linkUrl`을 가진다.
@@ -156,6 +157,23 @@ app/pickple/
     지금 이 순간의 정확한 등수가 아니다.
   - 아직 산정되지 않은 회원과 탈퇴 회원은 **`null`** 이다. 0 이나 꼴찌 순위를 지어내지 않는다 —
     지어낸 값은 실제 꼴찌와 구분되지 않는다.
+
+**`GET /posts/popular` — 인기 Top 10 (홈 화면, §2.4)**
+
+- **목록 조회와 같은 쿼리를 탄다.** "커서 없는 인기순 첫 조각" 이 곧 상위 10건이라
+  `GET /posts?sort=POPULAR&size=10` 과 실행되는 SQL 이 같다. 전용 쿼리를 새로 짜지 않는다 —
+  짜면 위의 실측(454ms → 0.28ms)과 `idx_post_popular_all` 검증을 처음부터 다시 세워야 한다.
+- **파라미터가 없다.** 카테고리 필터도 커서도 크기 조절도 받지 않는다. 홈 화면의 계약은
+  "전체에서 인기 상위 열 건" 하나뿐이고, 조절 손잡이를 열면 목록 API 와 구별되지 않는다.
+- **응답은 커서 봉투 없이 배열이다.** 항목 스키마는 목록과 **같은 것을 공유**한다
+  (`PostListItem`). `nextCursor`·`hasNext` 는 싣지 않는다 — Top 10 은 그 열 건이 전부인데
+  `hasNext: true` 를 주면 11번째 글이 있을 때 클라이언트가 이어받을 수 있다고 읽고,
+  그 커서로 다시 부르면 이 엔드포인트가 정의하지 않은 동작이 된다. 더 보기는 목록 API 로 간다.
+- 10건보다 적으면 **있는 만큼만** 준다. 상한이지 정원이 아니다.
+- **0건이면 빈 배열이다.** 기능명세서 §2.4 의 "더미 데이터 2개" 는 화면의 빈 상태이지
+  서버 응답이 아니다 — 서버가 지어내면 그 카드를 탭했을 때 갈 곳이 없다(위 목록과 같은 판단).
+- 실행 계획으로 확인한 정렬 경로: `idx_post_popular_all` / `Using where; Using index`.
+  `Using filesort` 가 없다 — 조회 시점에 집계하지 않는다는 증거다.
 
 ### 3.4 댓글
 
@@ -548,6 +566,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 |---|---|---|
 | 2026-09-04 | 이미지 컨테이너 재사용을 입력 오류가 아닌 상태 충돌(409)로 통일 | Issue #17 리뷰. 사전 검사와 DB 경합이 같은 API 계약을 가져야 함 |
 | 2026-09-04 | 최신 게스트 정책에 맞춰 댓글 목록 조회를 인증 필수로 변경 | 게스트는 게시글 탐색은 가능하지만 댓글 열람은 제한 |
+| 2026-09-04 | `GET /posts/popular` 추가. 목록 조회 경로를 재사용하고 커서 봉투만 벗긴다 | Issue #29. 홈 화면이 커서 없는 고정 10건을 요구. 전용 쿼리를 새로 만들면 `idx_post_popular_all` 검증이 두 벌이 된다 |
 | 2026-09-04 | 등급 도메인 신설. 승급 판정 입력값을 캐시가 아니라 원장에서 읽고, 도달 등급만 `users.highest_grade` 에 저장(ADR-0030) | Issue #25. `users.vote_count` 는 선언만 있고 **쓰는 코드가 0건**이라 읽으면 전원 0 — 아무도 승급하지 못하는데 테스트는 초록인 상태가 됐을 것 |
 | 2026-09-04 | 엔드포인트의 `/api` prefix를 제거하고 메서드에 전체 경로를 선언 | Issue #91. ADR-0033으로 ADR-0029의 과도기 결정을 대체 |
 | 2026-09-03 | 게시글 작성 계약과 상품 URL `LONGTEXT` 마이그레이션 추가 | Issue #17. 유형별 상품·사진·선택지 규칙과 업로드 컨테이너 소유권·재사용 방지 |

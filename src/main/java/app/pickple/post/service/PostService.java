@@ -33,6 +33,10 @@ public class PostService {
     /** 무한 스크롤 조각 크기 (§4.2). 클라이언트가 더 크게 요청해도 이 값으로 자른다. */
     public static final int DEFAULT_SIZE = 10;
     private static final int MAX_SIZE = 50;
+
+    /** 홈 화면 인기 게시글의 고정 건수 (§2.4). 조각 크기와 달리 클라이언트가 바꾸지 못한다. */
+    private static final int POPULAR_TOP_SIZE = 10;
+
     private final PostStore postStore;
     private final ItemContainerStore itemContainerStore;
     private final PostQueryStore postQueryStore;
@@ -78,6 +82,19 @@ public class PostService {
 
         ScrollPosition position = CursorCodec.decode(cursor);
         return postQueryStore.findSlice(category, PostSort.from(sort), position, sliceSize(size));
+    }
+
+    /**
+     * 홈 화면의 인기 게시글 Top 10 (§2.4).
+     *
+     * <p>커서 없는 인기순 첫 조각을 그대로 사용하되, Top 10 계약에는 다음 조각이 없으므로
+     * 커서 봉투를 벗기고 내용만 반환한다. 더 보기는 {@code GET /posts?sort=POPULAR} 로 간다.
+     */
+    @Transactional(readOnly = true)
+    public List<PostQueryStore.PostListView> findPopularTop() {
+        return postQueryStore
+                .findSlice(null, PostSort.POPULAR, ScrollPosition.keyset(), POPULAR_TOP_SIZE)
+                .getContent();
     }
 
     private Post assemble(Long authorId, CreateCommand command, List<ProductCommand> products) {

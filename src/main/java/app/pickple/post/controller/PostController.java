@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Tag(name = "Post", description = "게시글 작성 · 목록 · 상세")
 @RestController
@@ -65,6 +66,26 @@ public class PostController {
 
         return ApiResponse.success(ScrollResponse.of(
                 postService.findSlice(category, sort, cursor, size), PostListItem::from));
+    }
+
+    /**
+     * 홈 화면의 인기 투표 게시글 Top 10 (§2.4). 게스트도 부르는 첫 화면이라 인증이 없다.
+     *
+     * <p><b>목록 조회와 같은 쿼리를 탄다.</b> "커서 없는 인기순 첫 조각" 이 곧 상위 10건이라
+     * {@code GET /posts?sort=POPULAR} 와 실행되는 SQL 이 같다. 별도 엔드포인트로 둔 이유는
+     * 성능이 아니라 <b>계약</b>이다 — 홈은 정확히 열 건만 필요하고 더 스크롤하지 않으므로,
+     * 커서 봉투({@code nextCursor}·{@code hasNext})를 주면 클라이언트가 이어받을 수 있다고
+     * 읽는다. 여기서는 봉투를 벗기고 배열만 준다. 더 보기는 목록 API 로 간다.
+     *
+     * <p>게시글이 0건이면 <b>빈 배열</b>이다 — 목록과 같은 판단이다.
+     */
+    @Operation(summary = "인기 게시글 Top 10 조회",
+            description = "홈 화면용. 인기순 상위 10건을 커서 없이 고정으로 준다. "
+                    + "인기 점수는 투표 인원과 댓글 인원의 합이다. 게시글이 없으면 빈 배열이다.")
+    @GetMapping("/posts/popular")
+    public ApiResponse<List<PostListItem>> findPopular() {
+        return ApiResponse.success(
+                postService.findPopularTop().stream().map(PostListItem::from).toList());
     }
 
     /**
