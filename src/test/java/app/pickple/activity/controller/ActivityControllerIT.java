@@ -28,11 +28,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,6 +55,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>클래스에 {@code @Transactional} 을 붙이지 않는다 — 붙이면 MockMvc 요청이
  * 별도 커넥션에서 도는 동안 픽스처가 아직 커밋되지 않아 목록이 비어 보인다
  * ({@code RankingControllerIT} 가 기록한 실패 모드).
+ *
+ * <p><b>시계를 고정한다.</b> 운영 {@code Clock} 은 초 단위로 끊은 <b>살아 있는</b> 시계라
+ * ({@code ClockConfig}) 픽스처를 스탬프하는 시각과 서버가 기준을 계산하는 시각이 갈릴 수 있다.
+ * §7.4 의 경계 판정은 여유가 1초인데 눈금도 1초라 <b>허용오차가 0</b>이다 —
+ * 두 호출 사이에 벽시계가 눈금 하나를 넘으면 "1초 안쪽" 이 "정확히 경계" 가 되어
+ * 반열린 비교에서 빠진다(CI 에서 실측된 간헐 실패).
+ *
+ * <p>확률을 낮추는 대신 <b>경합을 없앴다</b>. 이 클래스의 모든 픽스처가 상대 오프셋
+ * ({@code minusMinutes}·{@code minusDays})만 쓰므로 기준이 무엇이든 무관하고,
+ * 고정하면 스탬프와 서버가 같은 "지금" 을 본다.
+ * {@code ClockConfig} javadoc 이 예고한 용법이며, 같은 계열의 알려진 flaky(#83)가
+ * 지목한 해법과 같다.
  */
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -79,8 +94,23 @@ class ActivityControllerIT {
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
-    @Autowired
+    /**
+     * 초 단위로 끊은 <b>고정</b> 시계. 눈금은 운영과 같게 두어({@code datetime(0)} 정밀도)
+     * 초 미만 값이 DB 에서 잘리는 상황을 그대로 재현한다 — 시각을 고정하되
+     * 정밀도까지 바꾸면 테스트가 운영과 다른 조건을 보게 된다.
+     *
+     * <p>기준 시각은 <b>이 클래스가 도는 지금</b>이다. 미래나 과거로 못박으면
+     * 다른 테스트가 심는 행({@code users.created_at} 등 애플리케이션이 아니라
+     * 스토어가 시각을 넣는 자리)과 순서가 어긋난다.
+     */
+    @TestBean(name = "clock")
     private Clock clock;
+
+    private static Clock clock() {
+        return Clock.fixed(
+                ZonedDateTime.now(ZoneId.of("Asia/Seoul")).withNano(0).toInstant(),
+                ZoneId.of("Asia/Seoul"));
+    }
 
     /**
      * 닉네임 발급기. 재사용 컨테이너에서 이전 실행의 회원과도 겹치면 안 되므로
@@ -450,14 +480,28 @@ class ActivityControllerIT {
         @Test
         @DisplayName("경계는 반열린 구간이다 — 정확히 7일 전은 빠지고 1초 안쪽은 들어온다")
         void boundaryIsHalfOpen() throws Exception {
+            // "지금" 을 한 번만 읽는다. 시계가 고정이라 값이 같지만, 두 번 부르는 형태는
+            // 살아 있는 시계에서 두 글이 서로 다른 기준으로 스탬프될 수 있음을 숨긴다.
+            LocalDateTime boundary = LocalDateTime.now(clock).minusDays(7);
+
             Post exactly = saveAgreePost("정확히 7일", me);
             Post justInside = saveAgreePost("7일에서 1초 안쪽", me);
-            stampPostCreatedAt(exactly, LocalDateTime.now(clock).minusDays(7));
-            stampPostCreatedAt(justInside, LocalDateTime.now(clock).minusDays(7).plusSeconds(1));
+            stampPostCreatedAt(exactly, boundary);
+            stampPostCreatedAt(justInside, boundary.plusSeconds(1));
 
             assertThat(recentIds())
                     .as("기준 시각은 요청 시각이고 7일이 지난 순간이 곧 만료다")
                     .containsExactly(justInside.id().intValue());
+        }
+
+        @Test
+        @DisplayName("고정 시계라 스탬프와 서버가 같은 지금을 본다 — 경계 판정의 전제")
+        void clockIsFixed() {
+            // 이 전제가 깨지면 위 경계 테스트가 확률적으로 실패한다(#83 과 같은 계열).
+            // 전제를 단언해 두면 실패했을 때 "경계 로직이 틀렸다" 로 오진하지 않는다.
+            assertThat(LocalDateTime.now(clock))
+                    .as("살아 있는 시계면 두 호출이 초 경계를 넘어 달라진다")
+                    .isEqualTo(LocalDateTime.now(clock));
         }
 
         @Test
