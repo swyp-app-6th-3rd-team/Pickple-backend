@@ -120,13 +120,13 @@ class RankingControllerIT {
     void emptyTopReturnsEmptyArray() throws Exception {
         // 서버는 "아직 TOP 피커가 존재하지 않아요" 문구를 만들지 않는다.
         // 빈 배열이 그 상태를 말하고, 문구는 화면의 몫이다.
-        mockMvc.perform(get("/api/rankings/top"))
+        mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.returnObject").isArray())
                 .andExpect(jsonPath("$.returnObject").isEmpty());
 
-        mockMvc.perform(get("/api/rankings"))
+        mockMvc.perform(get("/rankings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content").isEmpty())
                 .andExpect(jsonPath("$.returnObject.hasNext").value(false))
@@ -141,7 +141,7 @@ class RankingControllerIT {
         newUser("no-batch");
         newUser("no-batch-2");
 
-        mockMvc.perform(get("/api/rankings/top"))
+        mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject").isEmpty());
     }
@@ -158,7 +158,7 @@ class RankingControllerIT {
         }
         rankingBatch.refresh();
 
-        mockMvc.perform(get("/api/rankings/top"))
+        mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.length()").value(5))
                 // 1위부터 차례로 나온다.
@@ -178,7 +178,7 @@ class RankingControllerIT {
 
         // 이 경로로 목록 전체를 뽑아 무한 스크롤을 우회하지 못하게 한다.
         // 상한(50)에 걸리므로, 회원이 11명(대상 10 + 픽커 1)인 지금은 전원이 나온다.
-        mockMvc.perform(get("/api/rankings/top?size=100000"))
+        mockMvc.perform(get("/rankings/top?size=100000"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.length()").value(11));
     }
@@ -199,7 +199,7 @@ class RankingControllerIT {
         grant(third, 1);
         rankingBatch.refresh();
 
-        mockMvc.perform(get("/api/rankings/top"))
+        mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
                 // 공동 순위가 아니라 전순서다 — 1, 1, 3 이 아니라 1, 2, 3 이다.
                 .andExpect(jsonPath("$.returnObject[0].userId").value(first.id()))
@@ -222,16 +222,16 @@ class RankingControllerIT {
 
         // 목록 자체는 게스트에게 열려 있다 (§2.5·§3.1).
         // 대상 1명 + 픽커 1명. 픽커는 0P 라 뒤에 선다.
-        mockMvc.perform(get("/api/rankings/top"))
+        mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.length()").value(2));
-        mockMvc.perform(get("/api/rankings"))
+        mockMvc.perform(get("/rankings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content.length()").value(2));
 
         // 본인 랭킹은 별도 엔드포인트이고 인증을 요구한다 — 토큰이 없으면 401 이다.
         // 응답 어디에도 "내 순위" 에 해당하는 값이 실리지 않는다.
-        mockMvc.perform(get("/api/users/me/points"))
+        mockMvc.perform(get("/users/me/points"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -242,7 +242,7 @@ class RankingControllerIT {
         rankingBatch.refresh();
 
         // 응답 모양이 로그인 여부에 따라 갈리지 않는다 — 목록은 언제나 목록이다.
-        mockMvc.perform(get("/api/rankings"))
+        mockMvc.perform(get("/rankings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.myRanking").doesNotExist())
                 .andExpect(jsonPath("$.returnObject.me").doesNotExist());
@@ -263,11 +263,11 @@ class RankingControllerIT {
         assertThat(ledgerSum).isEqualTo(30L);
 
         // 응답이 캐시 컬럼에서 오지만 그 값의 근거는 원장이다.
-        mockMvc.perform(get("/api/rankings/top"))
+        mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject[0].point").value((int) ledgerSum));
 
-        mockMvc.perform(get("/api/users/me/points").header("Authorization", bearer(user)))
+        mockMvc.perform(get("/users/me/points").header("Authorization", bearer(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.point").value((int) ledgerSum));
     }
@@ -285,7 +285,7 @@ class RankingControllerIT {
         grant(me, 1);      // 10P — 2위
         rankingBatch.refresh();
 
-        mockMvc.perform(get("/api/users/me/points").header("Authorization", bearer(me)))
+        mockMvc.perform(get("/users/me/points").header("Authorization", bearer(me)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.userId").value(me.id()))
                 .andExpect(jsonPath("$.returnObject.ranking").value(2))
@@ -299,7 +299,7 @@ class RankingControllerIT {
         // "0위" 라는 거짓이 된다 (ADR-0028).
         User fresh = newUser("fresh");
 
-        mockMvc.perform(get("/api/users/me/points").header("Authorization", bearer(fresh)))
+        mockMvc.perform(get("/users/me/points").header("Authorization", bearer(fresh)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.ranking").doesNotExist())
                 // 순위가 없어도 포인트는 있다 — 비는 것은 순위 하나뿐이다.
@@ -325,7 +325,7 @@ class RankingControllerIT {
         String cursor = null;
         for (int page = 0; page < 10; page++) {
             MvcResult result = mockMvc.perform(
-                            get("/api/rankings" + (cursor == null ? "" : "?cursor=" + cursor)))
+                            get("/rankings" + (cursor == null ? "" : "?cursor=" + cursor)))
                     .andExpect(status().isOk())
                     .andReturn();
             String body = result.getResponse().getContentAsString();
@@ -353,7 +353,7 @@ class RankingControllerIT {
         }
         rankingBatch.refresh();
 
-        mockMvc.perform(get("/api/rankings"))
+        mockMvc.perform(get("/rankings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content.length()").value(10))
                 .andExpect(jsonPath("$.returnObject.hasNext").value(true))
@@ -363,7 +363,7 @@ class RankingControllerIT {
     @Test
     @DisplayName("조작된 커서는 400 이다")
     void tamperedCursorIsRejected() throws Exception {
-        mockMvc.perform(get("/api/rankings?cursor=not-a-real-cursor"))
+        mockMvc.perform(get("/rankings?cursor=not-a-real-cursor"))
                 .andExpect(status().isBadRequest());
     }
 

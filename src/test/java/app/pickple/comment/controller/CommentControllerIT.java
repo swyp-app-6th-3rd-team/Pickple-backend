@@ -97,13 +97,13 @@ class CommentControllerIT {
 
     @Test
     void guestCanReadEmptyListButCannotWrite() throws Exception {
-        mockMvc.perform(get("/api/posts/{postId}/comments", postEntity.id()))
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.returnObject.commentCount").value(0))
                 .andExpect(jsonPath("$.returnObject.comments").isEmpty());
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.id())
+        mockMvc.perform(post("/posts/{postId}/comments", postEntity.id())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"로그인 없이 작성\"}"))
                 .andExpect(status().isUnauthorized())
@@ -114,19 +114,19 @@ class CommentControllerIT {
     void onlyAuthorCanEditAndDeleteComment() throws Exception {
         Long commentId = writeThroughApi("처음 내용");
 
-        mockMvc.perform(patch("/api/comments/{id}", commentId)
+        mockMvc.perform(patch("/comments/{id}", commentId)
                         .header("Authorization", bearer(otherUserToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"남이 수정\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        mockMvc.perform(delete("/api/comments/{id}", commentId)
+        mockMvc.perform(delete("/comments/{id}", commentId)
                         .header("Authorization", bearer(otherUserToken)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        mockMvc.perform(patch("/api/comments/{id}", commentId)
+        mockMvc.perform(patch("/comments/{id}", commentId)
                         .header("Authorization", bearer(commentAuthorToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"수정한 내용\"}"))
@@ -137,7 +137,7 @@ class CommentControllerIT {
         entityManager.flush();
         entityManager.clear();
 
-        mockMvc.perform(get("/api/posts/{postId}/comments", postEntity.id())
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
                         .header("Authorization", bearer(commentAuthorToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.commentCount").value(1))
@@ -147,17 +147,17 @@ class CommentControllerIT {
                 .andExpect(jsonPath("$.returnObject.comments[0].content").value("수정한 내용"))
                 .andExpect(jsonPath("$.returnObject.comments[0].mine").value(true));
 
-        mockMvc.perform(delete("/api/comments/{id}", commentId)
+        mockMvc.perform(delete("/comments/{id}", commentId)
                         .header("Authorization", bearer(commentAuthorToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"));
 
-        mockMvc.perform(get("/api/posts/{postId}/comments", postEntity.id()))
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.commentCount").value(0))
                 .andExpect(jsonPath("$.returnObject.comments").isEmpty());
 
-        mockMvc.perform(delete("/api/comments/{id}", commentId)
+        mockMvc.perform(delete("/comments/{id}", commentId)
                         .header("Authorization", bearer(commentAuthorToken)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
@@ -186,7 +186,7 @@ class CommentControllerIT {
         statistics.setStatisticsEnabled(true);
         statistics.clear();
 
-        mockMvc.perform(get("/api/posts/{postId}/comments", postEntity.id()))
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.commentCount").value(3))
                 .andExpect(jsonPath("$.returnObject.comments[0].id").value(picked.id()))
@@ -199,7 +199,7 @@ class CommentControllerIT {
 
     @Test
     void rejectsBlankOrTooLongContent() throws Exception {
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.id())
+        mockMvc.perform(post("/posts/{postId}/comments", postEntity.id())
                         .header("Authorization", bearer(commentAuthorToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"   \"}"))
@@ -207,7 +207,7 @@ class CommentControllerIT {
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
         String tooLong = "가".repeat(301);
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.id())
+        mockMvc.perform(post("/posts/{postId}/comments", postEntity.id())
                         .header("Authorization", bearer(commentAuthorToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"" + tooLong + "\"}"))
@@ -221,7 +221,7 @@ class CommentControllerIT {
         loaded.delete();
         postStore.save(loaded);
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.id())
+        mockMvc.perform(post("/posts/{postId}/comments", postEntity.id())
                         .header("Authorization", bearer(commentAuthorToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"삭제된 글의 댓글\"}"))
@@ -234,7 +234,7 @@ class CommentControllerIT {
     }
 
     private Long writeThroughApi(String content) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.id())
+        MvcResult result = mockMvc.perform(post("/posts/{postId}/comments", postEntity.id())
                         .header("Authorization", bearer(commentAuthorToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"" + content + "\"}"))

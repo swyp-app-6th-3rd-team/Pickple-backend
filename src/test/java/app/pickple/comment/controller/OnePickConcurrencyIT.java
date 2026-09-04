@@ -115,7 +115,7 @@ class OnePickConcurrencyIT {
         List<Callable<Integer>> tasks = commentIds.stream()
                 .map(commentId -> (Callable<Integer>) () -> {
                     barrier.await();
-                    return mockMvc.perform(post("/api/comments/{id}/pick", commentId)
+                    return mockMvc.perform(post("/comments/{id}/pick", commentId)
                                     .header("Authorization", "Bearer " + pickerToken))
                             .andReturn()
                             .getResponse()

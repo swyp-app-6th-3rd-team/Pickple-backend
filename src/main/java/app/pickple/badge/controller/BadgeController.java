@@ -24,10 +24,10 @@ import java.util.List;
  * {@code anyRequest().authenticated()} 에 걸린다.
  *
  * <p><b>클래스 레벨 {@code @RequestMapping} 을 두지 않는다.</b> 경로를 알려면 클래스와
- * 메서드 애노테이션을 머릿속에서 합성해야 하는 것을 피한다(ADR-0029). 다만 {@code /api}
- * prefix 는 유지한다 — 제거는 프론트 합의 전이라 착수 금지 상태이고,
- * {@code springdoc.paths-to-match: /api/**} 때문에 prefix 없는 경로는
- * <b>API 문서에서 조용히 사라진다</b>(테스트로 잡히지 않는다).
+ * 메서드 애노테이션을 머릿속에서 합성해야 하는 것을 피한다(ADR-0029).
+ *
+ * <p>경로에서 {@code /api} prefix 는 걷어냈다(#91).
+ * 배포 도메인이 이미 {@code api.} 서브도메인을 쓰므로 path 에 다시 얹지 않는다.
  */
 @Tag(name = "Badge", description = "뱃지 현황 · 미션")
 @RestController
@@ -40,7 +40,7 @@ public class BadgeController {
             description = "획득·미획득 뱃지 전체와 수집 개수를 돌려준다. "
                     + "3X3 목록이 미획득 뱃지의 이름은 보여주고 일러스트만 가리므로(§12.2) "
                     + "미획득도 함께 내려간다.")
-    @GetMapping("/api/users/me/badges")
+    @GetMapping("/users/me/badges")
     public ApiResponse<BadgeCollectionResponse> myBadges(
             @Parameter(hidden = true) @CurrentUser Long userId) {
         return ApiResponse.success(BadgeCollectionResponse.from(badgeService.getCollection(userId)));
@@ -51,7 +51,7 @@ public class BadgeController {
                     + "누적 계열과 일일 계열에서 각각 가장 낮은 임계값을 고른다. "
                     + "진행률은 퍼센트가 아니라 현재값과 목표값 두 수다 — 화면이 \"(0/10)\" 으로 쓴다. "
                     + "다 채운 계열은 빠지고, 8종을 모두 얻으면 빈 배열이다.")
-    @GetMapping("/api/users/me/badges/missions")
+    @GetMapping("/users/me/badges/missions")
     public ApiResponse<List<MissionResponse>> myMissions(
             @Parameter(hidden = true) @CurrentUser Long userId) {
         return ApiResponse.success(

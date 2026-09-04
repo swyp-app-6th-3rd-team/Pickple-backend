@@ -12,7 +12,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -28,7 +27,6 @@ import java.util.List;
  * {@code anyRequest().authenticated()} 에 걸려 인증 없이는 401 이다.
  */
 @RestController
-@RequestMapping("/api")
 @RequiredArgsConstructor
 public class VoteController {
 

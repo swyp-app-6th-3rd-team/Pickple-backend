@@ -124,7 +124,7 @@ class ImageUploadControllerIT {
         MockMultipartFile image = new MockMultipartFile(
                 "images", "상품 사진.png", "image/png", ONE_PIXEL_PNG);
 
-        MvcResult result = mockMvc.perform(multipart("/api/images")
+        MvcResult result = mockMvc.perform(multipart("/images")
                         .file(image)
                         .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
@@ -167,7 +167,7 @@ class ImageUploadControllerIT {
         MockMultipartFile image = new MockMultipartFile(
                 "images", "댓글 사진.png", "image/png", ONE_PIXEL_PNG);
 
-        MvcResult result = mockMvc.perform(multipart("/api/images")
+        MvcResult result = mockMvc.perform(multipart("/images")
                         .file(image)
                         .param("attachType", "COMMENT")
                         .header("Authorization", "Bearer " + accessToken))
@@ -199,7 +199,7 @@ class ImageUploadControllerIT {
         MockMultipartFile image = new MockMultipartFile(
                 "images", "상품 사진.png", "image/png", ONE_PIXEL_PNG);
 
-        mockMvc.perform(multipart("/api/images")
+        mockMvc.perform(multipart("/images")
                         .file(image)
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isBadRequest())
@@ -214,7 +214,7 @@ class ImageUploadControllerIT {
         MockMultipartFile image = new MockMultipartFile(
                 "images", "상품 사진.png", "image/png", ONE_PIXEL_PNG);
 
-        mockMvc.perform(multipart("/api/images")
+        mockMvc.perform(multipart("/images")
                         .file(image)
                         .param("attachType", "NOT_A_TYPE")
                         .header("Authorization", "Bearer " + accessToken))
@@ -230,7 +230,7 @@ class ImageUploadControllerIT {
         MockMultipartFile text = new MockMultipartFile(
                 "images", "payload.txt", "text/plain", "not-an-image".getBytes(StandardCharsets.UTF_8));
 
-        mockMvc.perform(multipart("/api/images")
+        mockMvc.perform(multipart("/images")
                         .file(text)
                         .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
@@ -246,7 +246,7 @@ class ImageUploadControllerIT {
         MockMultipartFile fakePng = new MockMultipartFile(
                 "images", "fake.png", "image/png", "not-a-png".getBytes(StandardCharsets.UTF_8));
 
-        mockMvc.perform(multipart("/api/images")
+        mockMvc.perform(multipart("/images")
                         .file(fakePng)
                         .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
@@ -264,7 +264,7 @@ class ImageUploadControllerIT {
         MockMultipartFile image = new MockMultipartFile(
                 "images", "large.png", "image/png", oversized);
 
-        mockMvc.perform(multipart("/api/images")
+        mockMvc.perform(multipart("/images")
                         .file(image)
                         .param("attachType", "PRODUCT")
                         .header("Authorization", "Bearer " + accessToken))
@@ -280,7 +280,7 @@ class ImageUploadControllerIT {
         MockMultipartFile image = new MockMultipartFile(
                 "images", "product.png", "image/png", ONE_PIXEL_PNG);
 
-        mockMvc.perform(multipart("/api/images").file(image))
+        mockMvc.perform(multipart("/images").file(image))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 

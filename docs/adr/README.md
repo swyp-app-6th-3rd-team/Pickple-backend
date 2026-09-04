@@ -36,7 +36,8 @@
 | [0026](0026-env-example-as-secret-schema-source.md) | 비밀 스키마의 정본은 `.env.example` 이고 키 누락은 기동 시 잡는다 | Accepted |
 | [0027](0027-image-public-access-via-cloudfront.md) | 이미지 공개 접근은 CloudFront + OAC 로 제공한다 | Accepted |
 | [0028](0028-author-ranking-precompute.md) | 작성자 랭킹은 배치로 사전 계산하고 목록은 그 값을 읽는다 | Accepted |
-| [0029](0029-drop-api-path-prefix.md) | API 경로에서 `/api` prefix 를 걷어낸다 | **Proposed** (프론트 합의 전) |
+| [0029](0029-drop-api-path-prefix.md) | API 경로에서 `/api` prefix 를 걷어낸다 | ~~Superseded~~ → 0033 |
 | [0030](0030-grade-derives-from-ledger-and-only-rises.md) | 등급은 원장에서 판정하고, 도달한 등급만 저장한다 | Accepted |
 | [0031](0031-badge-daily-activity-aggregate.md) | 뱃지 판정은 날짜별 집계 테이블에서 하고, 뱃지 이름은 데이터로 둔다 | Accepted |
 | [0032](0032-ranking-read-path.md) | 랭킹 조회는 사전 계산된 `ranking` 을 인덱스로 읽는다 | Accepted |
+| [0033](0033-drop-api-prefix-implemented.md) | `/api` prefix 를 걷어내고, 문서 노출은 제외 목록으로 가른다 | Accepted |

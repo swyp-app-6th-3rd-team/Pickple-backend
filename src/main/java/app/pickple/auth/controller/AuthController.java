@@ -23,13 +23,11 @@ import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "Auth", description = "소셜 로그인 · JWT")
 @RestController
-@RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -42,7 +40,7 @@ public class AuthController {
             description = "iOS가 받은 authorization code와 identity token을 서버에서 다시 검증한 뒤 서비스 JWT를 발급한다. "
                     + "iOS는 로그인마다 안전한 새 rawNonce를 만들고 Apple 요청 nonce에 "
                     + "lowercase hex SHA-256(rawNonce)를 넣어야 한다.")
-    @PostMapping("/apple")
+    @PostMapping("/auth/apple")
     public ApiResponse<MobileTokenResponse> appleLogin(
             @Valid @RequestBody AppleLoginRequest request,
             HttpServletResponse response) {
@@ -54,7 +52,7 @@ public class AuthController {
 
     @Operation(summary = "내 정보",
             description = "Authorization: Bearer {accessToken} 이 필요하다.")
-    @GetMapping("/me")
+    @GetMapping("/auth/me")
     public ApiResponse<MeResponse> me(@Parameter(hidden = true) @CurrentUser Long userId) {
         if (userId == null) {
             throw new ApiException(ResponseCode.UNAUTHORIZED);
@@ -64,7 +62,7 @@ public class AuthController {
 
     @Operation(summary = "토큰 재발급",
             description = "리프레시 토큰은 HttpOnly 쿠키에서 읽는다. 성공 시 쿠키도 새 값으로 교체된다.")
-    @PostMapping("/refresh")
+    @PostMapping("/auth/refresh")
     public ApiResponse<TokenResponse> refresh(
             @CookieValue(name = OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, required = false) String refreshToken,
             HttpServletResponse response) {
@@ -77,7 +75,7 @@ public class AuthController {
 
     @Operation(summary = "모바일 토큰 재발급",
             description = "Keychain에 보관한 refresh token을 받아 회전된 access/refresh token을 JSON으로 반환한다.")
-    @PostMapping("/mobile/refresh")
+    @PostMapping("/auth/mobile/refresh")
     public ApiResponse<MobileTokenResponse> mobileRefresh(
             @Valid @RequestBody MobileRefreshRequest request,
             HttpServletResponse response) {
@@ -87,7 +85,7 @@ public class AuthController {
     }
 
     @Operation(summary = "로그아웃", description = "저장된 리프레시 토큰을 폐기하고 쿠키를 지운다.")
-    @PostMapping("/logout")
+    @PostMapping("/auth/logout")
     public ApiResponse<Void> logout(@Parameter(hidden = true) @CurrentUser Long userId,
                                     HttpServletResponse response) {
         if (userId != null) {
@@ -101,7 +99,7 @@ public class AuthController {
             description = "Apple 사용자는 저장된 provider refresh token으로 Apple 연결을 해제한 뒤 계정을 비활성화한다. "
                     + "Apple 일시 장애 시 로컬 상태를 변경하지 않고 503을 반환하므로 재시도할 수 있다. "
                     + "저장된 provider token이 없으면 로컬 탈퇴를 완료하고 수동 연결 해제가 필요한 성공 코드를 반환한다.")
-    @DeleteMapping("/me")
+    @DeleteMapping("/auth/me")
     public ApiResponse<Void> withdraw(@Parameter(hidden = true) @CurrentUser Long userId,
                                       HttpServletResponse response) {
         if (userId == null) {

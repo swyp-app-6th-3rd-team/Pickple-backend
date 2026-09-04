@@ -46,7 +46,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/tree": {
+                        "/tree": {
                           "get": {
                             "tags": ["Tree"],
                             "summary": "트리 조회",
@@ -93,7 +93,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/a": {
+                        "/a": {
                           "get": {
                             "tags": ["A"],
                             "responses": {
@@ -140,7 +140,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/orders": {
+                        "/orders": {
                           "get": {
                             "tags": ["Order"],
                             "responses": {
@@ -197,7 +197,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/deep": {
+                        "/deep": {
                           "get": {
                             "tags": ["Deep"],
                             "responses": {
@@ -228,7 +228,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/x": {
+                        "/x": {
                           "get": {
                             "tags": ["X"],
                             "responses": {
@@ -260,7 +260,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/x": {
+                        "/x": {
                           "get": {
                             "tags": ["X"],
                             "responses": {
@@ -293,7 +293,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/users": {
+                        "/users": {
                           "get": {
                             "tags": ["User"],
                             "responses": {
@@ -335,7 +335,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/x": {
+                        "/x": {
                           "get": {
                             "tags": ["X"],
                             "responses": {
@@ -368,7 +368,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/x": {
+                        "/x": {
                           "get": {
                             "tags": ["X"],
                             "responses": {
@@ -400,7 +400,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/x": {
+                        "/x": {
                           "post": {
                             "tags": ["X"],
                             "requestBody": {
@@ -439,7 +439,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/auth/me": {
+                        "/auth/me": {
                           "get": {
                             "tags": ["Auth"],
                             "summary": "내 정보",
@@ -453,7 +453,7 @@ class OpenApiMarkdownRendererTest {
 
             String markdown = renderer.render(spec);
             assertThat(markdown).contains("## Auth");
-            assertThat(markdown).contains("### GET /api/auth/me");
+            assertThat(markdown).contains("### GET /auth/me");
             assertThat(markdown).contains("내 정보");
         }
 
@@ -473,7 +473,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/auth/me": {
+                        "/auth/me": {
                           "get": {
                             "tags": ["Auth"],
                             "responses": {
@@ -522,7 +522,7 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/raw": {
+                        "/raw": {
                           "get": {
                             "tags": ["Raw"],
                             "responses": {
@@ -552,15 +552,15 @@ class OpenApiMarkdownRendererTest {
             JsonNode spec = oas("""
                     {
                       "paths": {
-                        "/api/auth/me": { "get": { "tags": ["Auth"], "summary": "내 정보" } },
-                        "/api/orders":  { "get": { "tags": ["Order"], "summary": "주문 목록" } }
+                        "/auth/me": { "get": { "tags": ["Auth"], "summary": "내 정보" } },
+                        "/orders":  { "get": { "tags": ["Order"], "summary": "주문 목록" } }
                       }
                     }
                     """);
 
             String markdown = renderer.render(spec, "Auth");
-            assertThat(markdown).contains("/api/auth/me");
-            assertThat(markdown).doesNotContain("/api/orders");
+            assertThat(markdown).contains("/auth/me");
+            assertThat(markdown).doesNotContain("/orders");
         }
     }
 }
