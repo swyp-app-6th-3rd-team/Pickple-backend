@@ -107,6 +107,23 @@ configurations.configureEach {
 
 tasks.named('test') {
     useJUnitPlatform()
+
+    // 테스트 JVM 의 기본 타임존을 운영과 맞춘다.
+    //
+    // 이 저장소는 시간 값을 두 경로로 쓴다 — Hibernate(`hibernate.jdbc.time_zone: Asia/Seoul`)와
+    // 픽스처의 JdbcTemplate(설정을 모르므로 JVM 기본 존을 쓴다). 두 규칙은 JVM 이
+    // Asia/Seoul 일 때만 같은 값을 만든다. 기본 존이 UTC 인 CI 러너에서는 Hibernate 가
+    // LocalDateTime 을 UTC 벽시계로 보고 변환해 9시간 밀린 값을 바인딩하고,
+    // 같은 조건으로 조회해도 JdbcTemplate 이 심은 행을 찾지 못한다(실측: 같은 SQL 에
+    // JdbcTemplate 1건 / Hibernate 0건).
+    //
+    // 여유가 큰 테스트는 9시간 오차를 흡수해 통과하므로 이 어긋남이 오래 드러나지 않았다.
+    // 경계가 1초인 판정(§7.4)에서 비로소 결정적으로 실패한다.
+    //
+    // 운영은 Asia/Seoul 로 돌고 DB 도 `--default-time-zone=+09:00` 이다(ContainerConfig).
+    // 테스트만 UTC 로 도는 것이 어긋남이므로, 회피가 아니라 환경을 맞춘다.
+    systemProperty 'user.timezone', 'Asia/Seoul'
+
     finalizedBy jacocoTestReport
     testLogging {
         events 'passed', 'skipped', 'failed'
