@@ -42,3 +42,5 @@ crash.log
 !*.tfvars.example
 
 .claude/worktrees
+
+.codex/HANDOFF.md
