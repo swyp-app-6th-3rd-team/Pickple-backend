@@ -6,6 +6,7 @@ import app.pickple.post.domain.PostOption;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.service.ActivePostGuard;
 import app.pickple.vote.domain.Vote;
+import app.pickple.vote.domain.VoteActivityRecorder;
 import app.pickple.vote.domain.VoteStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class VoteService {
     private final PostStore postStore;
     private final ActivePostGuard activePost;
     private final PostCounters counters;
+    private final VoteActivityRecorder badges;
 
     /**
      * 투표하거나 선택을 바꾸고, 갱신된 집계를 돌려준다.
@@ -67,11 +69,19 @@ public class VoteService {
      *
      * <p>X 를 먼저 잡으면 뒤늦게 온 요청은 순서를 기다릴 뿐 고리가 생기지 않는다.
      * 같은 트랜잭션 안이라 순서를 바꿔도 원자성은 그대로다.
+     *
+     * <p><b>일별 활동 기록과 뱃지 판정이 여기에만 붙는다</b> (R-22). 선택 변경은 새 활동이
+     * 아니므로 {@link #changeChoice} 에는 없다 — 재투표로 "하루 20개" 가 채워지면
+     * 뱃지가 잘못 나간다. 두 경로가 이미 갈려 있어 호출을 잊을 자리가 없다.
+     *
+     * <p>순서는 <b>맨 뒤</b>다. 일별 집계 UPSERT 가 {@code users} 행에 FK 검사용 공유 락을
+     * 잡는데, 앞에 두면 그 락을 게시글·선택지 갱신 내내 쥐고 있게 된다.
      */
     private void castFirst(Long postId, Long optionId, Long voterId) {
         counters.increaseVoteCount(postId);
         counters.increaseOptionVoteCount(optionId);
         voteStore.save(new Vote(postId, optionId, voterId));
+        badges.recordVoteAndEvaluate(voterId);
     }
 
     /**
