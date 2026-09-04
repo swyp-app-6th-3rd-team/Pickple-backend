@@ -19,13 +19,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "User", description = "닉네임 · 프로필")
 @RestController
-@RequestMapping("/api/users")
 @RequiredArgsConstructor
 public class UserProfileController {
 
@@ -47,7 +45,7 @@ public class UserProfileController {
     @Operation(summary = "닉네임 사용 가능 여부",
             description = "입력 중 실시간으로 부른다. 형식 위반은 400. "
                     + "여기서 사용 가능이 나와도 등록까지의 사이에 선점될 수 있어, 등록은 409로 실패할 수 있다.")
-    @GetMapping("/nickname/availability")
+    @GetMapping("/users/nickname/availability")
     public ApiResponse<NicknameAvailabilityResponse> checkNicknameAvailability(
             @Parameter(description = "확인할 닉네임", required = true)
             @RequestParam("value") String value) {
@@ -58,7 +56,7 @@ public class UserProfileController {
 
     @Operation(summary = "내 프로필 조회",
             description = "Authorization: Bearer {accessToken} 이 필요하다. 미인증은 401이다.")
-    @GetMapping("/me")
+    @GetMapping("/users/me")
     public ApiResponse<UserProfileResponse> me(@Parameter(hidden = true) @CurrentUser Long userId) {
         return ApiResponse.success(UserProfileResponse.from(userProfileService.getProfile(userId)));
     }
@@ -66,7 +64,7 @@ public class UserProfileController {
     @Operation(summary = "프로필 등록",
             description = "회원가입 직후 닉네임과 프로필 이미지를 등록한다. "
                     + "이미지를 주지 않으면 랜덤 기본 프로필이 채워진다.")
-    @PostMapping("/profile")
+    @PostMapping("/users/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> registerProfile(
             @Parameter(hidden = true) @CurrentUser Long userId,
             @Valid @RequestBody ProfileRequest request) {
@@ -77,7 +75,7 @@ public class UserProfileController {
 
     @Operation(summary = "프로필 수정",
             description = "닉네임과 프로필 이미지를 바꾼다. 이미지를 주지 않으면 쓰던 이미지를 유지한다.")
-    @PatchMapping("/profile")
+    @PatchMapping("/users/profile")
     public ApiResponse<UserProfileResponse> editProfile(
             @Parameter(hidden = true) @CurrentUser Long userId,
             @Valid @RequestBody ProfileRequest request) {

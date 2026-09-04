@@ -18,10 +18,10 @@ import java.util.List;
  * 등급 조회 (기능명세 §11.1 내 등급 · §11.2 전체 등급).
  *
  * <p><b>클래스 레벨 {@code @RequestMapping} 을 두지 않는다.</b> 핸들러 메서드 한 줄만 보고
- * 최종 경로를 알 수 있게 한다(ADR-0029 가 지향하는 형태). {@code /api} prefix 는
- * 유지한다 — ADR-0029 는 아직 Proposed 이고 프론트 합의 전이라 경로를 바꾸면
- * 현재 계약이 깨지고, {@code springdoc.paths-to-match: /api/**} 때문에
- * prefix 없는 경로는 API 문서에서 조용히 사라진다.
+ * 최종 경로를 알 수 있게 한다(ADR-0029).
+ *
+ * <p>경로에서 {@code /api} prefix 는 걷어냈다(#91). 배포 도메인이 이미 {@code api.}
+ * 서브도메인을 쓰므로 path 에 다시 얹지 않는다.
  *
  * <p>두 경로 모두 인증이 필요하다. {@code anyRequest().authenticated()} 기본값에 걸리므로
  * {@code SecurityConfig} 를 건드리지 않는다 — 등급 화면은 마이페이지 하위라
@@ -37,7 +37,7 @@ public class GradeController {
             description = "현재 등급과 누적 포인트·투표 횟수, 다음 등급까지의 달성률을 돌려준다. "
                     + "포인트는 원장 합계이므로 지급 직후 값이 곧바로 반영된다(R-14). "
                     + "등급은 내려가지 않는다(R-16).")
-    @GetMapping("/api/users/me/grade")
+    @GetMapping("/users/me/grade")
     public ApiResponse<MyGradeResponse> readMyGrade(
             @Parameter(hidden = true) @CurrentUser Long userId) {
         return ApiResponse.success(MyGradeResponse.from(gradeService.readMyGrade(userId)));
@@ -45,7 +45,7 @@ public class GradeController {
 
     @Operation(summary = "전체 등급 기준 조회",
             description = "LV.1~LV.5 의 승급 필요 조건을 낮은 등급부터 돌려준다.")
-    @GetMapping("/api/grades")
+    @GetMapping("/grades")
     public ApiResponse<List<GradeResponse>> readAllGrades() {
         return ApiResponse.success(
                 gradeService.readAllGrades().stream().map(GradeResponse::from).toList());

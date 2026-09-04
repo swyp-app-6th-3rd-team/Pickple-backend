@@ -31,7 +31,7 @@ public class ImageUploadController {
     private final ImageUploadService imageUploadService;
 
     @Operation(summary = "이미지 업로드", description = "multipart images를 S3에 저장하고 부착에 쓸 itemContainerId를 반환합니다.")
-    @PostMapping(path = "/api/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(path = "/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ImageUploadResponse> upload(
             @Parameter(hidden = true) @CurrentUser Long userId,

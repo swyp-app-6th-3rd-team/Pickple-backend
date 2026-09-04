@@ -24,12 +24,11 @@ import java.util.List;
 /**
  * 피커 랭킹과 내 포인트 (§2.5 · §3.1 · §7.3).
  *
- * <p><b>클래스 레벨 {@code @RequestMapping} 을 두지 않는다.</b> 메서드 한 줄만 보고
- * 최종 경로를 알 수 있게 한다(ADR-0029 의 방향). 지금은 {@code /api} prefix 를
- * 유지해야 하므로 — prefix 제거는 프론트 합의 전이라 착수 금지 상태이고,
- * {@code springdoc.paths-to-match: /api/**} 가 prefix 없는 경로를 문서에서
- * 조용히 빼기도 한다 — 메서드에 전체 경로를 쓴다. 이러면 현재 계약과
- * 장차 켜질 ArchUnit 규칙을 동시에 만족한다.
+ * <p><b>클래스 레벨 {@code @RequestMapping} 을 두지 않는다.</b> 핸들러 메서드 한 줄만 보고
+ * 최종 경로를 알 수 있게 한다(ADR-0029).
+ *
+ * <p>경로에서 {@code /api} prefix 는 걷어냈다(#91). 배포 도메인이 이미 {@code api.}
+ * 서브도메인을 쓰므로 path 에 다시 얹지 않는다.
  */
 @Tag(name = "Ranking", description = "피커 랭킹 · 내 포인트")
 @RestController
@@ -42,7 +41,7 @@ public class RankingController {
             description = "포인트가 높은 상위 피커를 노출한다. 게스트도 볼 수 있다. "
                     + "포인트 보유자가 없으면 빈 배열이다 — 화면은 이때 "
                     + "\"아직 TOP 피커가 존재하지 않아요\" 를 표시한다.")
-    @GetMapping("/api/rankings/top")
+    @GetMapping("/rankings/top")
     public ApiResponse<List<RankingItem>> findTop(
             @Parameter(description = "노출 인원. 기본 5")
             @RequestParam(value = "size", required = false) Integer size) {
@@ -55,13 +54,13 @@ public class RankingController {
      *
      * <p><b>본인 랭킹은 여기 실리지 않는다.</b> 목록은 게스트도 부르므로 응답 모양이
      * 로그인 여부에 따라 갈리면 클라이언트가 두 형태를 다뤄야 한다. 본인 순위는
-     * {@code GET /api/users/me/points} 로 따로 받아 화면이 합친다 — 명세의
+     * {@code GET /users/me/points} 로 따로 받아 화면이 합친다 — 명세의
      * "본인 순위에 도달 시 합쳐서 스크롤" 은 클라이언트 표현이다.
      */
     @Operation(summary = "전체 피커 랭킹",
             description = "포인트가 높은 순서대로 노출한다. 무한 스크롤(10개 단위)이며 "
                     + "게스트도 볼 수 있다. 순위가 아직 산정되지 않은 회원은 목록에 오르지 않는다.")
-    @GetMapping("/api/rankings")
+    @GetMapping("/rankings")
     public ApiResponse<ScrollResponse<RankingItem>> findAll(
             @Parameter(description = "이전 응답의 nextCursor. 없으면 첫 조각")
             @RequestParam(value = "cursor", required = false) String cursor,
@@ -74,7 +73,7 @@ public class RankingController {
     @Operation(summary = "내 포인트와 순위",
             description = "인증이 필요하다. 순위가 아직 산정되지 않았으면 ranking 이 null 이다 "
                     + "— 배치가 최대 5분마다 매기므로 가입 직후가 그렇다.")
-    @GetMapping("/api/users/me/points")
+    @GetMapping("/users/me/points")
     public ApiResponse<MyRankingResponse> findMine(
             @Parameter(hidden = true) @CurrentUser Long userId) {
         RankingView view = rankingQueryService.findMine(userId)
