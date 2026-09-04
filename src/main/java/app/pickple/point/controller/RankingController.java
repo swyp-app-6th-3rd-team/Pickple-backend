@@ -11,7 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -42,7 +42,6 @@ public class RankingController {
             description = "포인트가 높은 상위 피커를 노출한다. 게스트도 볼 수 있다. "
                     + "포인트 보유자가 없으면 빈 배열이다 — 화면은 이때 "
                     + "\"아직 TOP 피커가 존재하지 않아요\" 를 표시한다.")
-    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @GetMapping("/rankings/top")
     public ApiResponse<List<RankingItem>> findTop(
             @Parameter(description = "노출 인원. 기본 5")
@@ -62,7 +61,6 @@ public class RankingController {
     @Operation(summary = "전체 피커 랭킹",
             description = "포인트가 높은 순서대로 노출한다. 무한 스크롤(10개 단위)이며 "
                     + "게스트도 볼 수 있다. 순위가 아직 산정되지 않은 회원은 목록에 오르지 않는다.")
-    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @GetMapping("/rankings")
     public ApiResponse<ScrollResponse<RankingItem>> findAll(
             @Parameter(description = "이전 응답의 nextCursor. 없으면 첫 조각")
@@ -76,6 +74,7 @@ public class RankingController {
     @Operation(summary = "내 포인트와 순위",
             description = "인증이 필요하다. 순위가 아직 산정되지 않았으면 ranking 이 null 이다 "
                     + "— 배치가 최대 5분마다 매기므로 가입 직후가 그렇다.")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/points")
     public ApiResponse<MyRankingResponse> findMine(
             @Parameter(hidden = true) @CurrentUser Long userId) {

@@ -9,7 +9,8 @@ import app.pickple.common.ResponseCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -46,7 +47,6 @@ public class UserProfileController {
     @Operation(summary = "닉네임 사용 가능 여부",
             description = "입력 중 실시간으로 부른다. 형식 위반은 400. "
                     + "여기서 사용 가능이 나와도 등록까지의 사이에 선점될 수 있어, 등록은 409로 실패할 수 있다.")
-    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @GetMapping("/users/nickname/availability")
     public ApiResponse<NicknameAvailabilityResponse> checkNicknameAvailability(
             @Parameter(description = "확인할 닉네임", required = true)
@@ -58,6 +58,7 @@ public class UserProfileController {
 
     @Operation(summary = "내 프로필 조회",
             description = "Authorization: Bearer {accessToken} 이 필요하다. 미인증은 401이다.")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me")
     public ApiResponse<UserProfileResponse> me(@Parameter(hidden = true) @CurrentUser Long userId) {
         return ApiResponse.success(UserProfileResponse.from(userProfileService.getProfile(userId)));
@@ -66,6 +67,7 @@ public class UserProfileController {
     @Operation(summary = "프로필 등록",
             description = "회원가입 직후 닉네임과 프로필 이미지를 등록한다. "
                     + "이미지를 주지 않으면 랜덤 기본 프로필이 채워진다.")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/users/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> registerProfile(
             @Parameter(hidden = true) @CurrentUser Long userId,
@@ -77,6 +79,7 @@ public class UserProfileController {
 
     @Operation(summary = "프로필 수정",
             description = "닉네임과 프로필 이미지를 바꾼다. 이미지를 주지 않으면 쓰던 이미지를 유지한다.")
+    @SecurityRequirement(name = "bearerAuth")
     @PatchMapping("/users/profile")
     public ApiResponse<UserProfileResponse> editProfile(
             @Parameter(hidden = true) @CurrentUser Long userId,
@@ -87,16 +90,25 @@ public class UserProfileController {
 
     public record ProfileRequest(
             @NotBlank
+            @Schema(description = "5자 이내의 한글·영문·숫자. 유일성은 등록 시점에 판정되므로 409 로 실패할 수 있다")
             @Pattern(regexp = NICKNAME_PATTERN, message = "닉네임은 5자 이내의 한글·영문·숫자만 쓸 수 있습니다.")
             String nickname,
 
+            @Schema(description = "주지 않으면 쓰던 이미지를 유지한다")
             @Size(max = 500) String profileImageUrl) {
     }
 
-    public record NicknameAvailabilityResponse(boolean available, String message) {
+    public record NicknameAvailabilityResponse(
+            @Schema(description = "지금 이 닉네임을 쓸 수 있는지. 등록까지의 사이에 선점될 수 있다")
+            boolean available,
+            @Schema(description = "화면에 그대로 보여줄 안내", example = "사용 가능한 닉네임") String message) {
     }
 
-    public record UserProfileResponse(Long userId, String nickname, String profileImageUrl) {
+    public record UserProfileResponse(
+            @Schema(description = "사용자 식별자") Long userId,
+            @Schema(description = "서비스 닉네임. 프로필 등록 전이면 null") String nickname,
+            @Schema(description = "프로필 이미지. 등록 때 주지 않았으면 서비스가 고른 기본 이미지다")
+            String profileImageUrl) {
 
         static UserProfileResponse from(User user) {
             return new UserProfileResponse(

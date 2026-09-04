@@ -10,7 +10,8 @@ import app.pickple.common.ResponseCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -39,7 +40,6 @@ public class CommentController {
     @Operation(summary = "댓글 목록 조회",
             description = "게스트도 부를 수 있다. 토큰을 함께 보내면 각 항목의 `mine` 이 채워지고, "
                     + "게스트면 항상 false 다.")
-    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll). 토큰은 선택 — mine 판정에만 쓴다
     @GetMapping("/posts/{postId}/comments")
     public ApiResponse<CommentListResponse> findAll(
             @PathVariable Long postId,
@@ -48,6 +48,7 @@ public class CommentController {
     }
 
     @Operation(summary = "댓글 작성")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/posts/{postId}/comments")
     public ResponseEntity<ApiResponse<CommentMutationResponse>> write(
             @PathVariable Long postId,
@@ -59,6 +60,7 @@ public class CommentController {
     }
 
     @Operation(summary = "댓글 수정")
+    @SecurityRequirement(name = "bearerAuth")
     @PatchMapping("/comments/{id}")
     public ApiResponse<CommentMutationResponse> edit(
             @PathVariable Long id,
@@ -69,6 +71,7 @@ public class CommentController {
     }
 
     @Operation(summary = "댓글 삭제")
+    @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/comments/{id}")
     public ApiResponse<Void> delete(
             @PathVariable Long id,
@@ -88,6 +91,7 @@ public class CommentController {
     @Operation(summary = "댓글 원픽",
             description = "한 사람은 한 게시글에서 댓글 하나만 원픽한다(R-05). 취소·변경은 없다(R-06). "
                     + "이미 원픽했으면 409, 자기 댓글이면 400.")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/comments/{commentId}/pick")
     public ResponseEntity<ApiResponse<OnePickResponse>> pick(
             @PathVariable Long commentId,
@@ -98,21 +102,29 @@ public class CommentController {
     }
 
     public record CommentRequest(
+            @Schema(description = "댓글 내용. 300자 이내")
             @NotBlank @Size(max = 300) String content) {
     }
 
     /** 원픽 결과. {@code id} 는 포인트 지급의 멱등키이기도 하다 (R-13). */
-    public record OnePickResponse(Long id, Long commentId) {
+    public record OnePickResponse(
+            @Schema(description = "원픽 식별자. 포인트 지급의 멱등키다 (R-13)") Long id,
+            @Schema(description = "원픽한 댓글 식별자") Long commentId) {
     }
 
-    public record CommentMutationResponse(Long id, String content) {
+    public record CommentMutationResponse(
+            @Schema(description = "댓글 식별자") Long id,
+            @Schema(description = "반영된 댓글 내용") String content) {
 
         static CommentMutationResponse from(Comment comment) {
             return new CommentMutationResponse(comment.id(), comment.content());
         }
     }
 
-    public record CommentListResponse(long commentCount, List<CommentResponse> comments) {
+    public record CommentListResponse(
+            @Schema(description = "활성 댓글 건수. 삭제된 댓글은 세지 않는다") long commentCount,
+            @Schema(description = "(created_at, id) 오름차순. 페이징 없이 전체를 준다")
+            List<CommentResponse> comments) {
 
         static CommentListResponse from(CommentQueryService.CommentListResult result) {
             return new CommentListResponse(
@@ -122,14 +134,16 @@ public class CommentController {
     }
 
     public record CommentResponse(
-            Long id,
-            Long authorId,
-            String profileImageUrl,
+            @Schema(description = "댓글 식별자") Long id,
+            @Schema(description = "작성자 식별자") Long authorId,
+            @Schema(description = "작성자 프로필 이미지") String profileImageUrl,
+            @Schema(description = "작성자 닉네임. 아직 설정하지 않은 사용자는 소셜 이름을 대신 쓴다")
             String nickname,
-            LocalDateTime createdAt,
-            String createdAgo,
-            String content,
-            long onePickCount,
+            @Schema(description = "작성 시각") LocalDateTime createdAt,
+            @Schema(description = "화면용 상대 시각", example = "3시간 전") String createdAgo,
+            @Schema(description = "댓글 내용") String content,
+            @Schema(description = "이 댓글이 받은 원픽 수") long onePickCount,
+            @Schema(description = "현재 요청자가 쓴 댓글인지. 게스트 요청은 항상 false")
             boolean mine) {
 
         static CommentResponse from(CommentQueryService.CommentResult comment) {

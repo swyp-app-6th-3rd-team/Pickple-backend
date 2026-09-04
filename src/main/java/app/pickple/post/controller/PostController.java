@@ -10,7 +10,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,7 +33,6 @@ public class PostController {
      */
     @Operation(summary = "게시글 목록 조회",
             description = "카테고리 필터와 정렬(최신순·인기순), 커서 기반 무한 스크롤. 게시글이 없으면 빈 배열이다.")
-    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @GetMapping("/posts")
     public ApiResponse<ScrollResponse<PostListItem>> findAll(
             @Parameter(description = "없으면 전체") @RequestParam(required = false) PostCategory category,

@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class VoteController {
     @Operation(summary = "투표 참여",
             description = "선택지에 투표한다. 이미 투표했으면 선택만 바뀌고 투표 인원은 늘지 않는다(R-22). "
                     + "응답은 갱신된 선택지별 득표 수와 득표율이다.")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/posts/{postId}/votes")
     public ApiResponse<VoteResponse> vote(
             @PathVariable Long postId,
@@ -55,9 +57,11 @@ public class VoteController {
      * @param voterCount 투표한 사람 수. 한 사람이 선택을 바꿔도 늘지 않는다 (R-09·R-22)
      */
     public record VoteResponse(
-            Long postId,
+            @Schema(description = "게시글 식별자") Long postId,
             @Schema(description = "이번 요청으로 확정된 내 선택") Long selectedOptionId,
+            @Schema(description = "투표한 사람 수. 한 사람이 선택을 바꿔도 늘지 않는다 (R-09·R-22)")
             long voterCount,
+            @Schema(description = "선택지별 득표 수와 득표율. 그대로 결과 게이지가 된다")
             List<OptionResponse> options) {
 
         static VoteResponse from(VoteService.VoteResult result) {
@@ -74,10 +78,12 @@ public class VoteController {
      * @param percentage 정수 퍼센트. 반올림 때문에 두 값의 합이 100 이 아닐 수 있다
      */
     public record OptionResponse(
-            Long optionId,
+            @Schema(description = "선택지 id") Long optionId,
             @Schema(description = "찬반 선택지의 라벨. A/B 는 null") String label,
-            int displayOrder,
-            long voteCount,
+            @Schema(description = "표시 순서. 1 또는 2") int displayOrder,
+            @Schema(description = "이 선택지의 득표 수") long voteCount,
+            @Schema(description = "정수 퍼센트. 반올림 때문에 두 값의 합이 100 이 아닐 수 있다. "
+                    + "아무도 투표하지 않았으면 0")
             int percentage) {
 
         static OptionResponse from(VoteService.OptionTally tally) {

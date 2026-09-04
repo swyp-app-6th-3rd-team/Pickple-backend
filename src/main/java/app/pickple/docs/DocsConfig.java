@@ -3,7 +3,6 @@ package app.pickple.docs;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
-import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -43,12 +42,14 @@ public class DocsConfig {
      * <p>{@code llms-txt.enabled} 조건을 걸지 않는다 — llms.txt 를 꺼도
      * Swagger UI 와 Scalar 는 제목이 필요하다.
      *
-     * <p><b>인증은 전역으로 걸고 공개 엔드포인트에서만 푼다</b>(ADR-0034).
-     * springdoc 은 {@code SecurityConfig} 를 읽지 않으므로 여기서 걸지 않으면
-     * 문서에는 인증 정보가 하나도 실리지 않는다. 방향이 중요하다 — 새로 만든 엔드포인트는
-     * {@code SecurityConfig} 기본값이 {@code authenticated()} 라 자동으로 인증 대상이 되므로,
-     * 문서도 같은 방향(기본 잠금)이어야 새 API 를 추가할 때 문서만 조용히 틀리지 않는다.
-     * 공개 엔드포인트에는 값 없는 {@code @SecurityRequirements} 를 붙여 잠금을 푼다.
+     * <p><b>여기서는 스킴만 정의한다</b>(ADR-0034). springdoc 은 {@code SecurityConfig} 를
+     * 읽지 않으므로 스킴을 등록하지 않으면 Authorize 버튼 자체가 뜨지 않는다.
+     *
+     * <p>어느 API 가 인증을 요구하는지는 <b>각 핸들러의
+     * {@code @SecurityRequirement(name = "bearerAuth")}</b> 가 정한다.
+     * 전역 {@code addSecurityItem} 을 걸고 공개 엔드포인트에서 푸는 방법도 있지만,
+     * 그러면 인증이 필요한 API 에는 아무 표시가 없고 공개 API 에만 애노테이션이 붙어
+     * 코드를 읽는 사람이 정반대로 읽는다. 표시는 요구하는 쪽에 붙인다.
      */
     @Bean
     public OpenAPI pickpleOpenAPI() {
@@ -62,8 +63,7 @@ public class DocsConfig {
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
                                 .bearerFormat("JWT")
-                                .description("로그인 응답의 accessToken. 접두어 없이 토큰만 넣는다.")))
-                .addSecurityItem(new SecurityRequirement().addList("bearerAuth"));
+                                .description("로그인 응답의 accessToken. 접두어 없이 토큰만 넣는다.")));
     }
 
     /**
