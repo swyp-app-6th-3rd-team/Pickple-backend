@@ -9,6 +9,8 @@ import app.pickple.item.service.ImageUploadService;
 import app.pickple.item.service.ImageUploadService.UploadImage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -24,6 +26,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 
+@Tag(name = "Image", description = "이미지 업로드")
 @RestController
 @RequiredArgsConstructor
 public class ImageUploadController {
@@ -31,6 +34,7 @@ public class ImageUploadController {
     private final ImageUploadService imageUploadService;
 
     @Operation(summary = "이미지 업로드", description = "multipart images를 S3에 저장하고 부착에 쓸 itemContainerId를 반환합니다.")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping(path = "/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ImageUploadResponse> upload(

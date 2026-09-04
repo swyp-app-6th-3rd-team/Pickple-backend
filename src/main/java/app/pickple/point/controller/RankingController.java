@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -73,6 +74,7 @@ public class RankingController {
     @Operation(summary = "내 포인트와 순위",
             description = "인증이 필요하다. 순위가 아직 산정되지 않았으면 ranking 이 null 이다 "
                     + "— 배치가 최대 5분마다 매기므로 가입 직후가 그렇다.")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/points")
     public ApiResponse<MyRankingResponse> findMine(
             @Parameter(hidden = true) @CurrentUser Long userId) {

@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,6 +41,7 @@ public class BadgeController {
             description = "획득·미획득 뱃지 전체와 수집 개수를 돌려준다. "
                     + "3X3 목록이 미획득 뱃지의 이름은 보여주고 일러스트만 가리므로(§12.2) "
                     + "미획득도 함께 내려간다.")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/badges")
     public ApiResponse<BadgeCollectionResponse> myBadges(
             @Parameter(hidden = true) @CurrentUser Long userId) {
@@ -51,6 +53,7 @@ public class BadgeController {
                     + "누적 계열과 일일 계열에서 각각 가장 낮은 임계값을 고른다. "
                     + "진행률은 퍼센트가 아니라 현재값과 목표값 두 수다 — 화면이 \"(0/10)\" 으로 쓴다. "
                     + "다 채운 계열은 빠지고, 8종을 모두 얻으면 빈 배열이다.")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/badges/missions")
     public ApiResponse<List<MissionResponse>> myMissions(
             @Parameter(hidden = true) @CurrentUser Long userId) {
@@ -64,7 +67,7 @@ public class BadgeController {
      */
     public record BadgeCollectionResponse(
             @Schema(description = "수집한 뱃지 개수", example = "2") int collectedCount,
-            List<BadgeResponse> badges) {
+            @Schema(description = "전체 뱃지. 미획득도 함께 준다") List<BadgeResponse> badges) {
 
         static BadgeCollectionResponse from(BadgeService.BadgeCollection collection) {
             return new BadgeCollectionResponse(
@@ -87,7 +90,7 @@ public class BadgeController {
             @Schema(description = "획득 조건 문구", example = "누적 투표 10회 달성") String description,
             @Schema(description = "조건 유형", example = "TOTAL_VOTE") String conditionType,
             @Schema(description = "목표값", example = "10") long threshold,
-            boolean acquired) {
+            @Schema(description = "이 뱃지를 획득했는지") boolean acquired) {
 
         static BadgeResponse of(Badge badge, boolean acquired) {
             return new BadgeResponse(

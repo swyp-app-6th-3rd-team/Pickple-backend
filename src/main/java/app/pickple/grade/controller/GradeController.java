@@ -8,6 +8,8 @@ import app.pickple.grade.service.GradeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,6 +29,7 @@ import java.util.List;
  * {@code SecurityConfig} 를 건드리지 않는다 — 등급 화면은 마이페이지 하위라
  * 게스트 진입 경로가 없다(§11.2 트리거 "마이페이지에서 '나의 등급' 메뉴 탭").
  */
+@Tag(name = "Grade", description = "등급 현황 · 기준")
 @RestController
 @RequiredArgsConstructor
 public class GradeController {
@@ -37,6 +40,7 @@ public class GradeController {
             description = "현재 등급과 누적 포인트·투표 횟수, 다음 등급까지의 달성률을 돌려준다. "
                     + "포인트는 원장 합계이므로 지급 직후 값이 곧바로 반영된다(R-14). "
                     + "등급은 내려가지 않는다(R-16).")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/grade")
     public ApiResponse<MyGradeResponse> readMyGrade(
             @Parameter(hidden = true) @CurrentUser Long userId) {
@@ -45,6 +49,7 @@ public class GradeController {
 
     @Operation(summary = "전체 등급 기준 조회",
             description = "LV.1~LV.5 의 승급 필요 조건을 낮은 등급부터 돌려준다.")
+    @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/grades")
     public ApiResponse<List<GradeResponse>> readAllGrades() {
         return ApiResponse.success(

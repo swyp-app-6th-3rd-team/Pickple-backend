@@ -5,6 +5,7 @@ import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.badge.domain.DailyActivityStore;
 import app.pickple.support.IntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -49,6 +51,9 @@ class BadgeJudgementQueryIT {
 
     private Long userId;
 
+    /** 이 테스트가 만든 회원. {@link #tearDown()} 이 이 목록만 지운다. */
+    private final List<Long> createdUserIds = new ArrayList<>();
+
     @BeforeEach
     void setUp() {
         userId = saveUser("badge-plan-target");
@@ -60,9 +65,35 @@ class BadgeJudgementQueryIT {
         jdbcTemplate.execute("ANALYZE TABLE user_daily_activity");
     }
 
+    /**
+     * 심은 행을 되돌린다.
+     *
+     * <p><b>왜 필요한가</b> — 이 테스트는 실행 계획을 보려고 일부러 테이블을 키운다.
+     * 메서드마다 회원 {@value #OTHER_USERS}+1 명 × {@value #DAYS_PER_USER} 일이라
+     * 한 번 돌 때 <b>16,400 행</b>이 쌓인다. 컨테이너는 {@code withReuse(true)} 로
+     * 재사용되므로 지우지 않으면 실행할 때마다 그만큼 누적된다.
+     *
+     * <p>남은 행은 두 가지를 망가뜨린다. 첫째, 이 테스트 자신의 전제(
+     * "4,100 행에서 인덱스를 쓴다")가 실행할수록 흔들린다. 둘째, {@code BadgeBackfillIT}
+     * 의 백필 SQL 은 {@code WHERE} 없이 테이블 전체를 훑으므로 남의 행까지 입력이 된다 —
+     * 그 회원이 나중에 지워지면 고아 행이 되어 FK 위반으로 <b>여덟 테스트가 함께</b> 깨진다.
+     * 실제로 그렇게 깨졌다.
+     */
+    @AfterEach
+    void tearDown() {
+        for (Long id : createdUserIds) {
+            jdbcTemplate.update("DELETE FROM user_badge WHERE user_id = ?", id);
+            jdbcTemplate.update("DELETE FROM user_daily_activity WHERE user_id = ?", id);
+            jdbcTemplate.update("DELETE FROM users WHERE id = ?", id);
+        }
+        createdUserIds.clear();
+    }
+
     private Long saveUser(String prefix) {
-        return userStore.save(
+        Long id = userStore.save(
                 new User(SocialProvider.GOOGLE, prefix + "-" + System.nanoTime(), null, "투표자")).id();
+        createdUserIds.add(id);
+        return id;
     }
 
     /** 한 회원의 {@value #DAYS_PER_USER} 일치 활동을 한 문장으로 넣는다. */

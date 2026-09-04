@@ -4,6 +4,7 @@ import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.support.IntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -88,6 +89,25 @@ class BadgeBackfillIT {
                 new User(SocialProvider.GOOGLE, "backfill-" + System.nanoTime(), null, "기존회원")).id();
     }
 
+    /**
+     * 이 테스트가 만든 행을 지운다.
+     *
+     * <p><b>왜 필요한가</b> — {@link #runBackfill()} 은 마이그레이션 문장을 그대로 쓰므로
+     * {@code WHERE user_id = ?} 가 없다. <b>테이블 전체</b>를 훑어 뱃지를 지급한다.
+     * 그래서 남겨둔 행이 다음 실행의 입력이 된다. 단언은 {@link #grantedCodes()} 로
+     * 자기 {@code userId} 만 보기 때문에 오염돼도 한동안 초록색이다.
+     *
+     * <p>컨테이너는 {@code withReuse(true)} 라 실행 사이에 살아남는다. 실제로 이것이
+     * 없어서 {@code user_daily_activity} 에 66,892 행이 쌓였고, 그 사이 스키마가 다시
+     * 깔리며 {@code users} 만 비워져 고아 행이 됐다. 그 뒤로는 백필이
+     * {@code fk_user_badge_user} 위반으로 실패해 8개 테스트가 모두 깨졌다.
+     */
+    @AfterEach
+    void tearDown() {
+        jdbcTemplate.update("DELETE FROM user_badge WHERE user_id = ?", userId);
+        jdbcTemplate.update("DELETE FROM user_daily_activity WHERE user_id = ?", userId);
+    }
+
     /** 마이그레이션 이전에 쌓여 있던 활동인 것처럼 집계 행을 만든다. */
     private void activityOn(LocalDate date, int voteCount) {
         jdbcTemplate.update("""
@@ -97,9 +117,33 @@ class BadgeBackfillIT {
     }
 
     private void runBackfill() {
+        purgeOrphanActivity();
         jdbcTemplate.update(BACKFILL_TOTAL);
         jdbcTemplate.update(BACKFILL_DAILY);
         jdbcTemplate.update(BACKFILL_STREAK);
+    }
+
+    /**
+     * {@code users} 에 없는 {@code user_id} 의 활동 행을 먼저 지운다.
+     *
+     * <p><b>왜 필요한가</b> — 백필 SQL 은 마이그레이션 문장 그대로라
+     * {@code WHERE user_id = ?} 가 없다. <b>테이블 전체</b>를 훑어 뱃지를 지급하므로
+     * 남의 행 하나가 {@code fk_user_badge_user} 위반을 일으키면
+     * <b>이 클래스의 여덟 테스트가 모두</b> 깨진다.
+     *
+     * <p>고아 행은 이 클래스가 만들지 않는다. 통합 테스트는 {@code withReuse(true)} 인
+     * 컨테이너를 공유하는데, 투표 테스트가 남긴 집계 행의 회원을 뒤이어 도는 다른
+     * 테스트가 지우면서 생긴다. <b>클래스 실행 순서에 따라 생겼다 안 생겼다 한다</b> —
+     * 단독으로 돌리면 0 건이고 전체 스위트에서는 수십 건이다.
+     *
+     * <p>그래서 남을 탓하지 않고 <b>자기 전제를 스스로 세운다</b>. 지우는 대상은
+     * 참조가 깨진 행뿐이라 살아 있는 데이터를 건드리지 않는다.
+     */
+    private void purgeOrphanActivity() {
+        jdbcTemplate.update("""
+                DELETE uda FROM user_daily_activity uda
+                 WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = uda.user_id)
+                """);
     }
 
     private List<String> grantedCodes() {
