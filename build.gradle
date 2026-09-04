@@ -136,9 +136,10 @@ sourceSets {
 
 // Git 훅을 저장소 안의 .githooks 로 돌린다.
 // 훅은 clone 으로 따라오지 않으므로 빌드가 한 번 돌면 자동으로 연결되게 한다.
-// 이미 core.hooksPath 가 설정돼 있으면 건드리지 않는다(사용자 설정 존중).
+// 이미 .githooks 를 가리키고 있으면 상대·절대경로 어느 쪽이든 그대로 둔다.
+// 다른 곳을 가리키면 사용자 설정으로 보고 건드리지 않는다.
 def installGitHooks = tasks.register('installGitHooks') {
-    description = '브랜치 이름 검사 훅을 활성화한다'
+    description = '브랜치 이름과 rebase 정책 훅을 활성화한다'
     group = 'build setup'
 
     def hooksDir = file('.githooks')
@@ -151,7 +152,8 @@ def installGitHooks = tasks.register('installGitHooks') {
             ignoreExitValue = true
         }.standardOutput.asText.get().trim()
 
-        if (current == '.githooks') {
+        // 절대경로로 설정된 경우도 같은 디렉터리를 가리키면 정상으로 본다.
+        if (current && file(current).canonicalPath == hooksDir.canonicalPath) {
             return
         }
         if (current) {
