@@ -184,6 +184,53 @@ class BadgeBackfillIT {
     }
 
     @Test
+    @DisplayName("여러 회원이 섞여 있어도 각자의 최장 구간으로 판정한다")
+    void separatesRunsPerUser() {
+        // gaps and islands 는 PARTITION BY user_id 로 회원을 가른다.
+        // 파티션이 빠지면 다른 사람의 날짜가 이어져 연속이 부풀어 오른다.
+        Long other = userStore.save(
+                new User(SocialProvider.GOOGLE, "backfill-other-" + System.nanoTime(), null, "옆사람")).id();
+
+        // 대상: 3일만 (연속 뱃지 없음)
+        for (int day = 0; day < 3; day++) {
+            activityOn(BASE.plusDays(day), 1);
+        }
+        // 옆 사람: 같은 기간에 이어지는 날짜로 10일 (7일 뱃지 대상)
+        for (int day = 0; day < 10; day++) {
+            jdbcTemplate.update("""
+                    INSERT INTO user_daily_activity (user_id, activity_date, vote_count, created_at, updated_at)
+                    VALUES (?, ?, 1, NOW(), NOW())
+                    """, other, BASE.plusDays(day));
+        }
+
+        runBackfill();
+
+        // 대상은 3일뿐이라 연속 뱃지가 없어야 한다 — 옆 사람 날짜가 섞이면 7일이 된다.
+        assertThat(grantedCodes()).doesNotContain("STREAK_VOTE_7");
+
+        List<String> otherCodes = jdbcTemplate.queryForList("""
+                SELECT b.code FROM user_badge ub JOIN badge b ON b.id = ub.badge_id
+                 WHERE ub.user_id = ? ORDER BY b.display_order
+                """, String.class, other);
+        assertThat(otherCodes).as("옆 사람은 10일 연속이라 받는다").contains("STREAK_VOTE_7");
+
+        jdbcTemplate.update("DELETE FROM user_badge WHERE user_id = ?", other);
+        jdbcTemplate.update("DELETE FROM user_daily_activity WHERE user_id = ?", other);
+    }
+
+    @Test
+    @DisplayName("30일 연속을 채우면 두 연속 뱃지를 모두 받는다")
+    void grantsBothStreakBadgesAtThirty() {
+        for (int day = 0; day < 30; day++) {
+            activityOn(BASE.plusDays(day), 1);
+        }
+
+        runBackfill();
+
+        assertThat(grantedCodes()).contains("STREAK_VOTE_7", "STREAK_VOTE_30");
+    }
+
+    @Test
     @DisplayName("조건을 넘지 못한 회원에게는 아무것도 주지 않는다")
     void grantsNothingBelowThreshold() {
         activityOn(BASE, 5);

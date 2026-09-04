@@ -313,6 +313,67 @@ class BadgeControllerIT {
                     .as("일별 집계가 전체 투표 수와 같다 (9 + %d)", racers)
                     .isEqualTo(9 + racers);
         }
+
+        @Test
+        @DisplayName("서로 다른 회원이 같은 게시글에 동시 투표해도 교착되지 않는다")
+        void differentVotersOnSamePostDoNotDeadlock() throws Exception {
+            // 뱃지 경로가 users 행에 FK 공유 락을 더 잡는다. 게시글·선택지 락과 겹쳐
+            // 락 순서가 어긋나면 교착이 난다 — 투표 API 가 16명 동시 투표에서 실제로
+            // 겪었던 문제다(VoteService.castFirst 주석).
+            Post shared = votablePost();
+            Long optionA = shared.options().getFirst().id();
+            Long optionB = shared.options().get(1).id();
+
+            int voters = 12;
+            List<String> tokens = new ArrayList<>();
+            List<Long> voterIds = new ArrayList<>();
+            for (int i = 0; i < voters; i++) {
+                User u = userStore.save(new User(
+                        SocialProvider.GOOGLE, "badge-race-" + i + "-" + seed, null, "동시" + i));
+                voterIds.add(u.id());
+                tokens.add(jwtService.createAccessToken(u));
+            }
+
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Integer>> results = new ArrayList<>();
+            try (ExecutorService pool = Executors.newFixedThreadPool(voters)) {
+                for (int i = 0; i < voters; i++) {
+                    String token = tokens.get(i);
+                    Long optionId = (i % 2 == 0) ? optionA : optionB;
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return mockMvc.perform(post("/api/posts/{postId}/votes", shared.id())
+                                        .header("Authorization", "Bearer " + token)
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content("{\"optionId\":%d}".formatted(optionId)))
+                                .andReturn().getResponse().getStatus();
+                    }));
+                }
+                start.countDown();
+                pool.shutdown();
+                assertThat(pool.awaitTermination(60, TimeUnit.SECONDS)).isTrue();
+            }
+
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> result : results) {
+                statuses.add(result.get());
+            }
+            assertThat(statuses).as("교착이나 락 타임아웃 없이 전부 성공한다").containsOnly(200);
+
+            // 각자의 일별 집계가 정확히 1 이다 — 유실도 중복도 없다.
+            for (Long id : voterIds) {
+                Integer daily = jdbcTemplate.queryForObject(
+                        "SELECT COALESCE(SUM(vote_count), 0) FROM user_daily_activity WHERE user_id = ?",
+                        Integer.class, id);
+                assertThat(daily).as("회원 %d 의 일별 집계", id).isEqualTo(1);
+            }
+
+            // 뒷정리
+            voterIds.forEach(id -> {
+                jdbcTemplate.update("DELETE FROM user_badge WHERE user_id = ?", id);
+                jdbcTemplate.update("DELETE FROM user_daily_activity WHERE user_id = ?", id);
+            });
+        }
     }
 
     @Nested
