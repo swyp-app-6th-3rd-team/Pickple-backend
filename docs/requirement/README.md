@@ -24,24 +24,20 @@
 | `기능명세서 v0.1.pdf` | 이력 | 32p |
 | `정책 요약표.pdf` | **현행 정본** | 3p. 포인트·등급·뱃지·닉네임·게시글 입력·정렬 |
 
-`*.txt` 는 각 PDF 의 추출 텍스트다. `git diff` 와 `grep` 을 쓰려고 둔 **파생물이며 정본이 아니다.**
-표 구조가 컬럼 순서로 펼쳐지므로 문장이 끊겨 보일 수 있다 — 판단이 걸리면 PDF 를 직접 본다.
+`*.md` 는 각 PDF 를 표 구조에 맞춰 변환한 것이다. `git diff` 와 `grep` 을 쓰려고 둔
+**파생물이며 정본이 아니다.**
+
+원문 PDF(Notion 내보내기)는 표 셀을 **2~3자 단위로 하드랩**해 저장한다.
+그래서 그냥 텍스트를 뽑으면 `기\n능그\n룹` 처럼 글자가 흩어진다.
+`extract.py` 는 컬럼 그리드로 셀을 다시 묶고, 문서 순서대로 이어붙여 랩을 제거한 뒤
+불릿(`•` → `-`)·라벨(`[기본 동작]`·`<조회 데이터>`)·`상황:`/`조치:` 구조를 복원한다.
+
+**줄바꿈 위치는 원문과 다르다.** 인용할 때는 PDF 를 본다.
 
 재생성:
 
 ```bash
-python3 -c "
-import fitz, glob, os
-for pdf in sorted(glob.glob('docs/requirement/*.pdf')):
-    d = fitz.open(pdf)
-    with open(pdf[:-4] + '.txt', 'w') as fh:
-        fh.write(f'# {os.path.basename(pdf)} 추출 텍스트\n')
-        fh.write('# 원문은 같은 폴더의 PDF다. 이 파일은 git diff·grep 을 위한 파생물이며 정본이 아니다.\n')
-        fh.write(f'# 생성: pymupdf get_text(), 총 {d.page_count}페이지\n')
-        for i, p in enumerate(d):
-            fh.write(f'\n===== p{i+1} =====\n')
-            fh.write(p.get_text('text'))
-"
+python3 docs/requirement/extract.py   # docs/requirement/ 에서 실행
 ```
 
 ## v0.2 → v0.3 변경
