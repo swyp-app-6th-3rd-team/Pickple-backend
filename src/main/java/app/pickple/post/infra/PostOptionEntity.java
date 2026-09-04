@@ -44,7 +44,12 @@ public class PostOptionEntity {
     @Column(name = "display_order", nullable = false)
     private Byte displayOrder;
 
-    @Column(name = "vote_count", nullable = false)
+    // 카운터는 읽기 전용이다 — PostEntity 의 집계 컬럼과 같은 이유다.
+    // 선택지를 담은 엔티티 그래프가 flush 될 때 SET 절에 이 컬럼이 끼면,
+    // 그 사이 원자적으로 증가한 값을 오래된 스냅샷으로 덮어쓴다.
+    // 증감은 PostCounterRepository 의 전용 UPDATE 로만 한다.
+    // INSERT 에서 빠져도 DDL 의 DEFAULT 0 이 채운다.
+    @Column(name = "vote_count", nullable = false, insertable = false, updatable = false)
     private Integer voteCount;
 
     @Column(name = "created_at", nullable = false)
@@ -56,7 +61,6 @@ public class PostOptionEntity {
         this.postProductId = post.resolvePostProductId(option);
         this.label = option.label();
         this.displayOrder = (byte) option.displayOrder();
-        this.voteCount = (int) option.voteCount();
         this.createdAt = now;
     }
 
@@ -65,6 +69,7 @@ public class PostOptionEntity {
     }
 
     PostOption toDomain() {
-        return PostOption.restore(id, postProductId, label, displayOrder, voteCount);
+        return PostOption.restore(id, postProductId, label, displayOrder,
+                voteCount == null ? 0L : voteCount);
     }
 }

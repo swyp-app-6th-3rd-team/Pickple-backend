@@ -82,6 +82,30 @@ API 계약, DB 스키마, 주요 패키지 경계, 외부 시스템·미들웨�
 - 시간 의존 로직은 주입된 `Clock`을 사용하고, 저장 정밀도와 비교 정밀도를 맞춘다.
 - 새 마이그레이션은 순방향 파일로 추가한다. 이미 적용됐을 가능성이 있는 마이그레이션 변경은 영향과 복구 방법을 먼저 확인한다.
 
+## API 문서 (Scalar·Swagger UI·llms.txt)
+
+세 문서 표면이 같은 OpenAPI 스펙 하나를 읽는다. 아래 셋은 **새 API 를 추가하거나 응답 모양을 바꿀 때마다** 함께 한다 — 나중에 몰아서 채우면 초기 도메인처럼 60% 가 비어버린다.
+
+- **인증이 필요한 엔드포인트에는 `@SecurityRequirement(name = "bearerAuth")` 를 반드시 붙인다.**
+  springdoc 은 `SecurityConfig` 를 읽지 않으므로 이 애노테이션이 없으면 문서에 자물쇠가 안 뜨고,
+  FE 는 토큰이 필요한지 알 수 없다. `SecurityConfig` 의 `permitAll`·`PUBLIC_GET` 에 있는
+  공개 엔드포인트에는 **붙이지 않는다**(값 없는 `@SecurityRequirements` 로 푸는 방식도 쓰지 않는다 — 근거는 ADR-0034).
+  새 인증 API 를 추가하면 `SecurityConfig` 와 이 애노테이션을 **함께** 손댄다.
+  **ArchUnit 이 이것을 강제한다** — `ArchitectureTest.ApiDocumentation` 이 permitAll 이 아닌
+  핸들러에 애노테이션이 없으면 실패한다. 공개 엔드포인트 목록은 그 테스트의
+  `PUBLIC_ENDPOINTS` 에도 있으니 `SecurityConfig` 와 함께 고친다.
+
+- **컨트롤러에는 `@Tag` 를 붙이고 이름은 도메인 명사 단수·파스칼로 통일한다.**
+  `Auth`·`User`·`Post`·`Comment`·`Vote`·`Grade`·`Badge`·`Ranking`·`Image` 가 현재 목록이다.
+  빠뜨리면 springdoc 이 `vote-controller` 같은 클래스명 파생 태그를 만들어 Scalar 사이드바 표기가 어긋난다.
+  `description` 은 그 도메인이 무엇을 다루는지 한 줄로 적는다.
+
+- **응답·요청 DTO 의 모든 필드에 `@Schema(description = ...)` 를 붙인다.**
+  하우스 스타일은 한국어 명사구, 마침표 없음. null 조건은 뒤에 한 문장으로(`"투표 인원. 일반 게시글은 null"`).
+  enum 은 값을 나열하고(`"GENERAL | AGREE | A_B"`), 규칙 ID 는 본문에 인라인으로 넣는다(`"...여야 한다(R-10)"`).
+  `example` 은 짧은 스칼라에만 쓴다. javadoc `@param` 이 이미 있으면 그것을 압축해 쓰고 둘을 함께 둔다.
+  **필드 의미를 지어내지 않는다** — 코드·SPEC·runbook 에서 확인되지 않으면 최소 서술로 두고 PR 에 남긴다.
+
 ## 패키지·폴더·파일 네이밍
 
 - 새 패키지나 파일을 만들기 전에 같은 기능과 같은 역할의 기존 파일을 먼저 확인한다. `src/main/java`와 대응하는 `src/test/java`에서 가장 가까운 패키지 구조, 폴더 구조, 파일명과 접미사를 우선해 따른다.

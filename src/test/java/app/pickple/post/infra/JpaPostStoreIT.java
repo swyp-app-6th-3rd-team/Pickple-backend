@@ -7,6 +7,7 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
+import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,7 +61,7 @@ class JpaPostStoreIT {
                 .addOption(PostOption.ofLabel("말자", 2));
         post.verifyPublishable();
 
-        Post saved = postStore.save(post);
+        Post saved = postStore.saveIfContainerFree(post);
 
         Post found = postStore.findById(saved.id()).orElseThrow();
         assertThat(found.type()).isEqualTo(PostType.AGREE);
@@ -79,7 +81,7 @@ class JpaPostStoreIT {
                 .addOption(PostOption.ofProductDisplayOrder(1, 1))
                 .addOption(PostOption.ofProductDisplayOrder(2, 2));
 
-        Post saved = postStore.save(post);
+        Post saved = postStore.saveIfContainerFree(post);
 
         Post found = postStore.findById(saved.id()).orElseThrow();
         assertThat(found.products()).hasSize(2);
@@ -110,8 +112,19 @@ class JpaPostStoreIT {
                 .addOption(PostOption.ofLabel("사자", 1))
                 .addOption(PostOption.ofLabel("말자", 2));
 
-        assertThatThrownBy(() -> postStore.save(post))
-                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> postStore.saveIfContainerFree(post))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("이미 다른 상품에 붙은 컨테이너는 도메인 예외로 변환한다")
+    void attachedContainerTranslated() {
+        Long containerId = newProductContainer();
+        postStore.saveIfContainerFree(agreePost(containerId, "첫 게시글"));
+
+        assertThatThrownBy(() -> postStore.saveIfContainerFree(agreePost(containerId, "두 번째 게시글")))
+                .isInstanceOf(ItemContainerAlreadyAttachedException.class)
+                .hasCauseInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
@@ -142,5 +155,12 @@ class JpaPostStoreIT {
         assertThat(reloaded.type()).isEqualTo(PostType.GENERAL);
         assertThat(reloaded.title()).isEqualTo("바뀐 제목");
         assertThat(reloaded.category()).isEqualTo(PostCategory.LIVING);
+    }
+
+    private Post agreePost(Long containerId, String title) {
+        return new Post(authorId, PostType.AGREE, PostCategory.ETC, title, null)
+                .addProduct(new PostProduct(containerId, "상품", 1000L, null, 1))
+                .addOption(PostOption.ofLabel("사자", 1))
+                .addOption(PostOption.ofLabel("말자", 2));
     }
 }

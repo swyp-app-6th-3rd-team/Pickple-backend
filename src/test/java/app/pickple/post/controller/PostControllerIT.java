@@ -9,6 +9,7 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
+import app.pickple.point.service.RankingBatchService;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
@@ -81,6 +82,8 @@ class PostControllerIT {
     private EntityManager entityManager;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Autowired
+    private RankingBatchService rankingBatch;
 
     /**
      * 이 클래스만 쓰는 카테고리.
@@ -114,7 +117,7 @@ class PostControllerIT {
         //
         // 컨테이너를 재사용하므로(ContainerConfig.withReuse) 다른 테스트 클래스가 남긴
         // 게시글이 보인다. "0건" 을 만들려면 아무도 쓰지 않는 카테고리로 좁혀야 한다.
-        mockMvc.perform(get("/api/posts?category=" + EMPTY_CATEGORY))
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.returnObject.content").isEmpty())
@@ -139,7 +142,7 @@ class PostControllerIT {
         flush();
 
         // 다른 테스트가 남긴 게시글과 섞이지 않도록 이 실행이 만든 카테고리로 좁힌다.
-        mockMvc.perform(get("/api/posts?category=" + EMPTY_CATEGORY))
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content.length()").value(3))
                 // 최신순이므로 마지막에 만든 일반 게시글이 앞에 온다.
@@ -194,13 +197,13 @@ class PostControllerIT {
         // 조각을 나눠 끝까지 받는다. 여기가 동률의 진짜 시험대다 —
         // 커서 조건이 (created_at, id) 튜플이 아니면, 같은 시각을 가진 12건에서
         // 다음 조각 조건이 이미 준 행을 배제하지 못해 중복되거나 통째로 건너뛴다.
-        List<Integer> scrolled = scrollAll("/api/posts?category=" + EMPTY_CATEGORY, 5);
+        List<Integer> scrolled = scrollAll("/posts?category=" + EMPTY_CATEGORY, 5);
 
         assertThat(scrolled).containsExactlyElementsOf(
                 ids.stream().sorted(java.util.Comparator.reverseOrder()).toList());
 
         // 같은 요청을 반복해도 결과가 같다.
-        assertThat(scrollAll("/api/posts?category=" + EMPTY_CATEGORY, 5))
+        assertThat(scrollAll("/posts?category=" + EMPTY_CATEGORY, 5))
                 .containsExactlyElementsOf(scrolled);
     }
 
@@ -214,7 +217,7 @@ class PostControllerIT {
 
         // 애플리케이션 필터라면 조각 크기(2)만큼 읽은 뒤 걸러내므로 결과가 2건 미만이 된다.
         // WHERE 로 걸리면 조건에 맞는 2건이 그대로 채워진다.
-        mockMvc.perform(get("/api/posts?category=BEAUTY&size=2"))
+        mockMvc.perform(get("/posts?category=BEAUTY&size=2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content.length()").value(2))
                 .andExpect(jsonPath("$.returnObject.content[0].category").value("BEAUTY"))
@@ -248,7 +251,7 @@ class PostControllerIT {
         assertThat(postStore.findById(two.id()).orElseThrow().popularityScore()).isEqualTo(2L);
 
         // 댓글 건수가 더 많은 쪽(3건)이 아니라 인원이 많은 쪽(2명)이 앞에 온다.
-        mockMvc.perform(get("/api/posts?sort=POPULAR"))
+        mockMvc.perform(get("/posts?sort=POPULAR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content[0].id").value(two.id()))
                 .andExpect(jsonPath("$.returnObject.content[0].commentCount").value(2))
@@ -269,7 +272,7 @@ class PostControllerIT {
                 commented.id(), saveUser("commenter-c-" + seed, "댓글C").id(), "한마디", null));
         flush();
 
-        mockMvc.perform(get("/api/posts?sort=POPULAR&category=LIVING"))
+        mockMvc.perform(get("/posts?sort=POPULAR&category=LIVING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content[0].id").value(voted.id()))
                 .andExpect(jsonPath("$.returnObject.content[0].voteCount").value(2))
@@ -288,7 +291,7 @@ class PostControllerIT {
         }
         flush();
 
-        assertThat(scrollAll("/api/posts?category=" + EMPTY_CATEGORY, 10))
+        assertThat(scrollAll("/posts?category=" + EMPTY_CATEGORY, 10))
                 .containsExactlyInAnyOrderElementsOf(expected);
     }
 
@@ -306,7 +309,7 @@ class PostControllerIT {
         voteService.castOrChange(hot.id(), firstOptionId(hot.id()), voter.id());
         flush();
 
-        List<Integer> ids = scrollAll("/api/posts?sort=POPULAR&category=" + EMPTY_CATEGORY, 10);
+        List<Integer> ids = scrollAll("/posts?sort=POPULAR&category=" + EMPTY_CATEGORY, 10);
         assertThat(ids).containsExactlyInAnyOrderElementsOf(expected);
         // 점수 1인 글이 맨 앞이다. 나머지는 전부 0점이라 id 내림차순으로 이어진다.
         assertThat(ids.get(0)).isEqualTo(hot.id().intValue());
@@ -329,7 +332,7 @@ class PostControllerIT {
         flush();
 
         // 첫 조각 3건을 받는다.
-        String first = read("/api/posts?sort=POPULAR&category=" + EMPTY_CATEGORY + "&size=3");
+        String first = read("/posts?sort=POPULAR&category=" + EMPTY_CATEGORY + "&size=3");
         String cursor = JsonPath.read(first, "$.returnObject.nextCursor");
         List<Integer> seen = new ArrayList<>();
         ((JSONArray) JsonPath.read(first, "$.returnObject.content[*].id"))
@@ -343,7 +346,7 @@ class PostControllerIT {
         flush();
 
         String second = read(
-                "/api/posts?sort=POPULAR&category=" + EMPTY_CATEGORY + "&size=3&cursor=" + cursor);
+                "/posts?sort=POPULAR&category=" + EMPTY_CATEGORY + "&size=3&cursor=" + cursor);
         ((JSONArray) JsonPath.read(second, "$.returnObject.content[*].id"))
                 .forEach(id -> seen.add((Integer) id));
 
@@ -384,7 +387,7 @@ class PostControllerIT {
         flush();
 
         // 조각 크기 4 — 경계가 점수 1 구간 안에서도, 점수 1과 0 사이에서도 생긴다.
-        List<Integer> ids = scrollAll("/api/posts?sort=POPULAR&category=" + EMPTY_CATEGORY, 4);
+        List<Integer> ids = scrollAll("/posts?sort=POPULAR&category=" + EMPTY_CATEGORY, 4);
 
         assertThat(ids).containsExactlyInAnyOrderElementsOf(expected);
     }
@@ -401,8 +404,8 @@ class PostControllerIT {
         }
         flush();
 
-        long oneRow = countStatements("/api/posts?size=1", 1);
-        long twelveRows = countStatements("/api/posts?size=12", 12);
+        long oneRow = countStatements("/posts?size=1", 1);
+        long twelveRows = countStatements("/posts?size=12", 12);
 
         assertThat(oneRow).isEqualTo(1L);
         assertThat(twelveRows).isEqualTo(1L);
@@ -427,6 +430,68 @@ class PostControllerIT {
     private void stampCreatedAt(Long postId, int minutesAgo) {
         jdbcTemplate.update("UPDATE post SET created_at = ? WHERE id = ?",
                 LocalDateTime.now(clock).minusMinutes(minutesAgo), postId);
+    }
+
+    @Test
+    @DisplayName("목록 응답에 작성자 랭킹이 실린다 (#73)")
+    void exposesAuthorRanking() throws Exception {
+        // 완료 판정: "목록 응답에 작성자 랭킹이 포함된다".
+        // 순위는 전역 값이라 이 테스트가 만든 회원의 절대 등수를 단정할 수 없다
+        // (컨테이너 재사용으로 다른 클래스의 회원이 남아 있다). 확인할 것은
+        // "배치가 매긴 값이 응답까지 흐르는가" 이므로, 배치 후 DB 의 값과 응답을 대조한다.
+        Long postId = saveGeneralPost("랭킹 노출", EMPTY_CATEGORY).id();
+        stampCreatedAt(postId, 1);
+        flush();
+
+        rankingBatch.refresh();
+        flush();
+
+        Integer expected = jdbcTemplate.queryForObject(
+                "SELECT ranking FROM users WHERE id = ?", Integer.class, author.id());
+        assertThat(expected).isNotNull();
+
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content[0].id").value(postId))
+                .andExpect(jsonPath("$.returnObject.content[0].authorRanking").value(expected));
+    }
+
+    @Test
+    @DisplayName("아직 순위가 없으면 0 이 아니라 null 로 내려간다 (#73)")
+    void unrankedAuthorIsNull() throws Exception {
+        // 배치가 돌기 전 가입한 회원이다. 0 을 채우면 "아직 모른다" 가 "0위" 라는
+        // 거짓이 되고, 실제 꼴찌와 구분되지 않는다.
+        Long postId = saveGeneralPost("미산정 작성자", EMPTY_CATEGORY).id();
+        stampCreatedAt(postId, 1);
+        jdbcTemplate.update("UPDATE users SET ranking = NULL WHERE id = ?", author.id());
+        flush();
+
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content[0].id").value(postId))
+                .andExpect(jsonPath("$.returnObject.content[0].authorRanking").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("랭킹을 얹어도 쿼리는 여전히 한 번이다 (#73)")
+    void rankingAddsNoQuery() throws Exception {
+        // 랭킹은 이미 하고 있는 작성자 조인에 컬럼 하나로 얹힌다. 별도 조회가 붙으면
+        // 조각 크기만큼 쿼리가 늘어나므로(N+1) 횟수로 못박는다.
+        for (int i = 0; i < 3; i++) {
+            stampCreatedAt(saveGeneralPost("랭킹 " + i, EMPTY_CATEGORY).id(), i + 1);
+        }
+        rankingBatch.refresh();
+        flush();
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content.length()").value(3));
+
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
     }
 
     /** 저장된 작성자 닉네임. 픽스처가 유일성을 위해 붙인 일련번호까지 포함한다. */

@@ -1,5 +1,7 @@
 package app.pickple.docs;
 
+import app.pickple.common.ResponseCode;
+import app.pickple.error.ApiException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.core.util.Json31;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -64,10 +66,7 @@ public class LlmsTxtController {
             byte[] json = openApiResource.openapiJson(request, "/v3/api-docs", locale);
             return Json31.mapper().readTree(json);
         } catch (Exception e) {
-            // 스펙을 못 만들면 문서를 낼 방법이 없다.
-            // ApiException 은 cause 를 받는 생성자가 없다. 이 한 곳 때문에 공용 예외를 넓히기보다
-            // 원인 예외를 그대로 올려보내 스택트레이스를 보존한다(GlobalExceptionHandler 가 500 으로 처리).
-            throw new IllegalStateException("OpenAPI 스펙을 읽지 못했다", e);
+            throw new ApiException(ResponseCode.SYSTEM_ERROR, "OpenAPI 스펙을 읽지 못했다", e);
         }
     }
 }

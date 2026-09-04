@@ -3,10 +3,12 @@ package app.pickple.post.controller;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostProduct;
 import app.pickple.post.domain.PostType;
-import app.pickple.post.service.PostCreationService.CreateCommand;
-import app.pickple.post.service.PostCreationService.ProductCommand;
+import app.pickple.post.service.PostService.CreateCommand;
+import app.pickple.post.service.PostService.ProductCommand;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -41,6 +43,15 @@ public record PostCreateRequest(
                 ? List.of()
                 : products.stream().map(ProductRequest::toCommand).toList();
         return new CreateCommand(type, category, title, description, commands);
+    }
+
+    @JsonIgnore
+    @Schema(hidden = true)
+    @AssertTrue(message = "A/B 및 일반 게시글의 제목은 필수입니다.")
+    public boolean isTitleValidForType() {
+        return type == null
+                || type == PostType.AGREE
+                || (title != null && !title.isBlank());
     }
 
     public record ProductRequest(

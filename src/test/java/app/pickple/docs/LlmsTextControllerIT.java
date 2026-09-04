@@ -74,7 +74,21 @@ class LlmsTextControllerIT {
         String body = mockMvc.perform(get("/llms.txt"))
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(body).contains("/api/auth/me");
+        assertThat(body).contains("/auth/me");
+    }
+
+    @Test
+    @DisplayName("뱃지 경로가 문서에 실린다 — prefix 를 빠뜨리면 조용히 사라진다")
+    void includesBadgePaths() throws Exception {
+        // springdoc.paths-to-match 가 /api/** 라 prefix 없는 경로는 스펙에서 빠지는데,
+        // 컨트롤러는 정상 동작하므로 다른 테스트로는 잡히지 않는다.
+        // 문서가 비는 것을 이 자리에서 잡는다.
+        String body = mockMvc.perform(get("/llms.txt"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body)
+                .contains("/users/me/badges")
+                .contains("/users/me/badges/missions");
     }
 
     @Test

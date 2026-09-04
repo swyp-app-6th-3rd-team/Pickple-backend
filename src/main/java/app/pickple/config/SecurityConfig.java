@@ -50,6 +50,8 @@ public class SecurityConfig {
             "/", "/error", "/favicon.ico",
             "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/scalar/**", "/scalar",
             "/llms.txt", "/llms.md",
+            // 문서가 싣는 ERD 그림. Boot 기본 정적 처리가 classpath:/static/docs 를 여기로 낸다.
+            "/docs/**",
             "/actuator/health/**"
     };
 
@@ -105,17 +107,25 @@ public class SecurityConfig {
                         .requestMatchers(toMatchers(mvc, PUBLIC_GET)).permitAll()
                         .requestMatchers(
                                 // 커뮤니티 진입 화면이라 로그인 전에 부른다.
-                                mvc.matcher(HttpMethod.GET, "/api/posts"),
-                                mvc.matcher(HttpMethod.GET, "/api/posts/{postId}/comments"),
+                                mvc.matcher(HttpMethod.GET, "/posts"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
-                                mvc.matcher(HttpMethod.GET, "/api/users/nickname/availability"))
+                                mvc.matcher(HttpMethod.GET, "/users/nickname/availability"),
+                                // 홈 화면의 인기 피커와 그 [더보기] 목록이라 로그인 전에 부른다 (§2.5·§3.1).
+                                // 게스트에게 감추는 것은 목록이 아니라 "본인 랭킹" 이고, 그건 아래
+                                // /users/me/points 가 인증을 요구하는 것으로 갈린다.
+                                //
+                                // ⚠️ 기능명세서 v0.3 §6.4 가 "게스트에게 댓글 목록을 주지 않는다" 로
+                                // 바뀌었지만 그것은 댓글 한정이다. 랭킹의 게스트 허용은 유효하다 —
+                                // 공개 여부는 엔드포인트마다 판단한다.
+                                mvc.matcher(HttpMethod.GET, "/rankings"),
+                                mvc.matcher(HttpMethod.GET, "/rankings/top"))
                         .permitAll()
                         .requestMatchers(mvc.matcher("/oauth2/**"), mvc.matcher("/login/oauth2/**")).permitAll()
                         .requestMatchers(
-                                mvc.matcher(HttpMethod.POST, "/api/auth/apple"),
-                                mvc.matcher(HttpMethod.POST, "/api/auth/refresh"),
-                                mvc.matcher(HttpMethod.POST, "/api/auth/mobile/refresh"),
-                                mvc.matcher(HttpMethod.POST, "/api/auth/logout")).permitAll()
+                                mvc.matcher(HttpMethod.POST, "/auth/apple"),
+                                mvc.matcher(HttpMethod.POST, "/auth/refresh"),
+                                mvc.matcher(HttpMethod.POST, "/auth/mobile/refresh"),
+                                mvc.matcher(HttpMethod.POST, "/auth/logout")).permitAll()
                         .anyRequest().authenticated())
 
                 .oauth2Login(oauth -> oauth

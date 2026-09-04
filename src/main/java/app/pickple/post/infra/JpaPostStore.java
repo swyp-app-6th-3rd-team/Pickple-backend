@@ -1,8 +1,10 @@
 package app.pickple.post.infra;
 
+import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostStore;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,6 +15,8 @@ import java.util.Optional;
 @Component
 @RequiredArgsConstructor
 public class JpaPostStore implements PostStore {
+
+    private static final String PRODUCT_CONTAINER_UNIQUE_KEY = "uk_product_container";
 
     private final PostRepository repository;
     private final PostProductRepository productRepository;
@@ -44,6 +48,19 @@ public class JpaPostStore implements PostStore {
     }
 
     @Override
+    @Transactional
+    public Post saveIfContainerFree(Post post) {
+        try {
+            return save(post);
+        } catch (DataIntegrityViolationException exception) {
+            if (!hasConstraint(exception, PRODUCT_CONTAINER_UNIQUE_KEY)) {
+                throw exception;
+            }
+            throw new ItemContainerAlreadyAttachedException(exception);
+        }
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<Post> findById(Long id) {
         return repository.findById(id).map(PostEntity::toDomain);
@@ -59,5 +76,15 @@ public class JpaPostStore implements PostStore {
     @Transactional(readOnly = true)
     public boolean isItemContainerAttached(Long itemContainerId) {
         return productRepository.existsByItemContainerId(itemContainerId);
+    }
+
+    private static boolean hasConstraint(Throwable throwable, String constraintName) {
+        for (Throwable cause = throwable; cause != null; cause = cause.getCause()) {
+            String message = cause.getMessage();
+            if (message != null && message.contains(constraintName)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

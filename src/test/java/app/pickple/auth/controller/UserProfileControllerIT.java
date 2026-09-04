@@ -1,4 +1,4 @@
-package app.pickple.auth;
+package app.pickple.auth.controller;
 
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
-class UserProfileApiIT {
+class UserProfileControllerIT {
 
     @Autowired
     private WebApplicationContext context;
@@ -77,7 +77,7 @@ class UserProfileApiIT {
     @Test
     @DisplayName("아무도 안 쓰는 닉네임은 사용 가능으로 답한다")
     void availabilityReportsUnused() throws Exception {
-        mockMvc.perform(get("/api/users/nickname/availability").param("value", uniqueNickname()))
+        mockMvc.perform(get("/users/nickname/availability").param("value", uniqueNickname()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.returnObject.available").value(true))
@@ -88,7 +88,7 @@ class UserProfileApiIT {
     @DisplayName("중복 확인은 로그인 없이도 부를 수 있다")
     void availabilityIsPublic() throws Exception {
         // 가입 화면에서 로그인 전에 부르므로 401 이면 기능 자체가 성립하지 않는다.
-        mockMvc.perform(get("/api/users/nickname/availability").param("value", "피클"))
+        mockMvc.perform(get("/users/nickname/availability").param("value", "피클"))
                 .andExpect(status().isOk());
     }
 
@@ -96,7 +96,7 @@ class UserProfileApiIT {
     @DisplayName("6자 이상·특수문자·이모지·공백은 400 이다")
     void availabilityRejectsInvalidFormat() throws Exception {
         for (String invalid : new String[]{"여섯글자닉네임", "가나다라마바", "가 나", "가!", "😀", "닉_네임", "  "}) {
-            mockMvc.perform(get("/api/users/nickname/availability").param("value", invalid))
+            mockMvc.perform(get("/users/nickname/availability").param("value", invalid))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         }
@@ -105,7 +105,7 @@ class UserProfileApiIT {
     @Test
     @DisplayName("value 파라미터가 없으면 400 이다")
     void availabilityRequiresParameter() throws Exception {
-        mockMvc.perform(get("/api/users/nickname/availability"))
+        mockMvc.perform(get("/users/nickname/availability"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
@@ -113,9 +113,9 @@ class UserProfileApiIT {
     @Test
     @DisplayName("경계값 5자는 통과하고 6자는 거부한다")
     void availabilityBoundary() throws Exception {
-        mockMvc.perform(get("/api/users/nickname/availability").param("value", "가나다라마"))
+        mockMvc.perform(get("/users/nickname/availability").param("value", "가나다라마"))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/api/users/nickname/availability").param("value", "가나다라마바"))
+        mockMvc.perform(get("/users/nickname/availability").param("value", "가나다라마바"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -124,7 +124,7 @@ class UserProfileApiIT {
     void registersWithDefaultImage() throws Exception {
         String nickname = uniqueNickname();
         try {
-            mockMvc.perform(post("/api/users/profile")
+            mockMvc.perform(post("/users/profile")
                             .header("Authorization", bearer(token))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"nickname\":\"" + nickname + "\"}"))
@@ -144,7 +144,7 @@ class UserProfileApiIT {
         try {
             registerProfile(token, nickname);
 
-            mockMvc.perform(get("/api/users/nickname/availability").param("value", nickname))
+            mockMvc.perform(get("/users/nickname/availability").param("value", nickname))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.returnObject.available").value(false))
                     .andExpect(jsonPath("$.returnObject.message").value("이미 사용 중인 닉네임"));
@@ -161,7 +161,7 @@ class UserProfileApiIT {
         try {
             registerProfile(token, nickname);
 
-            mockMvc.perform(post("/api/users/profile")
+            mockMvc.perform(post("/users/profile")
                             .header("Authorization", bearer(jwtService.createAccessToken(other)))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"nickname\":\"" + nickname + "\"}"))
@@ -186,7 +186,7 @@ class UserProfileApiIT {
             jdbcTemplate.update("UPDATE users SET state = 'INACTIVE' WHERE id = ?", user.id());
 
             assertThat(activeNicknameCount(nickname)).isZero();
-            mockMvc.perform(get("/api/users/nickname/availability").param("value", nickname))
+            mockMvc.perform(get("/users/nickname/availability").param("value", nickname))
                     .andExpect(jsonPath("$.returnObject.available").value(true));
 
             // 실제로 등록까지 성공해야 한다 — 조회만 통과하고 유니크 제약이 막으면 소용없다.
@@ -221,7 +221,7 @@ class UserProfileApiIT {
                     pool.submit(() -> {
                         try {
                             start.await();
-                            int code = mockMvc.perform(post("/api/users/profile")
+                            int code = mockMvc.perform(post("/users/profile")
                                             .header("Authorization", bearer(contenderToken))
                                             .contentType(MediaType.APPLICATION_JSON)
                                             .content("{\"nickname\":\"" + nickname + "\"}"))
@@ -266,7 +266,7 @@ class UserProfileApiIT {
         try {
             registerProfile(token, nickname);
 
-            mockMvc.perform(get("/api/users/me").header("Authorization", bearer(token)))
+            mockMvc.perform(get("/users/me").header("Authorization", bearer(token)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.returnObject.userId").value(user.id()))
                     .andExpect(jsonPath("$.returnObject.nickname").value(nickname))
@@ -277,13 +277,19 @@ class UserProfileApiIT {
     }
 
     @Test
-    @DisplayName("미인증 프로필 조회·등록은 401 이다")
+    @DisplayName("미인증 프로필 조회·등록·수정은 401 이다")
     void guestCannotReadOrWriteProfile() throws Exception {
-        mockMvc.perform(get("/api/users/me"))
+        mockMvc.perform(get("/users/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
-        mockMvc.perform(post("/api/users/profile")
+        mockMvc.perform(post("/users/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"피클\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(patch("/users/profile")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"피클\"}"))
                 .andExpect(status().isUnauthorized())
@@ -298,7 +304,7 @@ class UserProfileApiIT {
         try {
             registerProfile(token, nickname);
 
-            mockMvc.perform(patch("/api/users/profile")
+            mockMvc.perform(patch("/users/profile")
                             .header("Authorization", bearer(token))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"nickname\":\"" + changed + "\",\"profileImageUrl\":\"https://cdn/new.png\"}"))
@@ -323,7 +329,7 @@ class UserProfileApiIT {
             String original = jdbcTemplate.queryForObject(
                     "SELECT profile_image_url FROM users WHERE id = ?", String.class, user.id());
 
-            mockMvc.perform(patch("/api/users/profile")
+            mockMvc.perform(patch("/users/profile")
                             .header("Authorization", bearer(token))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"nickname\":\"" + changed + "\"}"))
@@ -339,7 +345,7 @@ class UserProfileApiIT {
     void registerRejectsInvalidFormat() throws Exception {
         try {
             for (String invalid : new String[]{"가나다라마바", "가 나", "가!", "😀", ""}) {
-                mockMvc.perform(post("/api/users/profile")
+                mockMvc.perform(post("/users/profile")
                                 .header("Authorization", bearer(token))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"nickname\":\"" + invalid + "\"}"))
@@ -355,7 +361,7 @@ class UserProfileApiIT {
     }
 
     private void registerProfile(String accessToken, String nickname) throws Exception {
-        mockMvc.perform(post("/api/users/profile")
+        mockMvc.perform(post("/users/profile")
                         .header("Authorization", bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"" + nickname + "\"}"))

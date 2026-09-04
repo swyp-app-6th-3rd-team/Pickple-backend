@@ -111,7 +111,7 @@ public class PostEntity {
      */
     public void addInitialOptions(Post post, LocalDateTime now) {
         if (!options.isEmpty()) {
-            throw new IllegalStateException("새 게시글의 선택지는 한 번만 연결할 수 있습니다.");
+            throw new PostPersistenceException("새 게시글의 선택지는 한 번만 연결할 수 있습니다.");
         }
         post.options().forEach(option -> options.add(PostOptionEntity.from(this, option, now)));
     }
@@ -130,7 +130,7 @@ public class PostEntity {
                 .map(PostProductEntity::getId)
                 .filter(Objects::nonNull)
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new PostPersistenceException(
                         "선택지가 가리키는 상품 id가 아직 생성되지 않았습니다: order=" + targetOrder));
     }
 

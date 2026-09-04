@@ -8,41 +8,41 @@ import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostQueryStore;
 import app.pickple.post.domain.PostType;
-import app.pickple.post.service.PostCreationService;
-import app.pickple.post.service.PostQueryService;
+import app.pickple.post.service.PostService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 
+@Tag(name = "Post", description = "게시글 작성 · 목록 · 상세")
 @RestController
-@RequestMapping("/api/posts")
 @RequiredArgsConstructor
 public class PostController {
 
-    private final PostCreationService postCreationService;
-    private final PostQueryService postQueryService;
+    private final PostService postService;
 
     @Operation(
             summary = "게시글 작성",
             description = "업로드 API가 반환한 itemContainerId를 상품에 연결하고 유형별 상품·사진·선택지 규칙을 검증합니다.")
-    @PostMapping
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/posts")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<PostCreateResponse> create(
             @Parameter(hidden = true) @CurrentUser Long userId,
             @Valid @RequestBody PostCreateRequest request) {
-        Post post = postCreationService.create(userId, request.toCommand());
+        Post post = postService.create(userId, request.toCommand());
         return ApiResponse.of(ResponseCode.CREATED, PostCreateResponse.from(post));
     }
 
@@ -55,7 +55,7 @@ public class PostController {
      */
     @Operation(summary = "게시글 목록 조회",
             description = "카테고리 필터와 정렬(최신순·인기순), 커서 기반 무한 스크롤. 게시글이 없으면 빈 배열이다.")
-    @GetMapping
+    @GetMapping("/posts")
     public ApiResponse<ScrollResponse<PostListItem>> findAll(
             @Parameter(description = "없으면 전체") @RequestParam(required = false) PostCategory category,
             @Parameter(description = "LATEST(기본) | POPULAR") @RequestParam(required = false) String sort,
@@ -64,7 +64,7 @@ public class PostController {
             @Parameter(description = "조각 크기. 기본 10") @RequestParam(required = false) Integer size) {
 
         return ApiResponse.success(ScrollResponse.of(
-                postQueryService.findSlice(category, sort, cursor, size), PostListItem::from));
+                postService.findSlice(category, sort, cursor, size), PostListItem::from));
     }
 
     /**
@@ -75,8 +75,10 @@ public class PostController {
      * 쪼개면 클라이언트가 세 가지 파싱 분기를 갖게 되고, 목록은 세 유형이 섞여 내려오므로
      * 그 분기가 항목마다 필요해진다.
      *
-     * @param voteCount    찬반·A/B 만. 일반 게시글은 투표가 없어 {@code null} 이다
-     * @param thumbnailUrl 찬반=처음 등록한 사진, A/B=A 상품 사진, 일반={@code null}
+     * @param voteCount     찬반·A/B 만. 일반 게시글은 투표가 없어 {@code null} 이다
+     * @param thumbnailUrl  찬반=처음 등록한 사진, A/B=A 상품 사진, 일반={@code null}
+     * @param authorRanking 작성자의 TOP 피커 순위. 배치가 매기기 전이거나 탈퇴한 회원이면
+     *                      {@code null} 이다 — 0 이나 꼴찌 순위를 지어내지 않는다 (ADR-0028)
      */
     public record PostListItem(
             @Schema(description = "게시글 식별자") Long id,
@@ -89,7 +91,9 @@ public class PostController {
             @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
             @Schema(description = "작성 시각") LocalDateTime createdAt,
             @Schema(description = "작성자 식별자") Long authorId,
-            @Schema(description = "작성자 닉네임") String authorNickname) {
+            @Schema(description = "작성자 닉네임") String authorNickname,
+            @Schema(description = "작성자 TOP 피커 순위. 아직 산정되지 않았으면 null (최대 5분 지연)")
+            Integer authorRanking) {
 
         static PostListItem from(PostQueryStore.PostListView view) {
             return new PostListItem(
@@ -103,7 +107,8 @@ public class PostController {
                     view.thumbnailUrl(),
                     view.createdAt(),
                     view.authorId(),
-                    view.authorNickname());
+                    view.authorNickname(),
+                    view.authorRanking());
         }
     }
 }

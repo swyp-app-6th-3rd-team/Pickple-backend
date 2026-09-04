@@ -52,7 +52,7 @@ app/pickple/
 ```
 
 > 위 트리는 `auth` 만 펼친 것이다. 같은 형태(`domain`·`service`·`infra`·`controller`)로
-> `item`(이미지 업로드·컨테이너) · `post` · `vote` · `comment` · `point` 가 있다.
+> `item`(이미지 업로드·컨테이너) · `post` · `vote` · `comment` · `point` · `grade` 가 있다.
 
 ---
 
@@ -64,29 +64,40 @@ app/pickple/
 { "code": "OK", "message": "정상 처리되었습니다.", "returnObject": { } }
 ```
 
+> ### `/api` prefix 는 걷어냈다 (2026-09-04)
+>
+> 배포 도메인이 이미 `dev-api.pickple.app` 라 경로의 `/api` 는 의미가 중복됐다.
+> [ADR-0033](adr/0033-drop-api-prefix-implemented.md) 이 제거를 확정했고(ADR-0029 대체),
+> **과도기 브릿지는 두지 않았다** — 프론트 합의에서 불필요로 확인됐다(#91).
+>
+> 아래 표의 경로가 현재 동작이다. 구 경로 `/...` 는 살아 있지 않다.
+>
+> 문서 노출은 `springdoc.paths-to-exclude` 로 가른다 — 새 API 경로는 자동으로 실리고,
+> **공개하면 안 되는 경로를 만들면 그 목록에 더해야 한다.**
+
 ### 3.1 인증
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
 | GET | `/oauth2/authorization/{google\|kakao\|naver}` | — | 소셜 로그인 시작 |
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
-| POST | `/api/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
-| GET | `/api/auth/me` | 필요 | 내 정보 |
-| POST | `/api/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
-| POST | `/api/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
-| POST | `/api/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/api/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
-| GET | `/api/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
-| GET | `/api/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
-| POST | `/api/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
-| PATCH | `/api/users/profile` | 필요 | 프로필 수정. 이미지 생략 시 쓰던 이미지 유지 |
+| POST | `/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
+| GET | `/auth/me` | 필요 | 내 정보 |
+| POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
+| POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
+| POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
+| GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
+| GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
+| POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
+| PATCH | `/users/profile` | 필요 | 프로필 수정. 이미지 생략 시 쓰던 이미지 유지 |
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
 - 웹 리프레시 토큰 — **HttpOnly 쿠키**. URL이나 본문에 담지 않는다
 - iOS 토큰 — HTTPS JSON으로 access/refresh를 받고 Keychain에 저장한다. URL·로그에 담지 않는다
 - iOS nonce — 로그인마다 안전한 새 `rawNonce`를 만든다. Apple 요청에는
-  `lowercase hex SHA-256(rawNonce)`를 넣고 `/api/auth/apple`에는 원문 `rawNonce`를 보낸다
+  `lowercase hex SHA-256(rawNonce)`를 넣고 `/auth/apple`에는 원문 `rawNonce`를 보낸다
 - 백엔드는 nonce를 발급·저장하지 않는다. 재전송 방어는 Apple authorization code의 일회성 교환에 의존한다
 
 ### 3.2 문서
@@ -102,8 +113,8 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| POST | `/api/posts` | 필요 | 게시글 작성 |
-| GET | `/api/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
+| POST | `/posts` | 필요 | 게시글 작성 |
+| GET | `/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
 
 - 작성 요청은 `type`, `category`, `title`, `description`, `products[]`를 사용한다.
   `products[]`의 각 항목은 `itemContainerId`, `name`, `price`, `linkUrl`을 가진다.
@@ -115,6 +126,8 @@ app/pickple/
 - 설명은 선택이고 300자 이내, 상품명은 필수이고 30자 이내, 가격은 선택이고
   0~999,999,999다. 상품 URL은 선택 텍스트로 형식·업무 길이 제한을 두지 않으며, 서버는
   해당 값에 접속하지 않고 MySQL `LONGTEXT`의 물리 한계 안에서 그대로 저장한다.
+- 이미 다른 게시글 상품에 연결된 이미지 컨테이너는 사전 검사와 DB 유일성 충돌 모두
+  `ITEM_CONTAINER_ALREADY_IN_USE`(409)로 응답한다.
 - 상품의 `itemContainerId`는 작성자 본인이 업로드한 `PRODUCT` 용도여야 하며 한 상품에만
   붙일 수 있다. 존재하지 않거나 타인 소유이거나 이미 사용된 컨테이너는 거부한다.
 - 작성 성공은 201 `CREATED`와 `{ "postId": number }`를 반환한다. `전체`는 저장 카테고리가
@@ -134,32 +147,93 @@ app/pickple/
   서버가 존재하지 않는 더미 게시글을 지어내지 않는다(지어내면 탭했을 때 갈 곳이 없다).
 - 인기순 무한 스크롤은 **최선 노력**이다. 스크롤 도중 점수가 올라 커서 위로 이동한 글은
   그 회차에서 빠질 수 있다. 의도된 선택이며 근거는 ERD 초안 8.4.
-- **작성자 랭킹은 아직 응답에 없다.** 전역 순위라 조회 시점에 구하면 회원 전체를
-  정렬해야 한다(실측 154ms/조각). 사전 계산 컬럼이 생기면 추가한다.
+- **작성자 랭킹(`authorRanking`)은 사전 계산 값이다**([ADR-0028](adr/0028-author-ranking-precompute.md)).
+  전역 순위라 조회 시점에 구하면 회원 전체를 정렬해야 한다(200k 실측 102ms/조각).
+  배치가 미리 매겨둔 `users.ranking` 을 작성자 조인에서 함께 읽으므로 조각 비용이
+  랭킹 없던 때와 같다(0.117ms → 0.232ms).
+  - **순위 정의**: 포인트 내림차순, 동점이면 가입이 빠른 쪽. 동점을 공동 순위로 묶지 않는다.
+  - **지연 상한 5분.** 포인트가 바뀌면 다음 배치(기본 `0 */5 * * * *`)에서 반영된다.
+    지금 이 순간의 정확한 등수가 아니다.
+  - 아직 산정되지 않은 회원과 탈퇴 회원은 **`null`** 이다. 0 이나 꼴찌 순위를 지어내지 않는다 —
+    지어낸 값은 실제 꼴찌와 구분되지 않는다.
 
 ### 3.4 댓글
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/api/posts/{postId}/comments` | 선택 (게스트 허용) | 활성 댓글 전체 목록 |
-| POST | `/api/posts/{postId}/comments` | 필요 | 댓글 작성 |
-| PATCH | `/api/comments/{id}` | 필요 (작성자) | 댓글 내용 수정 |
-| DELETE | `/api/comments/{id}` | 필요 (작성자) | 댓글 소프트 삭제 |
+| GET | `/posts/{postId}/comments` | 필요 | 활성 댓글 전체 목록 |
+| POST | `/posts/{postId}/comments` | 필요 | 댓글 작성 |
+| PATCH | `/comments/{id}` | 필요 (작성자) | 댓글 내용 수정 |
+| DELETE | `/comments/{id}` | 필요 (작성자) | 댓글 소프트 삭제 |
+| POST | `/comments/{commentId}/pick` | 필요 | 댓글 원픽 |
 
 - 목록은 `(created_at, id)` 오름차순이며 현재 계약에는 페이징이 없다.
 - 댓글·작성자 프로필·원픽 수를 단일 조회로 읽는다. `nickname`이 아직 설정되지 않은
   기존 사용자는 소셜 `name`을 대체 표시값으로 사용한다.
 - 각 항목은 원본 `createdAt`과 화면용 `createdAgo`, 현재 요청자의 댓글인지 나타내는
-  `mine`을 함께 제공한다. 게스트 요청의 `mine`은 항상 `false`다.
+  `mine`을 함께 제공한다.
 - 차단·신고와 게스트 로그인 유도 모달은 서버 댓글 CRUD가 아니라 후속 기능/UI 범위다.
 
----
+**원픽** (ADR-0018·ADR-0020)
 
-### 3.5 이미지
+- **한 사람은 한 게시글에서 댓글 하나만 원픽한다**(R-05). 유일성 범위가 댓글이 아니라
+  **게시글**이라 같은 글의 다른 댓글을 고르는 것도 거부된다. 판정은 `UNIQUE(user_id, post_id)` 가
+  원자적으로 한다 — 확인 후 삽입은 동시 요청에서 뚫린다.
+- **원픽은 게시글 작성자만의 권한이 아니다.** 댓글 작성자 본인만 아니면 누구나 픽한다.
+  행위자를 한정하던 R-08 은 규칙 목록에서 제외됐다.
+- 취소·변경 경로가 없다(R-06). 요청 본문도 없다 — 대상은 경로가, 픽하는 사람은 토큰이 정한다.
+- 성공 시 `201 CREATED`, `returnObject` 는 `{ id, commentId }`. `id` 는 포인트 지급의 멱등키다.
+- 원픽 1건이 **두 사람**에게 지급한다 — 댓글 작성자 `+10P`, 픽한 사람 `+5P`(R-12).
+  같은 픽으로 재지급되지 않는다 — 멱등키 `UNIQUE(comment_pick_id, reason)`(R-13).
+
+| 실패 | 상태 | `code` |
+|---|---|---|
+| 이 게시글에서 이미 원픽함 (R-05) | 409 | `ALREADY_PICKED` |
+| 자기 댓글 원픽 (R-07) | 400 | `INVALID_REQUEST` |
+| 없는 댓글 · 삭제된 댓글 · 삭제된 게시글 | 400 | `INVALID_REQUEST` |
+| 미인증 | 401 | `UNAUTHORIZED` |
+
+> 중복 원픽이 409 인 이유는 요청이 아니라 **상태가 충돌**했기 때문이다. 요청을 고쳐 다시 보낼 것이
+> 없으므로 400 이 아니다. 반대로 자기 댓글 원픽은 요청 자체가 무효라 400 이며, 인가 실패가
+> 아니므로 403 도 아니다.
+>
+> 다른 게시글의 댓글을 픽하는 경우는 **API 로 표현되지 않는다** — `postId` 를 댓글에서 끌어오므로
+> 어긋난 쌍을 만들 수 없다. 복합 FK `(comment_id, post_id)` 는 그 경로의 버그를 막는
+> 최종 방어선이고, 검증은 `JpaOnePickStoreIT` 가 위조한 `OnePick` 으로 한다.
+### 3.5 투표
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| POST | `/api/images` | 필요 | 이미지 업로드 후 부착용 `itemContainerId` 반환 |
+| POST | `/posts/{postId}/votes` | 필요 | 투표 참여·선택 변경 |
+
+- 본문은 `{ "optionId": 1 }` 이다. 응답은 갱신된 **선택지별 득표 수와 득표율**이라
+  투표 직후 화면이 다시 조회하지 않고 게이지로 전환할 수 있다(기능명세 §2.2).
+  따로 조회하게 만들면 그 사이 들어온 다른 표까지 섞여 내 표의 결과가 아닌 값을 보여준다.
+- **게스트의 최대 3회 선택은 클라이언트 로컬에서만 처리하고 서버에는 기록하지 않는다(R-11).**
+  따라서 서버 투표 API는 별도 매처 없이 `anyRequest().authenticated()` 로 401 이다.
+- **한 게시글에 한 사람은 한 표다(R-09).** 인원은 선택지가 아니라 게시글 단위로 센다.
+  이미 투표한 사람이 다시 보내면 새 행을 만들지 않고 선택지만 바꾼다 —
+  `UNIQUE(post_id, user_id)` 가 막기도 하지만 의미상 "다시 투표"가 아니라 "선택 변경"이다.
+- **재투표는 표만 옮긴다(R-22).** 이전 선택지 −1, 새 선택지 +1, 투표 인원과
+  누적 투표 횟수는 그대로다. 인원을 올리면 등급·뱃지가 부풀어 잘못 나간다.
+- **다른 게시글의 선택지로는 투표할 수 없다(R-10).** 복합 FK `(post_option_id, post_id)` 가
+  최종 방어선이지만 거기까지 가면 flush 시점 무결성 위반이라 500 이 되므로,
+  서비스가 먼저 걸러 `INVALID_REQUEST`(400) 로 답한다. 투표가 없는 유형(일반)도 400 이다.
+- 카운터는 전용 원자 UPDATE 로만 증감한다. **집계를 먼저 올리고 투표 행을 나중에 넣는다** —
+  `vote` INSERT 가 FK 검사로 `post` 에 공유 락을 잡은 뒤 `UPDATE post` 가 배타 락을
+  요구하면 락 승격이 되어 동시 요청이 교착에 빠진다(16명 동시 투표에서 재현).
+  선택 변경의 두 선택지도 id 순으로 잠가 반대 방향 변경끼리 고리를 만들지 않는다.
+- `percentage` 는 정수 퍼센트다. 반올림 때문에 두 값의 합이 100 이 아닐 수 있으며
+  화면이 게이지 폭으로만 쓰므로 억지로 맞추지 않는다. 아무도 투표하지 않았으면 0 이다.
+- `label` 은 찬반 선택지만 값이 있다. A/B 는 상품이 이름을 대신하므로 `null` 이다.
+
+---
+
+### 3.6 이미지
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| POST | `/images` | 필요 | 이미지 업로드 후 부착용 `itemContainerId` 반환 |
 
 - `multipart/form-data` 로 `images`(파일, 복수)와 `attachType`(폼 필드)을 받는다.
 - **`attachType` 은 필수이며 기본값이 없다.** `PRODUCT`(상품 사진) 또는 `COMMENT`(댓글 사진).
@@ -173,6 +247,119 @@ app/pickple/
   만료되지 않아야 하므로 presigned URL 을 쓰지 않는다.
 - S3 와 DB 사이에 분산 트랜잭션이 없다. 업로드 후 저장이 실패하면 이번 요청에서 만든 객체를
   best-effort 로 보상 삭제한다.
+
+### 3.7 등급
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/users/me/grade` | 필요 | 내 등급·누적 포인트·투표 횟수·다음 등급까지 달성률 |
+| GET | `/grades` | 필요 | 전체 등급의 승급 필요 조건 |
+
+- **승급은 AND 조건이다(R-15).** 누적 포인트와 누적 투표 횟수를 **모두** 충족해야 오른다.
+  임계값은 정책 요약표 §2 다 — LV.1 0P / LV.2 200P·20회 / LV.3 1,000P·100회 /
+  LV.4 3,500P·300회 / LV.5 10,000P·1,000회. 정본은 `Grade` enum 이고 기준 테이블을
+  두지 않는다(ADR-0030). DB 에 두면 정책 요약표와 두 곳이 정본이 된다.
+- **판정 입력값은 캐시가 아니라 원장에서 읽는다(ADR-0030).** `users.point` 는 랭킹 배치가
+  5분마다 채우는 캐시라 실시간 게이지(기능명세 §7.3)를 만족하지 못하고, `users.vote_count` 는
+  **아무도 채우지 않아** 읽으면 전원 0 이다. 정본은 `point_history` 와 `vote` 다(R-14).
+  랭킹이 배치인 근거(전역 집계)는 여기 적용되지 않는다 — 등급의 입력값은 `user_id` 로
+  좁혀지는 로컬 집계이고 `idx_point_user_created`·`idx_vote_user_created` 가 그 선행 컬럼을 갖는다.
+- **재투표는 누적 투표 횟수를 늘리지 않는다(R-22).** 쿼리에 별도 조건이 없다 —
+  `UNIQUE (post_id, user_id)` 라 한 사람이 한 게시글에 가질 수 있는 행이 최대 1개이고
+  선택 변경은 UPDATE 라, `COUNT(*)` 가 행을 세는 것만으로 이미 사람 단위다.
+- **등급은 내려가지 않는다(R-16).** 도달한 최고 등급을 `users.highest_grade` 에 남기고
+  계산값과 저장값 중 높은 쪽을 쓴다. 오늘은 포인트가 줄어들 경로가 없어 둘이 항상 같지만,
+  저장하지 않으면 R-16 이 "회수 경로가 없어서 저절로 참" 인 상태로 남는다.
+- **조회에 쓰기가 있다.** 원장 판정이 저장된 등급보다 높으면 그 자리에서 올린다 —
+  갱신은 오를 때만 일어나고, 조건부 UPDATE(`WHERE highest_grade < :level`)라
+  동시 요청에서 낮은 값이 높은 값을 덮지 못한다.
+- **달성률은 두 조건 중 덜 채운 쪽이다.** 승급이 AND 라 그쪽이 병목이다 — 평균을 내면
+  포인트 90%·투표 10% 인 사람에게 "50% 왔다" 고 말하게 된다. 기준선은 0 이 아니라
+  현재 등급의 조건이라 승급 직후 0 에서 시작한다. 최고 등급이면 100 이다.
+- **등급 일러스트는 응답에 없다.** 이미지의 정본은 화면설계서인데 확정 전이라
+  서버가 URL 을 지어내면 그것이 계약이 된다. 프론트가 `level` 로 매핑한다.
+- 두 경로 모두 `anyRequest().authenticated()` 에 걸린다. 등급 화면은 마이페이지 하위라
+  게스트 진입 경로가 없다(기능명세 §11.2 트리거).
+
+---
+
+### 3.8 피커 랭킹
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/rankings/top` | — (게스트 허용) | 인기 피커. 기본 5명 |
+| GET | `/rankings` | — (게스트 허용) | 전체 랭킹. 무한 스크롤 10개 단위 |
+| GET | `/users/me/points` | 필요 | 내 포인트와 순위 |
+
+- 응답 항목은 세 화면이 같다 — `userId` · `nickname` · `profileImageUrl` · `ranking` · `point`.
+  명세의 조회 데이터에는 **등급명칭**도 있으나 판정 정본 `Grade` 가 이슈 #25 에 있어
+  이 계약에서는 아직 빠져 있다. #25 머지 후 필드를 더한다.
+- **순위는 사전 계산 값을 읽기만 한다**([ADR-0028](adr/0028-author-ranking-precompute.md)).
+  조회 시점에 세지 않으므로 **지연 상한 5분**이 그대로 이 응답의 계약이다.
+- **정렬·커서 키는 `users.ranking` 하나다**([ADR-0032](adr/0032-ranking-read-path.md)).
+  `ROW_NUMBER()` 가 만든 전순서라 중복이 없어 동률 처리가 필요 없다
+  (200k 시드에서 `COUNT(DISTINCT ranking) = 200,000`).
+  `idx_users_ranking_order` 가 이 순서를 제공해 조각 비용이 깊이와 무관하다
+  (200k 실측: 인덱스 없음 43.5ms → 있음 0.070ms).
+- **순위가 산정되지 않은 회원(`ranking IS NULL`)은 목록에 오르지 않는다.** 가입 직후와
+  탈퇴자가 그렇다. 순위 없는 사람을 순위 목록에 넣을 자리가 없기 때문이다.
+  탈퇴자는 다음 배치까지 최대 5분간 목록에 남는다 — ADR-0028 의 지연과 같은 계약이다.
+- **본인 조회는 다르다.** 순위가 없어도 포인트는 존재하므로 행을 주고 `ranking` 필드만
+  응답에서 뺀다(`@JsonInclude(NON_NULL)`). 0 으로 채우지 않는다 — 지어낸 순위는
+  실제 꼴찌와 구분되지 않는다.
+- **포인트 보유자가 없으면 빈 배열이다.** "아직 TOP 피커가 존재하지 않아요" 는 화면의
+  빈 상태 문구이므로 서버가 만들지 않는다.
+- **게스트는 목록을 보되 본인 랭킹을 받지 못한다.** 목록 응답 모양이 로그인 여부에 따라
+  갈리지 않게 본인 순위는 `/users/me/points` 로 분리했고, 그 경로는 인증을 요구한다.
+  화면이 "본인 순위에 도달하면 합쳐서 스크롤" 하는 동작은 클라이언트 표현이다.
+- `size` 상한은 50 이다. 없으면 top 은 5, 목록은 10.
+  상한이 없으면 한 번의 요청으로 목록 전체가 나가 무한 스크롤이 무의미해진다.
+
+### 3.9 뱃지
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/users/me/badges` | 필요 | 내 뱃지 현황(획득·미획득) + 수집 개수 |
+| GET | `/users/me/badges/missions` | 필요 | 미해제 미션 진행률 |
+
+- **둘 다 인증이 필요하다.** 게스트에게는 미션을 보여주지 않고 "로그인하고 뱃지를
+  획득해보세요" 를 띄우는 것이 명세다(§2.3) — 그 문구는 화면의 몫이고 서버는 401 이다.
+  별도 매처 없이 `anyRequest().authenticated()` 에 걸린다.
+- **뱃지 8종은 `badge` 테이블의 행이다**([ADR-0031](adr/0031-badge-daily-activity-aggregate.md)).
+  정책 정본이 "뱃지명은 추후 수정됩니다" 를 명시하므로 이름은 데이터이고,
+  식별자는 조건에서 딴 `code`(`TOTAL_VOTE_10` …)다. 이름이 바뀌면 행을 UPDATE 하면 되고
+  코드도 마이그레이션도 손대지 않는다. 반대로 조건 유형 셋(R-18)은 안정 계약이라 enum 이다.
+  → 클라이언트는 일러스트를 고를 때 `name` 이 아니라 **`code`** 를 쓴다.
+- 현황 응답은 **미획득 뱃지도 포함**한다. 3X3 목록이 미획득의 이름은 보여주고 일러스트만
+  가리기 때문이다(§12.2). 서버가 빼면 화면이 빈 칸을 그릴 수 없다.
+- `collectedCount` 는 §12.1 의 조회 데이터가 이 값 하나라 별도 엔드포인트 없이 여기 실었다.
+- **미션은 계열마다 하나씩**이다(§2.3). 누적 계열과 일일 계열에서 각각 **아직 못 넘은 가장 낮은
+  임계값**을 고른다 — "하위 미션 먼저 표시" 다. 다 채운 계열은 빠지고, 8종을 모두 얻으면 빈 배열이다.
+  **연속 계열은 슬롯에 넣지 않는다** — 명세가 슬롯을 둘로 못박았고 `<조회 데이터>` 에도 없다.
+- **진행률은 `current`·`goal` 두 수**다. 명세의 표기가 `누적 투표 10회 달성 (0/10)` 이라
+  퍼센트로 환산해 내리면 클라이언트가 `0/1000` 을 렌더할 수 없다. `current` 는 목표를 넘지 않는다.
+- **투표하면 그 자리에서 반영된다.** 판정이 투표와 같은 트랜잭션에서 돌기 때문이다 —
+  커밋 후로 미루면 투표는 커밋되고 활동 기록만 유실되어 집계가 조용히 어긋난다.
+
+**판정 규칙**
+
+- **일일·연속·누적을 모두 `user_daily_activity` 에서 유도한다**(R-19). `vote` 에서 직접 구하면
+  `DATE(created_at)` 이 인덱스를 무력화하고 연속 판정은 그 회원의 투표를 전부 훑는다 —
+  1,000회 투표한 사람의 "7일 연속" 에 1,000행이다. 집계 테이블은 활동한 날 수만큼만 행을 가져
+  연속은 최근 31행, 일일은 행 하나로 끝난다(실측: `range` + `Using index; Backward index scan`).
+- **누적 투표 횟수는 `users.vote_count` 가 아니라 일별 합계다.** 그 컬럼은 V3 에 있지만
+  아무도 채우지 않아 값이 전부 0 이다. 같은 사실을 두 곳이 표현하면 어긋나므로
+  별도 카운터도 두지 않는다(V5 가 같은 이유로 컬럼 하나를 걷어냈다).
+- **재투표는 일별 활동을 늘리지 않는다**(R-22). 판정이 `VoteService` 의 첫 투표 경로에만
+  붙어 있어 선택 변경으로는 "하루 20개" 가 채워지지 않는다.
+- **같은 뱃지를 두 번 주지 않는다**(R-17). `UNIQUE(user_id, badge_id)` 가 최종 방어선이다 —
+  확인과 삽입 사이에 동시 투표가 끼어들 수 있다. 지급은 유일성을 사전 확인하고 저장하며
+  무결성 예외를 삼키지 않는다(삼키면 트랜잭션이 rollback-only 가 되어 투표가 통째로 실패한다).
+- **연속의 기준일은 오늘 행의 유무가 정한다.** 오늘 투표했으면 오늘부터, 아직 안 했으면
+  어제부터 거슬러 센다 — 어제까지 6일을 채운 사람이 오늘 아침에 `0/7` 을 보면 끊긴 줄 안다.
+  획득 판정은 투표 직후에만 돌아 그 시점엔 오늘 행이 반드시 있으므로 느슨해지지 않는다.
+- 날짜는 애플리케이션이 `Asia/Seoul` `Clock` 으로 계산해 넘긴다. SQL 의 `CURRENT_DATE` 를 쓰면
+  DB 세션 타임존이 하루를 정해, 자정 근처에서 사용자가 보는 하루와 갈린다.
 
 ## 4. 스키마
 
@@ -200,7 +387,43 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V3__pickple_domain.sql` | `db/migration` | 항상 |
 | `V4__apple_provider_tokens.sql` | `db/migration` | 항상 |
 | `V5__active_nickname_follows_state.sql` | `db/migration` | 항상 |
-| `V6__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
+| `V7__users_ranking_precompute.sql` | `db/migration` | 항상 |
+| `V8__grade.sql` | `db/migration` | 항상 |
+| `V9__badge.sql` | `db/migration` | 항상 |
+| `V10__users_ranking_order_index.sql` | `db/migration` | 항상 |
+| `V11__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
+
+> **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
+> 번호를 메우지 않는다 — 단조 증가만 유지하면
+> out-of-order 를 켜지 않고도 적용된다.
+
+### 4.3 뱃지 3개 (V9)
+
+```sql
+badge(id, code, name, description, condition_type, threshold, display_order,
+      created_at, updated_at,
+      UNIQUE KEY uk_badge_code (code),
+      UNIQUE KEY uk_badge_condition (condition_type, threshold),
+      CHECK condition_type IN ('TOTAL_VOTE','DAILY_VOTE','STREAK_VOTE'))
+
+user_badge(id, user_id, badge_id, acquired_at,
+      UNIQUE KEY uk_user_badge (user_id, badge_id),      -- R-17 최종 방어선
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (badge_id) REFERENCES badge(id))
+
+user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_at,
+      UNIQUE KEY uk_daily_user_date (user_id, activity_date),   -- UPSERT 충돌 지점
+      FOREIGN KEY (user_id) REFERENCES users(id))
+```
+
+- `badge` 8행은 마이그레이션이 넣는다. **애플리케이션은 이 테이블에 쓰지 않는다** —
+  이름이 바뀌면 운영 DB 를 UPDATE 한다(적용된 마이그레이션은 다시 돌지 않으므로
+  V9 를 고쳐도 반영되지 않고 체크섬만 어긋난다).
+- `uk_daily_user_date` 의 컬럼 순서 `(user_id, activity_date)` 가 계약이다. 뒤집으면
+  연속 판정이 그 회원의 행을 모으지 못해 전체를 훑는다.
+- V9 는 기존 `vote` 를 일별 집계로 **백필**한다. 빈 채로 두면 배포 직후 모든 회원의
+  누적 투표가 0 이 되는데 에러가 나지 않아 사용자가 신고해야 발견된다.
+- `user_badge` 에 UPDATE·DELETE 경로가 없다. 뱃지는 한 번 얻으면 남고 회수 정책이 없다.
 
 ---
 
@@ -283,6 +506,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 미인증 · 토큰 오류 | `UNAUTHORIZED` / `INVALID_TOKEN` / `EXPIRED_TOKEN` | 401 |
 | 권한 없음 | `FORBIDDEN` | 403 |
 | 대상 없음 | `NOT_FOUND` | 404 |
+| 상태 충돌 — 닉네임 선점 · 이미 원픽함 · 이미지 컨테이너 재사용 | `NICKNAME_ALREADY_IN_USE` / `ALREADY_PICKED` / `ITEM_CONTAINER_ALREADY_IN_USE` | 409 |
 | Apple 키 미설정·Apple 서버 일시 장애 | `APPLE_LOGIN_UNAVAILABLE` | 503 |
 | Apple 회원 탈퇴 연결 해제 일시 장애 | `APPLE_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
 | Apple token 없는 기존 계정의 로컬 탈퇴 완료 | `APPLE_MANUAL_REVOCATION_REQUIRED` | 200 |
@@ -292,16 +516,18 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 ## 6. 아키텍처 규칙
 
-`ArchitectureTest` 19개. 규칙을 추가할 때는 **일부러 위반하는 코드를 넣어
-해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
+`ArchitectureTest` 22개(전부 활성). 규칙을 추가할 때는 **일부러 위반하는
+코드를 넣어 해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
 지킨다는 증거가 되지 않는다([ADR-0008](adr/0008-domain-entity-separation.md)).
 
 | 그룹 | 규칙 수 | 내용 |
 |---|---|---|
-| 테스트 네이밍 | 1 | `@IntegrationTest` 클래스는 `*IT` 접미사 사용 |
+| 테스트 네이밍 | 1 | 통합 테스트 클래스 이름은 `IT` 로 끝난다 |
 | 도메인 순수성 | 6 | JPA·검증·Lombok·infra·web·부동소수점 의존 금지 |
 | 계층 경계 | 9 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / 기능별 config 패키지 금지 / infra→service 금지 |
 | API 응답 계약 | 2 | 컨트롤러가 `Page`·`Window` 를 그대로 반환 금지 |
+| API 문서 계약 | 1 | 인증 필요 핸들러는 `@SecurityRequirement` 선언 |
+| 컨트롤러 매핑 | 2 | 핸들러 매핑 경로 비어있음 금지 / 클래스 레벨 `@RequestMapping` 금지([ADR-0033](adr/0033-drop-api-prefix-implemented.md) 적용과 함께 활성) |
 | DI | 1 | `@Autowired` 필드 주입 금지 |
 
 ---
@@ -320,12 +546,16 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-04 | 이미지 컨테이너 재사용을 입력 오류가 아닌 상태 충돌(409)로 통일 | Issue #17 리뷰. 사전 검사와 DB 경합이 같은 API 계약을 가져야 함 |
+| 2026-09-04 | 최신 게스트 정책에 맞춰 댓글 목록 조회를 인증 필수로 변경 | 게스트는 게시글 탐색은 가능하지만 댓글 열람은 제한 |
+| 2026-09-04 | 등급 도메인 신설. 승급 판정 입력값을 캐시가 아니라 원장에서 읽고, 도달 등급만 `users.highest_grade` 에 저장(ADR-0030) | Issue #25. `users.vote_count` 는 선언만 있고 **쓰는 코드가 0건**이라 읽으면 전원 0 — 아무도 승급하지 못하는데 테스트는 초록인 상태가 됐을 것 |
+| 2026-09-04 | 엔드포인트의 `/api` prefix를 제거하고 메서드에 전체 경로를 선언 | Issue #91. ADR-0033으로 ADR-0029의 과도기 결정을 대체 |
 | 2026-09-03 | 게시글 작성 계약과 상품 URL `LONGTEXT` 마이그레이션 추가 | Issue #17. 유형별 상품·사진·선택지 규칙과 업로드 컨테이너 소유권·재사용 방지 |
-| 2026-09-03 | ArchitectureTest 현행 규칙 수를 19개로 교정 | 테스트 네이밍·config 위치 규칙이 표에 반영되지 않았음 |
+| 2026-09-03 | ArchitectureTest 표에 테스트 네이밍·config 위치 규칙 반영(당시 19개) | 새 규칙이 표에 반영되지 않았음 |
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
 | 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |
 | 2026-09-03 | 탈퇴 정본을 `users.state` 로 통일하고 `deleted_at` 제거 | 생성 컬럼이 `deleted_at` 을 보는데 코드는 `state` 만 써서 탈퇴해도 닉네임이 잠겼다(#16) |
-| 2026-09-03 | `POST /api/images` 에 `attachType` 필수 파라미터 추가 | 상품 전용에서 범용으로 전환(#62). 기존 호출자는 400 |
+| 2026-09-03 | `POST /images` 에 `attachType` 필수 파라미터 추가 | 상품 전용에서 범용으로 전환(#62). 기존 호출자는 400 |
 | 2026-08-15 | `Instant` → `LocalDateTime` | Sakila 컬럼이 `DATETIME`(타임존 없음) |
 | 2026-08-15 | `PageQuery`/`PageResult` 자체 래퍼 제거 → Spring Data 타입 직접 사용 | 무한 스크롤에 `Window` 가 필요 |
 | 2026-08-15 | `film.length` `Integer` → `Short` | `ddl-auto=validate` 가 `smallint unsigned` 불일치 검출 |
@@ -341,3 +571,10 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 2026-08-30 | refresh CAS·Apple 수동 해제 응답·보상 실패 관측 추가 | PR #12 리뷰 반영 |
 | 2026-09-03 | 댓글 CRUD·게스트 목록·원픽 수 조회 계약 추가 | Issue #23 |
 | 2026-09-03 | 게시글 목록 조회 계약 추가(카테고리·정렬·커서). 작성자 랭킹은 보류 | Issue #19. 랭킹은 요청당 154ms 라 사전 계산 과제로 분리 |
+| 2026-09-03 | 원픽 API 계약 추가. 중복 원픽을 `ALREADY_PICKED`(409) 로 매핑 | Issue #24. 매핑이 없어 정책 위반이 500 으로 나가고 있었음 |
+| 2026-09-03 | 목록 응답에 `authorRanking` 추가. 5분 주기 배치로 사전 계산 | Issue #73. 조회 시점 계산은 200k 기준 102ms/조각이라 배치로 옮김(ADR-0028) |
+| 2026-09-03 | 투표 참여 계약 추가. 선택지별 집계 카운터와 투표 시 락 순서 규정 | Issue #21. 동시 투표에서 `post` 행 락 승격으로 교착이 재현돼 순서를 못박음 |
+| 2026-09-04 | 피커 랭킹 조회 계약 추가(§3.8). 정렬·커서 키를 `users.ranking` 으로 확정하고 인덱스 추가 | Issue #26. 인덱스 없이는 조각마다 회원 전체를 정렬해(200k 43.5ms) 사전 계산의 이득이 사라짐(ADR-0032) |
+| 2026-09-04 | 랭킹 배치에 `users.vote_count` 동기화 단계 추가 | Issue #26. 이 컬럼을 채우는 코드 경로가 없어 등급 판정 입력이 영원히 0이었음 |
+| 2026-09-04 | 뱃지 현황·미션 계약 추가. 판정을 `user_daily_activity` 집계로 (V9) | Issue #27. `vote` 직접 조회는 연속 판정이 회원의 투표 전체를 훑고 그 판정이 투표마다 일어난다(ADR-0031). 뱃지 이름은 정책이 변경을 예고해 데이터로 뒀다 |
+| 2026-09-04 | `/api` prefix 를 실제로 제거하고 문서 노출을 `paths-to-exclude` 로 전환 | Issue #91. 프론트 합의가 닫혀 착수. 브릿지는 불필요로 확인돼 두지 않았다(ADR-0033 이 ADR-0029 대체) |

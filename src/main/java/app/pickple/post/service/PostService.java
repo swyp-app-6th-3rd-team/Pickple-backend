@@ -1,18 +1,23 @@
 package app.pickple.post.service;
 
+import app.pickple.common.CursorCodec;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
+import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
 import app.pickple.post.domain.PostProduct;
+import app.pickple.post.domain.PostQueryStore;
+import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.ScrollPosition;
+import org.springframework.data.domain.Window;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,14 +25,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/** 게시글 작성과 목록 조회 유스케이스를 제공한다. */
 @Service
 @RequiredArgsConstructor
-public class PostCreationService {
+public class PostService {
 
-    private static final String PRODUCT_CONTAINER_UNIQUE_KEY = "uk_product_container";
-
+    /** 무한 스크롤 조각 크기 (§4.2). 클라이언트가 더 크게 요청해도 이 값으로 자른다. */
+    public static final int DEFAULT_SIZE = 10;
+    private static final int MAX_SIZE = 50;
     private final PostStore postStore;
     private final ItemContainerStore itemContainerStore;
+    private final PostQueryStore postQueryStore;
 
     /** 업로드된 상품 사진 컨테이너를 검증하고 게시글 애그리거트를 한 트랜잭션으로 발행한다. */
     @Transactional
@@ -45,20 +53,31 @@ public class PostCreationService {
         Post post = assemble(authorId, command, productCommands);
         post.verifyPublishable();
 
-        Map<Long, ItemContainer> containers = validateContainers(authorId, post);
-        post.verifyPhotoCount(product -> containers.get(product.itemContainerId()).photoCount());
-
         try {
-            return postStore.save(post);
-        } catch (DataIntegrityViolationException exception) {
-            if (!hasConstraint(exception, PRODUCT_CONTAINER_UNIQUE_KEY)) {
-                throw exception;
-            }
+            Map<Long, ItemContainer> containers = validateContainers(authorId, post);
+            post.verifyPhotoCount(product -> containers.get(product.itemContainerId()).photoCount());
+            return postStore.saveIfContainerFree(post);
+        } catch (ItemContainerAlreadyAttachedException exception) {
             throw new ApiException(
-                    ResponseCode.INVALID_REQUEST,
-                    "이미 게시글 상품에 사용된 이미지 컨테이너입니다.",
+                    ResponseCode.ITEM_CONTAINER_ALREADY_IN_USE,
+                    exception.getMessage(),
                     exception);
         }
+    }
+
+    /**
+     * 게시글 목록을 화면용 읽기 모델로 조회한다 (§4.1 · §4.2).
+     *
+     * @param category 없으면 전체 (§4.1 기본값)
+     * @param sort     없거나 모르는 값이면 최신순
+     * @param cursor   없으면 첫 조각
+     */
+    @Transactional(readOnly = true)
+    public Window<PostQueryStore.PostListView> findSlice(
+            PostCategory category, String sort, String cursor, Integer size) {
+
+        ScrollPosition position = CursorCodec.decode(cursor);
+        return postQueryStore.findSlice(category, PostSort.from(sort), position, sliceSize(size));
     }
 
     private Post assemble(Long authorId, CreateCommand command, List<ProductCommand> products) {
@@ -115,13 +134,18 @@ public class PostCreationService {
             }
             container.verifyUsableAs(AttachType.PRODUCT);
             if (postStore.isItemContainerAttached(containerId)) {
-                throw new ApiException(
-                        ResponseCode.INVALID_REQUEST,
-                        "이미 게시글 상품에 사용된 이미지 컨테이너입니다.");
+                throw new ItemContainerAlreadyAttachedException(containerId);
             }
             containers.put(containerId, container);
         }
         return containers;
+    }
+
+    private static int sliceSize(Integer size) {
+        if (size == null || size < 1) {
+            return DEFAULT_SIZE;
+        }
+        return Math.min(size, MAX_SIZE);
     }
 
     private static String resolveTitle(PostType type, String requestedTitle, List<ProductCommand> products) {
@@ -133,16 +157,6 @@ public class PostCreationService {
 
     private static String nullIfBlank(String value) {
         return value == null || value.isBlank() ? null : value;
-    }
-
-    private static boolean hasConstraint(Throwable throwable, String constraintName) {
-        for (Throwable cause = throwable; cause != null; cause = cause.getCause()) {
-            String message = cause.getMessage();
-            if (message != null && message.contains(constraintName)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     public record CreateCommand(

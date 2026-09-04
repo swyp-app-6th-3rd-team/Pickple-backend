@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.context.WebApplicationContext;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
@@ -293,14 +294,15 @@ class PostCreationFlowIT {
         long first = newContainer(userId, AttachType.PRODUCT, 1);
         long second = newContainer(userId, AttachType.PRODUCT, 1);
 
-        expectInvalid(request(
+        expectBeanValidationFailure(request(
                 PostType.A_B,
                 PostCategory.ETC,
                 "   ",
                 null,
                 List.of(product(first, "A", null, null), product(second, "B", null, null))));
-        expectInvalid(request(PostType.GENERAL, PostCategory.ETC, null, null, List.of()));
-        expectInvalid(request(PostType.GENERAL, PostCategory.ETC, "가".repeat(31), null, List.of()));
+        expectBeanValidationFailure(request(PostType.GENERAL, PostCategory.ETC, null, null, List.of()));
+        expectBeanValidationFailure(request(
+                PostType.GENERAL, PostCategory.ETC, "가".repeat(31), null, List.of()));
 
         createPost(accessToken, request(
                 PostType.GENERAL, PostCategory.ETC, "가".repeat(30), null, List.of()))
@@ -345,7 +347,7 @@ class PostCreationFlowIT {
 
         createPost(accessToken, agreeRequest(containerId, "첫 게시글"))
                 .andExpect(status().isCreated());
-        expectInvalid(agreeRequest(containerId, "재사용 게시글"));
+        expectConflict(agreeRequest(containerId, "재사용 게시글"));
 
         assertThat(postCount(userId)).isEqualTo(1);
     }
@@ -373,7 +375,7 @@ class PostCreationFlowIT {
     @Test
     @DisplayName("알 수 없는 게시글 유형 JSON은 400으로 응답한다")
     void rejectsUnknownPostType() throws Exception {
-        mockMvc.perform(post("/api/posts")
+        mockMvc.perform(post("/posts")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -408,7 +410,7 @@ class PostCreationFlowIT {
     }
 
     private long uploadImages(String token, int imageCount) throws Exception {
-        var request = multipart("/api/images")
+        var request = multipart("/images")
                 .param("attachType", "PRODUCT")
                 .header("Authorization", "Bearer " + token);
         for (int index = 0; index < imageCount; index++) {
@@ -428,7 +430,7 @@ class PostCreationFlowIT {
     }
 
     private ResultActions createPost(String token, PostCreateRequest request) throws Exception {
-        MockHttpServletRequestBuilder builder = post("/api/posts")
+        MockHttpServletRequestBuilder builder = post("/posts")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsBytes(request));
         if (token != null) {
@@ -441,6 +443,20 @@ class PostCreationFlowIT {
         createPost(accessToken, request)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    private void expectConflict(PostCreateRequest request) throws Exception {
+        createPost(accessToken, request)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ITEM_CONTAINER_ALREADY_IN_USE"));
+    }
+
+    private void expectBeanValidationFailure(PostCreateRequest request) throws Exception {
+        createPost(accessToken, request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(result -> assertThat(result.getResolvedException())
+                        .isInstanceOf(MethodArgumentNotValidException.class));
     }
 
     private PostCreateRequest agreeRequest(long containerId, String productName) {

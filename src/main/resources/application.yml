@@ -100,6 +100,14 @@ app:
     cookie-secure: ${AUTH_COOKIE_SECURE:false}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  ranking:
+    # 작성자 랭킹 사전 계산 배치 (ADR-0028).
+    # 순위는 전역 값이라 조회 시점에 세면 회원 전체를 정렬해야 한다(200k 기준 97.6ms/조각).
+    # 미리 계산해 두고 목록은 읽기만 한다.
+    enabled: ${RANKING_BATCH_ENABLED:true}
+    # 이 주기가 곧 랭킹 지연 상한이다 — 포인트가 바뀌면 최대 5분 뒤에 순위에 반영된다.
+    # 값을 바꾸면 SPEC 의 응답 계약(§3.3)도 함께 고쳐야 한다.
+    cron: ${RANKING_BATCH_CRON:0 */5 * * * *}
   oauth:
     apple:
       # 키를 받기 전에도 서버가 기동하도록 기본은 비활성이다.
@@ -162,7 +170,12 @@ springdoc:
     operations-sorter: method
   api-docs:
     path: /v3/api-docs
-  paths-to-match: /api/**
+  # 경로에서 /api prefix 를 걷어냈다(ADR-0029, #91). prefix 가 사라져 공통 접두어로
+  # 고를 수 없으므로, 문서에 실리면 안 되는 것만 빼고 나머지를 전부 싣는다.
+  #
+  # 새 API 경로를 만들 때 여기에 손댈 일은 없다 — 자동으로 문서에 실린다.
+  # 다만 공개하면 안 되는 경로(내부용·관리자용)를 새로 만들면 반드시 여기에 더한다.
+  paths-to-exclude: /actuator/**, /scalar/**, /llms.txt, /llms.md, /error, /docs/**
 
 # Scalar — springdoc 이 만든 스펙을 읽어 보여주는 API 문서 UI.
 scalar:
