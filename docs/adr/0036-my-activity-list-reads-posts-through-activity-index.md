@@ -65,8 +65,11 @@ ALTER TABLE vote            ADD KEY idx_vote_user_activity      (user_id, create
 ALTER TABLE post_commenter  ADD KEY idx_commenter_user_activity (user_id, created_at DESC, post_id DESC);
 ```
 
-`POST` 유형은 기존 `idx_post_user (user_id, deleted_at, created_at DESC)` 로 족하다.
+`POST` 유형은 기존 `idx_post_user (user_id, deleted_at, created_at DESC)` 를 쓴다.
 §7.4 의 7일 이내 조회도 이 인덱스가 `Index range scan` 으로 받는다.
+
+**다만 `POST` 최신순에는 정렬이 남는다** — 아래 "결과" 참조. 새 인덱스를 만들지 않고
+받아들인 예외이며, 인덱스가 정렬을 통째로 맡는 것은 `VOTE`·`COMMENT` 두 유형이다.
 
 ### 4. 요약은 스키마가 이미 세어둔 값을 읽는다
 
@@ -109,6 +112,26 @@ MySQL 이 내 활동을 전부 읽어 정렬한다. 한 글자가 Θ(내 활동 
 Θ(조각 크기) 를 가른다.
 
 ## 결과 (트레이드오프)
+
+### `POST` 최신순에는 정렬이 남는다 — 커서 규약을 지키기 위해 받아들였다
+
+`idx_post_user` 뒤에 InnoDB 가 붙이는 PK 는 **오름차순**이다. 그래서
+`ORDER BY created_at DESC, id DESC` 는 인덱스 순서와 어긋나 정렬이 붙는다.
+
+| `type=POST` 최신순 (내 글 500 / 전체 5,863) | 시간 | 읽는 행 |
+|---|---|---|
+| `ORDER BY created_at DESC, id DESC` (채택) | 0.168 ms | 500 (`Sort` 있음) |
+| `ORDER BY created_at DESC, id ASC` | 0.011 ms | 11 (`Sort` 없음) |
+
+**`id ASC` 로 바꾸지 않았다.** keyset 튜플의 두 키 방향이 갈리면 행 값 비교
+`(a, b) < (?, ?)` 가 성립하지 않는다 — `a < ? OR (a = ? AND b > ?)` 로 풀어써야 하고,
+그것이 바로 `PostListRepository` 가 인덱스 범위를 접지 못해 피한 형태다.
+세 유형·세 정렬에 걸쳐 **같은 방향 튜플**이라는 한 규약을 지키는 값이
+`POST` 한 유형의 0.16 ms 보다 크다.
+
+전용 인덱스(`user_id, deleted_at, created_at DESC, id DESC`)도 만들지 않았다 —
+기존 `idx_post_user` 와 선행 3열이 같아 거의 중복이고, 쓰기마다 값을 치르는데
+줄이는 것은 Θ(내가 올린 글 수)다. 사람이 올리는 글 수는 투표 수보다 훨씬 적다.
 
 ### 인기순은 Θ(내 활동 수) 로 남는다 — 의도한 한계다
 
