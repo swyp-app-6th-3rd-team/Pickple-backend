@@ -62,6 +62,21 @@ public class JpaGradeStore implements GradeStore {
 
     private final EntityManager entityManager;
 
+    /**
+     * ⚠️ 아래 두 조회의 {@code readOnly = true} 는 <b>서비스를 거쳐 오면 적용되지 않는다.</b>
+     *
+     * <p>기본 전파(`REQUIRED`)에서 이미 열린 트랜잭션에 참여하면 읽기전용 여부는
+     * <b>최초로 트랜잭션을 연 지점</b>이 정한다. {@code GradeService.readMyGrade()} 가
+     * 쓰기 트랜잭션을 열므로 그 경로에서는 이 플래그가 무시된다.
+     *
+     * <p>그럼에도 남겨두는 이유는 <b>저장소를 단독으로 부르는 경로</b>(테스트·배치·
+     * 앞으로 생길 다른 호출자)에서는 그대로 유효하고, 이 메서드가 쓰기를 하지 않는다는
+     * 사실을 애노테이션으로 못박아 두면 나중에 여기에 UPDATE 를 끼워 넣기 어려워지기 때문이다.
+     *
+     * <p>두 조회를 별도 읽기전용 트랜잭션으로 떼어내는 대안은 택하지 않았다 —
+     * 포인트와 투표 횟수는 <b>같은 스냅샷에서 읽어야</b> 한다(R-15 가 AND 라
+     * 서로 다른 시점의 값을 묶으면 실제로 존재한 적 없는 조합으로 등급이 정해진다).
+     */
     @Override
     @Transactional(readOnly = true)
     public GradeInputs readInputs(Long userId) {
