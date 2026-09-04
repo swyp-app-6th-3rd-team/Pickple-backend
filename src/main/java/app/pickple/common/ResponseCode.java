@@ -30,8 +30,11 @@ public enum ResponseCode {
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
     OAUTH2_FAILED(HttpStatus.UNAUTHORIZED, "소셜 로그인에 실패했습니다."),
     APPLE_LOGIN_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Apple 로그인을 현재 사용할 수 없습니다."),
+    KAKAO_LOGIN_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Kakao 로그인을 현재 사용할 수 없습니다."),
     APPLE_ACCOUNT_REVOCATION_UNAVAILABLE(
             HttpStatus.SERVICE_UNAVAILABLE, "Apple 계정 연결 해제를 완료할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    KAKAO_ACCOUNT_REVOCATION_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE, "Kakao 계정 연결 해제를 완료할 수 없습니다. 잠시 후 다시 시도해 주세요."),
 
     // 서버
     SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "일시적인 오류가 발생했습니다.");

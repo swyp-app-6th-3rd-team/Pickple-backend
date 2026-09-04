@@ -71,6 +71,13 @@ public class AuthService {
         return tokens;
     }
 
+    /** 네이티브 로그인 사용자와 refresh token 저장을 하나의 로컬 트랜잭션으로 완료한다. */
+    @Transactional
+    public LoginResult completeLogin(SocialIdentity identity) {
+        User user = loginOrRegister(identity);
+        return new LoginResult(issueTokens(user), user.hasProfile());
+    }
+
     /**
      * 리프레시 토큰 회전.
      *
@@ -146,6 +153,14 @@ public class AuthService {
         @Override
         public String toString() {
             return "TokenPair[redacted]";
+        }
+    }
+
+    public record LoginResult(TokenPair tokens, boolean profileCompleted) {
+
+        @Override
+        public String toString() {
+            return "LoginResult[redacted]";
         }
     }
 }

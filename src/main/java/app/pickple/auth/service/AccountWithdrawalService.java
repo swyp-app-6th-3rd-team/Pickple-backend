@@ -5,6 +5,7 @@ import app.pickple.auth.apple.AppleTokenGateway;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
+import app.pickple.auth.kakao.KakaoUnlinkGateway;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class AccountWithdrawalService {
     private final AppleProviderTokenService appleProviderTokenService;
     private final AppleTokenGateway appleTokenGateway;
     private final AccountWithdrawalPersistenceService persistenceService;
+    private final KakaoUnlinkGateway kakaoUnlinkGateway;
 
     public WithdrawalOutcome withdraw(Long userId) {
         User user = userStore.findById(userId)
@@ -36,6 +38,8 @@ public class AccountWithdrawalService {
                         userId);
                 outcome = WithdrawalOutcome.COMPLETED_REQUIRES_MANUAL_APPLE_REVOCATION;
             }
+        } else if (user.provider() == SocialProvider.KAKAO) {
+            kakaoUnlinkGateway.unlink(user.providerId());
         }
 
         // 외부 호출을 DB 트랜잭션 밖에서 끝낸 뒤 로컬 상태만 짧은 트랜잭션으로 확정한다.

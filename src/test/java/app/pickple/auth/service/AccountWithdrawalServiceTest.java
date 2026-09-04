@@ -6,6 +6,7 @@ import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
+import app.pickple.auth.kakao.KakaoUnlinkGateway;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,13 +38,16 @@ class AccountWithdrawalServiceTest {
     private AppleTokenGateway appleTokenGateway;
     @Mock
     private AccountWithdrawalPersistenceService persistenceService;
+    @Mock
+    private KakaoUnlinkGateway kakaoUnlinkGateway;
 
     private AccountWithdrawalService service;
 
     @BeforeEach
     void setUp() {
         service = new AccountWithdrawalService(
-                userStore, providerTokenService, appleTokenGateway, persistenceService);
+                userStore, providerTokenService, appleTokenGateway, persistenceService,
+                kakaoUnlinkGateway);
     }
 
     @Test
@@ -114,8 +118,56 @@ class AccountWithdrawalServiceTest {
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
         assertThat(outcome).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
-        verifyNoInteractions(providerTokenService, appleTokenGateway);
+        verifyNoInteractions(providerTokenService, appleTokenGateway, kakaoUnlinkGateway);
         verify(persistenceService).complete(7L);
+    }
+
+    @Test
+    void unlinksKakaoBeforeCompletingLocalWithdrawal() {
+        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.KAKAO)));
+
+        AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
+
+        assertThat(outcome).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
+        InOrder order = inOrder(kakaoUnlinkGateway, persistenceService);
+        order.verify(kakaoUnlinkGateway).unlink("provider-sub");
+        order.verify(persistenceService).complete(7L);
+        verifyNoInteractions(providerTokenService, appleTokenGateway);
+    }
+
+    @Test
+    void kakaoUnlinkFailurePreservesLocalStateForRetry() {
+        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.KAKAO)));
+        doThrow(new ApiException(ResponseCode.KAKAO_ACCOUNT_REVOCATION_UNAVAILABLE))
+                .when(kakaoUnlinkGateway).unlink("provider-sub");
+
+        assertThatThrownBy(() -> service.withdraw(7L))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code())
+                .isEqualTo(ResponseCode.KAKAO_ACCOUNT_REVOCATION_UNAVAILABLE);
+
+        verify(persistenceService, never()).complete(7L);
+        verifyNoInteractions(providerTokenService, appleTokenGateway);
+    }
+
+    @Test
+    void retriesKakaoUnlinkWhenLocalCompletionFailed() {
+        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.KAKAO)));
+        doThrow(new IllegalStateException("temporary db failure"))
+                .doNothing()
+                .when(persistenceService).complete(7L);
+
+        assertThatThrownBy(() -> service.withdraw(7L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("temporary db failure");
+
+        assertThat(service.withdraw(7L))
+                .isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
+        InOrder order = inOrder(kakaoUnlinkGateway, persistenceService);
+        order.verify(kakaoUnlinkGateway).unlink("provider-sub");
+        order.verify(persistenceService).complete(7L);
+        order.verify(kakaoUnlinkGateway).unlink("provider-sub");
+        order.verify(persistenceService).complete(7L);
     }
 
     private static User user(SocialProvider provider) {
