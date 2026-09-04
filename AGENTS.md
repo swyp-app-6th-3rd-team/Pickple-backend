@@ -91,6 +91,9 @@ API 계약, DB 스키마, 주요 패키지 경계, 외부 시스템·미들웨�
   FE 는 토큰이 필요한지 알 수 없다. `SecurityConfig` 의 `permitAll`·`PUBLIC_GET` 에 있는
   공개 엔드포인트에는 **붙이지 않는다**(값 없는 `@SecurityRequirements` 로 푸는 방식도 쓰지 않는다 — 근거는 ADR-0034).
   새 인증 API 를 추가하면 `SecurityConfig` 와 이 애노테이션을 **함께** 손댄다.
+  **ArchUnit 이 이것을 강제한다** — `ArchitectureTest.ApiDocumentation` 이 permitAll 이 아닌
+  핸들러에 애노테이션이 없으면 실패한다. 공개 엔드포인트 목록은 그 테스트의
+  `PUBLIC_ENDPOINTS` 에도 있으니 `SecurityConfig` 와 함께 고친다.
 
 - **컨트롤러에는 `@Tag` 를 붙이고 이름은 도메인 명사 단수·파스칼로 통일한다.**
   `Auth`·`User`·`Post`·`Comment`·`Vote`·`Grade`·`Badge`·`Ranking`·`Image` 가 현재 목록이다.

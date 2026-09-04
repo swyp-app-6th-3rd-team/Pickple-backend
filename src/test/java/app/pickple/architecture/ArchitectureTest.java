@@ -10,6 +10,8 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
+import java.util.Set;
 
 import static com.tngtech.archunit.base.DescribedPredicate.describe;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
@@ -60,6 +63,60 @@ class ArchitectureTest {
                 .importPackages(BASE);
         classesIncludingTests = new ClassFileImporter()
                 .importPackages(BASE);
+    }
+
+
+    // ---- 컨트롤러 매핑 공용 헬퍼 (ControllerMapping·ApiDocumentation 이 함께 쓴다) ----
+
+
+    /**
+     * Spring 의 매핑 애노테이션 5종({@code @GetMapping}·{@code @PostMapping} …)은
+     * 전부 {@code @RequestMapping} 이 메타 애노테이션으로 붙어 있다. 그래서 종류를
+     * 하나씩 나열하지 않고 메타 애노테이션 하나로 잡는다 — 나중에 합성 애노테이션이
+     * 생겨도 규칙이 그것을 본다.
+     */
+    private static final DescribedPredicate<JavaMethod> HANDLER_METHODS =
+            describe("핸들러 메서드", method ->
+                    method.isMetaAnnotatedWith(RequestMapping.class)
+                            || method.isAnnotatedWith(RequestMapping.class));
+
+
+    /**
+     * 매핑 애노테이션에서 경로를 읽는다.
+     *
+     * <p>⚠️ {@code value} 만 보면 안 된다. Spring 은 {@code value} 와 {@code path} 를
+     * {@code @AliasFor} 로 묶지만 그 해석은 Spring 의 애노테이션 엔진이 하는 일이고,
+     * ArchUnit 은 바이트코드를 그대로 읽으므로 <b>작성자가 쓴 속성만</b> 보인다.
+     * 실제로 ImageUploadController 는 {@code path = "/images"} 로 쓴다 —
+     * {@code value} 만 검사하면 멀쩡한 코드가 위반으로 잡힌다.
+     */
+    private static Optional<String> mappingPathOf(JavaMethod method) {
+        for (JavaAnnotation<JavaMethod> annotation : method.getAnnotations()) {
+            if (!annotation.getRawType().isMetaAnnotatedWith(RequestMapping.class)
+                    && !annotation.getRawType().isAssignableTo(RequestMapping.class)) {
+                continue;
+            }
+            Optional<String> path = firstNonBlank(annotation, "value")
+                    .or(() -> firstNonBlank(annotation, "path"));
+            if (path.isPresent()) {
+                return path;
+            }
+        }
+        return Optional.empty();
+    }
+
+
+    private static Optional<String> firstNonBlank(JavaAnnotation<JavaMethod> annotation, String property) {
+        Object raw = annotation.get(property).orElse(null);
+        if (!(raw instanceof Object[] values)) {
+            return Optional.empty();
+        }
+        for (Object value : values) {
+            if (value instanceof String text && !text.isBlank()) {
+                return Optional.of(text);
+            }
+        }
+        return Optional.empty();
     }
 
     @Nested
@@ -253,16 +310,6 @@ class ArchitectureTest {
     @DisplayName("컨트롤러 매핑")
     class ControllerMapping {
 
-        /**
-         * Spring 의 매핑 애노테이션 5종({@code @GetMapping}·{@code @PostMapping} …)은
-         * 전부 {@code @RequestMapping} 이 메타 애노테이션으로 붙어 있다. 그래서 종류를
-         * 하나씩 나열하지 않고 메타 애노테이션 하나로 잡는다 — 나중에 합성 애노테이션이
-         * 생겨도 규칙이 그것을 본다.
-         */
-        private static final DescribedPredicate<JavaMethod> HANDLER_METHODS =
-                describe("핸들러 메서드", method ->
-                        method.isMetaAnnotatedWith(RequestMapping.class)
-                                || method.isAnnotatedWith(RequestMapping.class));
 
         /**
          * 경로를 알려면 클래스와 메서드 애노테이션을 머릿속에서 합성해야 한다(ADR-0029).
@@ -318,41 +365,130 @@ class ArchitectureTest {
             };
         }
 
+
+    }
+
+    @Nested
+    @DisplayName("API 문서")
+    class ApiDocumentation {
+
         /**
-         * 매핑 애노테이션에서 경로를 읽는다.
+         * 인증 없이 부를 수 있는 엔드포인트. {@code SecurityConfig} 의
+         * {@code PUBLIC_GET} 과 {@code permitAll} 목록을 그대로 옮긴 것이다.
          *
-         * <p>⚠️ {@code value} 만 보면 안 된다. Spring 은 {@code value} 와 {@code path} 를
-         * {@code @AliasFor} 로 묶지만 그 해석은 Spring 의 애노테이션 엔진이 하는 일이고,
-         * ArchUnit 은 바이트코드를 그대로 읽으므로 <b>작성자가 쓴 속성만</b> 보인다.
-         * 실제로 ImageUploadController 는 {@code path = "/images"} 로 쓴다 —
-         * {@code value} 만 검사하면 멀쩡한 코드가 위반으로 잡힌다.
+         * <p><b>왜 SecurityConfig 에서 읽지 않는가</b> — {@code PUBLIC_GET} 은
+         * {@code private static} 이고 나머지 permitAll 은 {@code authorizeHttpRequests}
+         * 람다 안에 흩어져 있다. ArchUnit 은 바이트코드를 읽으므로 람다 안의 문자열을
+         * 꺼낼 수 없다. 그래서 <b>여기에 두 번째 정본이 생긴다</b> — 공개 엔드포인트를
+         * 늘리거나 줄이면 {@code SecurityConfig} 와 이 목록을 함께 고쳐야 한다.
+         * 함께 고치지 않으면 이 테스트가 빨간불로 알려준다(그게 이 목록의 값어치다).
+         *
+         * <p>키는 {@code "METHOD 경로"} 다. 같은 경로라도 메서드마다 공개 여부가
+         * 갈리기 때문이다 — {@code GET /posts/{postId}/comments} 는 공개지만
+         * {@code POST} 는 인증이 필요하다.
          */
-        private static Optional<String> mappingPathOf(JavaMethod method) {
-            for (JavaAnnotation<JavaMethod> annotation : method.getAnnotations()) {
-                if (!annotation.getRawType().isMetaAnnotatedWith(RequestMapping.class)
-                        && !annotation.getRawType().isAssignableTo(RequestMapping.class)) {
-                    continue;
-                }
-                Optional<String> path = firstNonBlank(annotation, "value")
-                        .or(() -> firstNonBlank(annotation, "path"));
-                if (path.isPresent()) {
-                    return path;
-                }
-            }
-            return Optional.empty();
+        private static final Set<String> PUBLIC_ENDPOINTS = Set.of(
+                "GET /posts",
+                "GET /posts/{postId}/comments",
+                "GET /users/nickname/availability",
+                "GET /rankings",
+                "GET /rankings/top",
+                "POST /auth/apple",
+                "POST /auth/refresh",
+                "POST /auth/mobile/refresh",
+                "POST /auth/logout");
+
+        /**
+         * 인증이 필요한 핸들러에는 {@code @SecurityRequirement} 가 붙어야 한다.
+         *
+         * <p><b>왜 필요한가</b> — springdoc 은 {@code SecurityConfig} 를 읽지 않는다.
+         * 컨트롤러 애노테이션만 보고 스펙을 만든다. 그래서 이 애노테이션이 없으면
+         * {@code .anyRequest().authenticated()} 로 실제로는 401 이 나는 API 가
+         * 문서에는 자물쇠 없이 실린다 — FE 는 토큰이 필요한지 모른 채 호출한다.
+         * 컴파일도 통과하고 테스트도 통과하므로 <b>이 규칙 말고는 잡을 것이 없다</b>
+         * (ADR-0034).
+         *
+         * <p>공개 엔드포인트에는 <b>붙이지 않는다</b>. 값 없는
+         * {@code @SecurityRequirements} 로 전역 잠금을 푸는 방식도 쓰지 않는다 —
+         * 그러면 인증이 필요한 쪽에 표시가 없고 공개 쪽에만 애노테이션이 붙어
+         * 코드가 정반대로 읽힌다.
+         */
+        /**
+         * 문서 자신을 내보내는 컨트롤러. 스펙에 실리지 않으므로 이 규칙의 대상이 아니다.
+         *
+         * <p>{@code springdoc.paths-to-exclude} 가 {@code /scalar/**}·{@code /llms.txt}·
+         * {@code /llms.md} 를 스펙에서 뺀다. 스펙에 없는 경로에는 자물쇠를 붙일 자리도 없다.
+         *
+         * <p>경로가 아니라 <b>선언 클래스</b>로 거른다. {@code ScalarConfig} 의 매핑은
+         * {@code @GetMapping("${scalar.path:/scalar}")} 라 바이트코드에 플레이스홀더가
+         * 그대로 남는다 — ArchUnit 은 Spring 의 프로퍼티 해석을 거치지 않으므로
+         * 경로 문자열로는 이것을 알아볼 수 없다.
+         */
+        private static final Set<String> DOCS_CONTROLLERS = Set.of(
+                "app.pickple.config.ScalarConfig",
+                "app.pickple.docs.LlmsTxtController");
+
+        @Test
+        @DisplayName("permitAll 이 아닌 핸들러는 @SecurityRequirement 를 갖는다")
+        void authenticatedHandlersDeclareSecurityRequirement() {
+            methods().that(HANDLER_METHODS)
+                    .and().areDeclaredInClassesThat().areAnnotatedWith(RestController.class)
+                    .and().areDeclaredInClassesThat(
+                            describe("문서 컨트롤러가 아닌", javaClass ->
+                                    !DOCS_CONTROLLERS.contains(javaClass.getFullName())))
+                    .should(declareSecurityRequirementUnlessPublic())
+                    .check(classesUnderTest);
         }
 
-        private static Optional<String> firstNonBlank(JavaAnnotation<JavaMethod> annotation, String property) {
-            Object raw = annotation.get(property).orElse(null);
-            if (!(raw instanceof Object[] values)) {
-                return Optional.empty();
-            }
-            for (Object value : values) {
-                if (value instanceof String text && !text.isBlank()) {
-                    return Optional.of(text);
+        private static ArchCondition<JavaMethod> declareSecurityRequirementUnlessPublic() {
+            return new ArchCondition<>("인증이 필요하면 @SecurityRequirement 를 선언한다") {
+                @Override
+                public void check(JavaMethod method, ConditionEvents events) {
+                    String endpoint = endpointOf(method);
+                    boolean isPublic = PUBLIC_ENDPOINTS.contains(endpoint);
+                    boolean annotated = method.isAnnotatedWith(SecurityRequirement.class)
+                            || method.isAnnotatedWith(SecurityRequirements.class);
+
+                    boolean satisfied = isPublic != annotated;
+
+                    String message;
+                    if (satisfied) {
+                        message = method.getFullName() + " (" + endpoint + ") 는 인증 표시가 맞다";
+                    } else if (isPublic) {
+                        message = method.getFullName() + " (" + endpoint + ") 는 공개 엔드포인트인데"
+                                + " 인증 애노테이션이 붙어 있다 — 자물쇠가 잘못 뜬다";
+                    } else {
+                        message = method.getFullName() + " (" + endpoint + ") 에"
+                                + " @SecurityRequirement(name = \"bearerAuth\") 가 없다"
+                                + " — 401 이 나는 API 가 문서에는 공개로 실린다";
+                    }
+                    events.add(new SimpleConditionEvent(method, satisfied, message));
+                }
+            };
+        }
+
+        /** {@code "GET /posts"} 형태로 만든다. {@link #PUBLIC_ENDPOINTS} 의 키와 같은 모양이다. */
+        private static String endpointOf(JavaMethod method) {
+            return httpMethodOf(method) + " " + mappingPathOf(method).orElse("");
+        }
+
+        /**
+         * 매핑 애노테이션에서 HTTP 메서드를 읽는다.
+         *
+         * <p>{@code @GetMapping} 류는 애노테이션 이름이 곧 메서드다. {@code @RequestMapping}
+         * 을 직접 쓰면 {@code method} 속성을 봐야 하는데, 이 저장소는 핸들러에 그것을
+         * 쓰지 않으므로 이름에서 뽑는다. 쓰기 시작하면 이 메서드가 {@code ""} 를 돌려주고
+         * 그 핸들러는 {@code PUBLIC_ENDPOINTS} 에 걸리지 않아 애노테이션을 요구받는다 —
+         * 안전한 방향으로 틀린다.
+         */
+        private static String httpMethodOf(JavaMethod method) {
+            for (JavaAnnotation<JavaMethod> annotation : method.getAnnotations()) {
+                String name = annotation.getRawType().getSimpleName();
+                if (name.endsWith("Mapping") && !name.equals("RequestMapping")) {
+                    return name.replace("Mapping", "").toUpperCase();
                 }
             }
-            return Optional.empty();
+            return "";
         }
     }
 
