@@ -1,0 +1,191 @@
+%% Pickple ERD — 정본은 JPA 엔티티다 (ddl-auto: validate 로 DB 와 일치가 보증된다).
+%% 이 파일을 고쳤으면 docs/erd/erd.png 와 src/main/resources/static/docs/erd.png 를 다시 렌더한다.
+%% 렌더: scripts/render-erd.sh
+%% 관계선은 FK 제약이 아니라 참조 관계를 나타낸다 — 애그리거트 경계를 넘는 참조는
+%% ID 로만 들고 FK 를 걸지 않는 곳이 있다(ADR-0008).
+erDiagram
+    users ||--o{ post : "작성"
+    users ||--o{ comment : "작성"
+    users ||--o{ vote : "투표"
+    users ||--o{ comment_pick : "원픽"
+    users ||--o{ point_history : "적립"
+    users ||--o{ user_badge : "획득"
+    users ||--o{ user_daily_activity : "일별 집계"
+    users ||--o{ item_container : "업로드"
+    users ||--o| user_refresh_token : "세션"
+    users ||--o| apple_provider_token : "Apple 연동"
+    users ||--o{ post_commenter : "참여"
+
+    post ||--o{ post_option : "선택지"
+    post ||--o{ post_product : "상품"
+    post ||--o{ vote : "득표"
+    post ||--o{ comment : "댓글"
+    post ||--o{ post_commenter : "참여자"
+    post_option ||--o{ vote : "선택됨"
+    post_product }o--|| item_container : "사진"
+
+    comment ||--o{ comment_pick : "받은 원픽"
+    comment }o--o| item_container : "사진"
+    comment_pick ||--o| point_history : "지급 근거"
+
+    badge ||--o{ user_badge : "부여"
+    item_container ||--o{ item_resource : "파일"
+
+    users {
+        bigint id PK
+        varchar provider "GOOGLE|KAKAO|NAVER|APPLE"
+        varchar provider_id
+        varchar email
+        varchar name "소셜 이름"
+        varchar role "ROLE_USER|ROLE_ADMIN"
+        varchar state
+        varchar nickname "5자 이내, 가입 직후 null"
+        varchar profile_image_url
+        datetime created_at
+        datetime updated_at
+    }
+
+    post {
+        bigint id PK
+        bigint user_id FK
+        varchar type "GENERAL|AGREE|A_B"
+        varchar category
+        varchar title
+        varchar description
+        int vote_count "카운터, 원자 증가"
+        int commenter_count "카운터"
+        int comment_count "카운터"
+        datetime deleted_at "소프트 삭제"
+        datetime created_at
+        datetime updated_at
+    }
+
+    post_option {
+        bigint id PK
+        bigint post_id FK
+        bigint post_product_id "A/B 는 상품, 찬반은 null"
+        varchar label "찬반만, A/B 는 null"
+        tinyint display_order "1 또는 2"
+        int vote_count "카운터"
+        datetime created_at
+    }
+
+    post_product {
+        bigint id PK
+        bigint post_id FK
+        bigint item_container_id
+        varchar name
+        int price
+        varchar link_url
+        tinyint display_order
+        datetime created_at
+        datetime updated_at
+    }
+
+    vote {
+        bigint id PK
+        bigint post_id FK
+        bigint post_option_id FK
+        bigint user_id FK
+        datetime created_at
+    }
+
+    comment {
+        bigint id PK
+        bigint post_id FK
+        bigint user_id FK
+        bigint item_container_id "사진 없으면 null"
+        varchar content "300자 이내"
+        datetime deleted_at "소프트 삭제"
+        datetime created_at
+        datetime updated_at
+    }
+
+    comment_pick {
+        bigint id PK
+        bigint post_id FK
+        bigint comment_id FK
+        bigint user_id FK
+        datetime created_at
+    }
+
+    post_commenter {
+        bigint id PK
+        bigint post_id FK
+        bigint user_id FK
+        datetime created_at
+    }
+
+    point_history {
+        bigint id PK
+        bigint user_id FK
+        int amount
+        varchar reason
+        bigint comment_pick_id "멱등키"
+        datetime created_at
+    }
+
+    badge {
+        bigint id PK
+        varchar code
+        varchar name
+        varchar description
+        varchar condition_type
+        int threshold
+        int display_order
+        datetime created_at
+        datetime updated_at
+    }
+
+    user_badge {
+        bigint id PK
+        bigint user_id FK
+        bigint badge_id FK
+        datetime acquired_at
+    }
+
+    user_daily_activity {
+        bigint id PK
+        bigint user_id FK
+        date activity_date
+        int vote_count
+        datetime created_at
+        datetime updated_at
+    }
+
+    item_container {
+        bigint id PK
+        bigint user_id FK
+        varchar attach_type "부착 용도"
+        datetime created_at
+        datetime updated_at
+    }
+
+    item_resource {
+        bigint id PK
+        bigint item_container_id FK
+        bigint size
+        varchar original_file_name
+        varchar item_key "S3 객체 키"
+        varchar access_url "CloudFront URL"
+        datetime created_at
+        datetime updated_at
+    }
+
+    user_refresh_token {
+        bigint id PK
+        bigint user_id FK
+        char token_hash "SHA-256"
+        datetime expires_at
+        datetime created_at
+    }
+
+    apple_provider_token {
+        bigint user_id PK
+        varchar encrypted_refresh_token
+        int encryption_format_version
+        varchar encryption_iv
+        varchar encryption_key_id
+        datetime created_at
+        datetime updated_at
+    }
