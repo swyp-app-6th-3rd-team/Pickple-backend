@@ -1,10 +1,17 @@
 package app.pickple.architecture;
 
 import app.pickple.support.IntegrationTest;
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -12,11 +19,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Window;
 import org.springframework.data.repository.Repository;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
+
+import static com.tngtech.archunit.base.DescribedPredicate.describe;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
@@ -234,6 +247,124 @@ class ArchitectureTest {
             noMethods().that().arePublic().and().areDeclaredInClassesThat().resideInAPackage("..controller..")
                     .should().haveRawReturnType(Window.class)
                     .check(classesUnderTest);
+        }
+    }
+
+    @Nested
+    @DisplayName("컨트롤러 매핑")
+    class ControllerMapping {
+
+        /**
+         * Spring 의 매핑 애노테이션 5종({@code @GetMapping}·{@code @PostMapping} …)은
+         * 전부 {@code @RequestMapping} 이 메타 애노테이션으로 붙어 있다. 그래서 종류를
+         * 하나씩 나열하지 않고 메타 애노테이션 하나로 잡는다 — 나중에 합성 애노테이션이
+         * 생겨도 규칙이 그것을 본다.
+         */
+        private static final DescribedPredicate<JavaMethod> HANDLER_METHODS =
+                describe("핸들러 메서드", method ->
+                        method.isMetaAnnotatedWith(RequestMapping.class)
+                                || method.isAnnotatedWith(RequestMapping.class));
+
+        /**
+         * ⚠️ 아직 켜지 않았다 — <b>규칙이 틀려서가 아니라 코드가 아직 안 따라와서다.</b>
+         *
+         * <p>지금 이 규칙을 켜면 {@code AuthController}·{@code UserProfileController}·
+         * {@code CommentController} 3개가 위반으로 잡힌다(실측). 이들을 고치는 것은
+         * 곧 {@code /api} prefix 를 걷어내는 일이고, 그건 <b>프론트 합의가 끝나야</b>
+         * 착수할 수 있는 API 계약 변경이다(ADR-0029 의 "열린 질문").
+         *
+         * <p>그럼에도 규칙을 지금 넣어두는 이유는, 컨트롤러 일괄 변경 PR 이
+         * {@code @Disabled} 한 줄만 지우면 되도록 <b>안전망을 미리 깔아두기 위해서다.</b>
+         * 규칙을 나중에 쓰면 그 사이에 들어온 컨트롤러가 옛 관행을 다시 심는다.
+         *
+         * <p><b>해제 조건</b>: 컨트롤러 5개의 클래스 레벨 매핑 제거 + SecurityConfig
+         * 매처 동기화가 끝나면 이 애노테이션을 지운다.
+         *
+         * <p>규칙이 실제로 무언가를 잡는다는 증거는 있다 — 이 애노테이션을 떼면
+         * 위 3개 클래스를 정확히 지목하며 실패한다(PR 본문에 기록).
+         */
+        @Test
+        @Disabled("컨트롤러 일괄 변경(=/api prefix 제거, 프론트 합의 후) 시 이 줄을 지운다 — ADR-0029")
+        @DisplayName("@RestController 는 클래스 레벨 @RequestMapping 을 갖지 않는다")
+        void restControllersHaveNoClassLevelRequestMapping() {
+            // 경로를 알려면 클래스와 메서드 애노테이션을 머릿속에서 합성해야 한다(ADR-0029).
+            // 핸들러 메서드 한 줄만 보고 최종 경로를 알 수 있게 한다.
+            //
+            // ⚠️ 여기서 metaAnnotatedWith 를 쓰지 않는다. @GetMapping 류가 전부
+            // @RequestMapping 을 메타로 갖고 있어서, 메타까지 보면 메서드가 아니라
+            // 클래스에 붙은 것만 봐야 하는 이 규칙의 의도가 무너진다.
+            noClasses().that().areAnnotatedWith(RestController.class)
+                    .should().beAnnotatedWith(RequestMapping.class)
+                    .check(classesUnderTest);
+        }
+
+        @Test
+        @DisplayName("핸들러 메서드의 매핑 경로는 비어 있지 않다")
+        void handlerMethodsDeclareNonEmptyPath() {
+            // 위 규칙의 짝인데, 이쪽은 지금 켠다. 경로를 명시하는 것은 URL 을 바꾸지 않아
+            // 프론트 합의를 기다릴 이유가 없기 때문이다(구조만 바뀐다).
+            //
+            // 켜두는 값어치가 큰 쪽도 이쪽이다. 클래스 레벨 매핑이 사라진 컨트롤러에
+            // 경로 없는 매핑(bare @GetMapping)이 들어오면 루트("")로 떨어지는데,
+            // 컴파일도 통과하고 git 머지도 **충돌 없이** 끝나서 아무도 보지 못한다.
+            // 실제로 진행 중인 PR #76 이 PostController 에 bare @PostMapping 을 들고 온다 —
+            // 그 머지가 조용히 깨지는 대신 이 테스트가 빨간불로 잡는다.
+            methods().that(HANDLER_METHODS)
+                    .and().areDeclaredInClassesThat().areAnnotatedWith(RestController.class)
+                    .should(declareANonEmptyMappingPath())
+                    .check(classesUnderTest);
+        }
+
+        private static ArchCondition<JavaMethod> declareANonEmptyMappingPath() {
+            return new ArchCondition<>("매핑 경로를 비우지 않고 선언한다") {
+                @Override
+                public void check(JavaMethod method, ConditionEvents events) {
+                    Optional<String> path = mappingPathOf(method);
+                    boolean satisfied = path.isPresent() && !path.get().isBlank();
+                    events.add(new SimpleConditionEvent(method, satisfied,
+                            satisfied
+                                    ? method.getFullName() + " 는 매핑 경로를 선언한다"
+                                    : method.getFullName() + " 에 매핑 경로가 없다"
+                                    + " — 클래스 레벨 매핑이 사라지면 루트로 떨어진다"));
+                }
+            };
+        }
+
+        /**
+         * 매핑 애노테이션에서 경로를 읽는다.
+         *
+         * <p>⚠️ {@code value} 만 보면 안 된다. Spring 은 {@code value} 와 {@code path} 를
+         * {@code @AliasFor} 로 묶지만 그 해석은 Spring 의 애노테이션 엔진이 하는 일이고,
+         * ArchUnit 은 바이트코드를 그대로 읽으므로 <b>작성자가 쓴 속성만</b> 보인다.
+         * 실제로 ImageUploadController 는 {@code path = "/api/images"} 로 쓴다 —
+         * {@code value} 만 검사하면 멀쩡한 코드가 위반으로 잡힌다.
+         */
+        private static Optional<String> mappingPathOf(JavaMethod method) {
+            for (JavaAnnotation<JavaMethod> annotation : method.getAnnotations()) {
+                if (!annotation.getRawType().isMetaAnnotatedWith(RequestMapping.class)
+                        && !annotation.getRawType().isAssignableTo(RequestMapping.class)) {
+                    continue;
+                }
+                Optional<String> path = firstNonBlank(annotation, "value")
+                        .or(() -> firstNonBlank(annotation, "path"));
+                if (path.isPresent()) {
+                    return path;
+                }
+            }
+            return Optional.empty();
+        }
+
+        private static Optional<String> firstNonBlank(JavaAnnotation<JavaMethod> annotation, String property) {
+            Object raw = annotation.get(property).orElse(null);
+            if (!(raw instanceof Object[] values)) {
+                return Optional.empty();
+            }
+            for (Object value : values) {
+                if (value instanceof String text && !text.isBlank()) {
+                    return Optional.of(text);
+                }
+            }
+            return Optional.empty();
         }
     }
 
