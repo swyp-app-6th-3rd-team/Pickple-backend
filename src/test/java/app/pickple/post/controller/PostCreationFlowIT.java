@@ -266,7 +266,7 @@ class PostCreationFlowIT {
     }
 
     @Test
-    @DisplayName("상품명·설명·가격의 최대 경계값 초과는 400이다")
+    @DisplayName("상품명·설명·가격과 상품 개수의 최대 경계값 초과는 400이다")
     void rejectsFieldLimitViolations() throws Exception {
         expectInvalid(agreeRequest(newContainer(userId, AttachType.PRODUCT, 1), "가".repeat(31)));
         expectInvalid(request(
@@ -285,6 +285,15 @@ class PostCreationFlowIT {
                         "정상 상품",
                         PostProduct.MAX_PRICE + 1,
                         null))));
+        expectBeanValidationFailure(request(
+                PostType.A_B,
+                PostCategory.ETC,
+                "A vs B",
+                null,
+                List.of(
+                        product(newContainer(userId, AttachType.PRODUCT, 1), "A", null, null),
+                        product(newContainer(userId, AttachType.PRODUCT, 1), "B", null, null),
+                        product(newContainer(userId, AttachType.PRODUCT, 1), "C", null, null))));
         assertThat(postCount(userId)).isZero();
     }
 

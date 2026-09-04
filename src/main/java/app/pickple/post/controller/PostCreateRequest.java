@@ -35,6 +35,7 @@ public record PostCreateRequest(
         String description,
 
         @Valid
+        @Size(max = 2)
         List<@NotNull @Valid ProductRequest> products
 ) {
 

@@ -426,7 +426,7 @@ class ArchitectureTest {
          */
         private static final Set<String> DOCS_CONTROLLERS = Set.of(
                 "app.pickple.config.ScalarConfig",
-                "app.pickple.docs.LlmsTxtController");
+                "app.pickple.docs.LlmsTextController");
 
         @Test
         @DisplayName("permitAll 이 아닌 핸들러는 @SecurityRequirement 를 갖는다")

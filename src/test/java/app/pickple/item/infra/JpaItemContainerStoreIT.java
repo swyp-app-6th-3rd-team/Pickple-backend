@@ -8,11 +8,18 @@ import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
 import app.pickple.support.IntegrationTest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +38,12 @@ class JpaItemContainerStoreIT {
 
     @Autowired
     private UserStore userStore;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private Long ownerId;
 
@@ -60,6 +73,32 @@ class JpaItemContainerStoreIT {
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple("s3/key/1", "원본 이름.jpg"),
                         org.assertj.core.groups.Tuple.tuple("s3/key/2", "두번째.png"));
+    }
+
+    @Test
+    @DisplayName("여러 컨테이너와 리소스를 한 번의 쿼리로 조회한다")
+    void findsContainersWithResourcesInBatch() {
+        ItemContainer first = store.save(new ItemContainer(ownerId, AttachType.PRODUCT)
+                .add(new ItemResource(1L, "first.jpg", "s3/batch/first", "https://cdn.example.com/first")));
+        ItemContainer second = store.save(new ItemContainer(ownerId, AttachType.PRODUCT)
+                .add(new ItemResource(2L, "second.jpg", "s3/batch/second", "https://cdn.example.com/second")));
+        entityManager.flush();
+        entityManager.clear();
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        Map<Long, ItemContainer> found = store.findAllByIds(Set.of(first.id(), second.id()));
+
+        assertThat(found).containsOnlyKeys(first.id(), second.id());
+        assertThat(found.get(first.id()).resources())
+                .extracting(ItemResource::itemKey)
+                .containsExactly("s3/batch/first");
+        assertThat(found.get(second.id()).resources())
+                .extracting(ItemResource::itemKey)
+                .containsExactly("s3/batch/second");
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1L);
     }
 
     @Test

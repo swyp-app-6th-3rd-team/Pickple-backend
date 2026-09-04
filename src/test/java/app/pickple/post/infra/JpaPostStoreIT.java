@@ -15,12 +15,18 @@ import app.pickple.post.domain.PostProduct;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.support.IntegrationTest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +43,12 @@ class JpaPostStoreIT {
 
     @Autowired
     private UserStore userStore;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private Long authorId;
 
@@ -117,14 +129,38 @@ class JpaPostStoreIT {
     }
 
     @Test
-    @DisplayName("이미 다른 상품에 붙은 컨테이너는 도메인 예외로 변환한다")
-    void attachedContainerTranslated() {
+    @DisplayName("같은 컨테이너를 두 게시글에 붙이면 실제 유니크 키 위반을 도메인 예외로 변환한다")
+    void duplicateContainerHitsUniqueKey() {
         Long containerId = newProductContainer();
         postStore.saveIfContainerFree(agreePost(containerId, "첫 게시글"));
 
         assertThatThrownBy(() -> postStore.saveIfContainerFree(agreePost(containerId, "두 번째 게시글")))
-                .isInstanceOf(ItemContainerAlreadyAttachedException.class)
-                .hasCauseInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOfSatisfying(ItemContainerAlreadyAttachedException.class,
+                        exception -> assertThat(exception.getCause())
+                                .isInstanceOf(DataIntegrityViolationException.class)
+                                .hasMessageContaining("uk_product_container"));
+    }
+
+    @Test
+    @DisplayName("여러 컨테이너의 부착 여부를 한 번의 쿼리로 조회한다")
+    void findsAttachedContainerIdsInBatch() {
+        Long firstAttached = newProductContainer();
+        Long secondAttached = newProductContainer();
+        Long free = newProductContainer();
+        postStore.saveIfContainerFree(agreePost(firstAttached, "첫 번째 게시글"));
+        postStore.saveIfContainerFree(agreePost(secondAttached, "둘째 게시글"));
+        entityManager.flush();
+        entityManager.clear();
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        Set<Long> attached = postStore.findAttachedItemContainerIds(
+                Set.of(firstAttached, secondAttached, free));
+
+        assertThat(attached).containsExactlyInAnyOrder(firstAttached, secondAttached);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1L);
     }
 
     @Test

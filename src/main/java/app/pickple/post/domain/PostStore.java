@@ -1,6 +1,8 @@
 package app.pickple.post.domain;
 
+import java.util.Collection;
 import java.util.Optional;
+import java.util.Set;
 
 public interface PostStore {
 
@@ -15,6 +17,6 @@ public interface PostStore {
     /** 삭제되지 않은 게시글의 존재 여부. 상호작용 전 가벼운 유효성 검사에 쓴다. */
     boolean existsActiveById(Long id);
 
-    /** 업로드 컨테이너는 게시글 상품 하나에만 붙일 수 있다. */
-    boolean isItemContainerAttached(Long itemContainerId);
+    /** 주어진 업로드 컨테이너 중 이미 게시글 상품에 붙은 id를 한 번에 조회한다. */
+    Set<Long> findAttachedItemContainerIds(Collection<Long> itemContainerIds);
 }

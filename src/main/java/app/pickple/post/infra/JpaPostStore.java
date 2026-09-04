@@ -10,7 +10,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.Optional;
+import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
@@ -42,7 +44,7 @@ public class JpaPostStore implements PostStore {
             return entity.toDomain();
         }
         PostEntity entity = repository.findById(post.id())
-                .orElseThrow(() -> new IllegalStateException("게시글을 찾을 수 없습니다: id=" + post.id()));
+                .orElseThrow(() -> new PostPersistenceException("게시글을 찾을 수 없습니다: id=" + post.id()));
         entity.applyState(post, now);
         return entity.toDomain();
     }
@@ -74,8 +76,11 @@ public class JpaPostStore implements PostStore {
 
     @Override
     @Transactional(readOnly = true)
-    public boolean isItemContainerAttached(Long itemContainerId) {
-        return productRepository.existsByItemContainerId(itemContainerId);
+    public Set<Long> findAttachedItemContainerIds(Collection<Long> itemContainerIds) {
+        if (itemContainerIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(productRepository.findAttachedItemContainerIds(itemContainerIds));
     }
 
     private static boolean hasConstraint(Throwable throwable, String constraintName) {

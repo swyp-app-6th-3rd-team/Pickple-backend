@@ -21,9 +21,9 @@ import org.springframework.data.domain.Window;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** 게시글 작성과 목록 조회 유스케이스를 제공한다. */
 @Service
@@ -116,27 +116,37 @@ public class PostService {
     }
 
     private Map<Long, ItemContainer> validateContainers(Long authorId, Post post) {
-        Map<Long, ItemContainer> containers = new HashMap<>();
-        for (PostProduct product : post.products()) {
-            Long containerId = product.itemContainerId();
-            if (containers.containsKey(containerId)) {
-                throw new ApiException(
-                        ResponseCode.INVALID_REQUEST,
-                        "같은 이미지 컨테이너를 여러 상품에 사용할 수 없습니다.");
-            }
+        List<Long> containerIds = post.products().stream()
+                .map(PostProduct::itemContainerId)
+                .toList();
+        if (containerIds.isEmpty()) {
+            return Map.of();
+        }
 
-            ItemContainer container = itemContainerStore.findById(containerId)
-                    .orElseThrow(() -> new ApiException(
-                            ResponseCode.NOT_FOUND,
-                            "이미지 컨테이너를 찾을 수 없습니다: id=" + containerId));
+        Set<Long> uniqueContainerIds = Set.copyOf(containerIds);
+        if (uniqueContainerIds.size() != containerIds.size()) {
+            throw new ApiException(
+                    ResponseCode.INVALID_REQUEST,
+                    "같은 이미지 컨테이너를 여러 상품에 사용할 수 없습니다.");
+        }
+
+        Map<Long, ItemContainer> containers = itemContainerStore.findAllByIds(uniqueContainerIds);
+        Set<Long> attachedContainerIds = postStore.findAttachedItemContainerIds(uniqueContainerIds);
+
+        for (Long containerId : containerIds) {
+            ItemContainer container = containers.get(containerId);
+            if (container == null) {
+                throw new ApiException(
+                        ResponseCode.NOT_FOUND,
+                        "이미지 컨테이너를 찾을 수 없습니다: id=" + containerId);
+            }
             if (!container.ownerId().equals(authorId)) {
                 throw new ApiException(ResponseCode.FORBIDDEN, "다른 사용자의 이미지를 사용할 수 없습니다.");
             }
             container.verifyUsableAs(AttachType.PRODUCT);
-            if (postStore.isItemContainerAttached(containerId)) {
+            if (attachedContainerIds.contains(containerId)) {
                 throw new ItemContainerAlreadyAttachedException(containerId);
             }
-            containers.put(containerId, container);
         }
         return containers;
     }

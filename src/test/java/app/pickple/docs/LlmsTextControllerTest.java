@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
-class LlmsTxtControllerTest {
+class LlmsTextControllerTest {
 
     @Mock
     private OpenApiWebMvcResource openApiResource;
@@ -26,14 +26,14 @@ class LlmsTxtControllerTest {
     @Mock
     private HttpServletRequest request;
     @InjectMocks
-    private LlmsTxtController controller;
+    private LlmsTextController controller;
 
     @Test
     void mapsOpenApiFailureToSystemError() throws Exception {
         RuntimeException cause = new RuntimeException("springdoc failure");
         given(openApiResource.openapiJson(request, "/v3/api-docs", Locale.KOREAN)).willThrow(cause);
 
-        assertThatThrownBy(() -> controller.llmsTxt(request, Locale.KOREAN))
+        assertThatThrownBy(() -> controller.llmsText(request, Locale.KOREAN))
                 .isInstanceOfSatisfying(ApiException.class, exception -> {
                     assertThat(exception.code()).isEqualTo(ResponseCode.SYSTEM_ERROR);
                     assertThat(exception.getCause()).isSameAs(cause);

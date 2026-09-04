@@ -24,7 +24,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.ScrollPosition;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,7 +52,9 @@ class PostServiceTest {
     @Test
     @DisplayName("찬반 게시글은 상품명을 제목으로 쓰고 서버가 선택지 둘을 만든다")
     void createsAgreePost() {
-        given(itemContainerStore.findById(10L)).willReturn(Optional.of(container(1L, AttachType.PRODUCT, 1)));
+        given(itemContainerStore.findAllByIds(Set.of(10L)))
+                .willReturn(Map.of(10L, container(1L, AttachType.PRODUCT, 1)));
+        given(postStore.findAttachedItemContainerIds(Set.of(10L))).willReturn(Set.of());
         given(postStore.saveIfContainerFree(any(Post.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -72,8 +75,11 @@ class PostServiceTest {
     @Test
     @DisplayName("새 A/B 선택지는 두 상품의 표시 순서를 각각 가리킨다")
     void createsAbPost() {
-        given(itemContainerStore.findById(10L)).willReturn(Optional.of(container(1L, AttachType.PRODUCT, 1)));
-        given(itemContainerStore.findById(20L)).willReturn(Optional.of(container(1L, AttachType.PRODUCT, 1)));
+        Set<Long> containerIds = Set.of(10L, 20L);
+        given(itemContainerStore.findAllByIds(containerIds)).willReturn(Map.of(
+                10L, container(1L, AttachType.PRODUCT, 1),
+                20L, container(1L, AttachType.PRODUCT, 1)));
+        given(postStore.findAttachedItemContainerIds(containerIds)).willReturn(Set.of());
         given(postStore.saveIfContainerFree(any(Post.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -90,12 +96,17 @@ class PostServiceTest {
                 .extracting(option -> option.postProductDisplayOrder())
                 .containsExactly(1, 2);
         assertThat(created.options()).allMatch(option -> option.pointsToProduct());
+        verify(itemContainerStore).findAllByIds(containerIds);
+        verify(postStore).findAttachedItemContainerIds(containerIds);
+        verify(itemContainerStore, never()).findById(any());
     }
 
     @Test
     @DisplayName("다른 사용자의 이미지 컨테이너는 저장 전에 거부한다")
     void rejectsForeignContainer() {
-        given(itemContainerStore.findById(10L)).willReturn(Optional.of(container(2L, AttachType.PRODUCT, 1)));
+        given(itemContainerStore.findAllByIds(Set.of(10L)))
+                .willReturn(Map.of(10L, container(2L, AttachType.PRODUCT, 1)));
+        given(postStore.findAttachedItemContainerIds(Set.of(10L))).willReturn(Set.of());
 
         assertThatThrownBy(() -> service.create(1L, agreeCommand(10L)))
                 .isInstanceOfSatisfying(ApiException.class,
@@ -106,7 +117,9 @@ class PostServiceTest {
     @Test
     @DisplayName("게시글 유형의 사진 장수와 맞지 않으면 저장 전에 거부한다")
     void rejectsWrongPhotoCount() {
-        given(itemContainerStore.findById(10L)).willReturn(Optional.of(container(1L, AttachType.PRODUCT, 4)));
+        given(itemContainerStore.findAllByIds(Set.of(10L)))
+                .willReturn(Map.of(10L, container(1L, AttachType.PRODUCT, 4)));
+        given(postStore.findAttachedItemContainerIds(Set.of(10L))).willReturn(Set.of());
 
         assertThatThrownBy(() -> service.create(1L, agreeCommand(10L)))
                 .isInstanceOf(IllegalStateException.class)
@@ -117,8 +130,6 @@ class PostServiceTest {
     @Test
     @DisplayName("같은 요청에서 이미지 컨테이너를 두 상품에 중복 사용할 수 없다")
     void rejectsDuplicateContainerInRequest() {
-        given(itemContainerStore.findById(10L)).willReturn(Optional.of(container(1L, AttachType.PRODUCT, 1)));
-
         CreateCommand command = new CreateCommand(
                 PostType.A_B,
                 PostCategory.ETC,
@@ -131,14 +142,17 @@ class PostServiceTest {
         assertThatThrownBy(() -> service.create(1L, command))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        verify(itemContainerStore, never()).findAllByIds(any());
+        verify(postStore, never()).findAttachedItemContainerIds(any());
         verify(postStore, never()).saveIfContainerFree(any());
     }
 
     @Test
     @DisplayName("이미 상품에 붙은 컨테이너는 재사용할 수 없다")
     void rejectsAttachedContainer() {
-        given(itemContainerStore.findById(10L)).willReturn(Optional.of(container(1L, AttachType.PRODUCT, 1)));
-        given(postStore.isItemContainerAttached(10L)).willReturn(true);
+        given(itemContainerStore.findAllByIds(Set.of(10L)))
+                .willReturn(Map.of(10L, container(1L, AttachType.PRODUCT, 1)));
+        given(postStore.findAttachedItemContainerIds(Set.of(10L))).willReturn(Set.of(10L));
 
         assertThatThrownBy(() -> service.create(1L, agreeCommand(10L)))
                 .isInstanceOfSatisfying(ApiException.class,
@@ -152,7 +166,9 @@ class PostServiceTest {
     void translatesAttachedContainerToConflict() {
         ItemContainerAlreadyAttachedException conflict =
                 new ItemContainerAlreadyAttachedException(new RuntimeException("unique constraint"));
-        given(itemContainerStore.findById(10L)).willReturn(Optional.of(container(1L, AttachType.PRODUCT, 1)));
+        given(itemContainerStore.findAllByIds(Set.of(10L)))
+                .willReturn(Map.of(10L, container(1L, AttachType.PRODUCT, 1)));
+        given(postStore.findAttachedItemContainerIds(Set.of(10L))).willReturn(Set.of());
         given(postStore.saveIfContainerFree(any(Post.class))).willThrow(conflict);
 
         assertThatThrownBy(() -> service.create(1L, agreeCommand(10L)))

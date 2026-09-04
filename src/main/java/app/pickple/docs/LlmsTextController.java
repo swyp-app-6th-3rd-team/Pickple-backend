@@ -41,12 +41,12 @@ import java.util.Locale;
 @Hidden      // 문서 엔드포인트 자신이 문서에 실릴 이유가 없다
 @RestController
 @ConditionalOnProperty(prefix = "llms-txt", name = "enabled", havingValue = "true", matchIfMissing = true)
-public class LlmsTxtController {
+public class LlmsTextController {
 
     private final OpenApiWebMvcResource openApiResource;
     private final OpenApiMarkdownRenderer renderer;
 
-    public LlmsTxtController(OpenApiWebMvcResource openApiResource, OpenApiMarkdownRenderer renderer) {
+    public LlmsTextController(OpenApiWebMvcResource openApiResource, OpenApiMarkdownRenderer renderer) {
         this.openApiResource = openApiResource;
         this.renderer = renderer;
     }
@@ -57,7 +57,7 @@ public class LlmsTxtController {
      * FE 가 브라우저에서 열어 긁어가는 동선이 끊긴다.
      */
     @GetMapping(value = {"/llms.txt", "/llms.md"}, produces = "text/plain;charset=UTF-8")
-    public String llmsTxt(HttpServletRequest request, Locale locale) {
+    public String llmsText(HttpServletRequest request, Locale locale) {
         return renderer.render(readSpec(request, locale));
     }
 
