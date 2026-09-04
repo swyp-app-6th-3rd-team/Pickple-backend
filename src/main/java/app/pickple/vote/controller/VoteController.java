@@ -6,6 +6,7 @@ import app.pickple.vote.service.VoteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ import java.util.List;
  * <p>게스트는 투표할 수 없다 (R-11). 이 경로는 {@code SecurityConfig} 의
  * {@code anyRequest().authenticated()} 에 걸려 인증 없이는 401 이다.
  */
+@Tag(name = "Vote", description = "투표 참여 · 결과")
 @RestController
 @RequiredArgsConstructor
 public class VoteController {

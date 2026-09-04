@@ -9,6 +9,7 @@ import app.pickple.item.service.ImageUploadService;
 import app.pickple.item.service.ImageUploadService.UploadImage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -24,6 +25,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 
+@Tag(name = "Image", description = "이미지 업로드")
 @RestController
 @RequiredArgsConstructor
 public class ImageUploadController {

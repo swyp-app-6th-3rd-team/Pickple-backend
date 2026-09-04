@@ -8,6 +8,7 @@ import app.pickple.grade.service.GradeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,6 +28,7 @@ import java.util.List;
  * {@code SecurityConfig} 를 건드리지 않는다 — 등급 화면은 마이페이지 하위라
  * 게스트 진입 경로가 없다(§11.2 트리거 "마이페이지에서 '나의 등급' 메뉴 탭").
  */
+@Tag(name = "Grade", description = "등급 현황 · 기준")
 @RestController
 @RequiredArgsConstructor
 public class GradeController {

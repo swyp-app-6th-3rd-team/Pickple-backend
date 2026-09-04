@@ -9,6 +9,8 @@ import app.pickple.common.ApiResponse;
 import app.pickple.common.ResponseCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Tag(name = "Comment", description = "댓글 · 원픽")
 @RestController
 @RequiredArgsConstructor
 public class CommentController {
@@ -33,7 +36,10 @@ public class CommentController {
     private final CommentQueryService commentQueryService;
     private final OnePickService onePickService;
 
-    @Operation(summary = "댓글 목록 조회")
+    @Operation(summary = "댓글 목록 조회",
+            description = "게스트도 부를 수 있다. 토큰을 함께 보내면 각 항목의 `mine` 이 채워지고, "
+                    + "게스트면 항상 false 다.")
+    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll). 토큰은 선택 — mine 판정에만 쓴다
     @GetMapping("/posts/{postId}/comments")
     public ApiResponse<CommentListResponse> findAll(
             @PathVariable Long postId,

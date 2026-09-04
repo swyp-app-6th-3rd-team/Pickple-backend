@@ -13,6 +13,7 @@ import app.pickple.error.ApiException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -40,6 +41,7 @@ public class AuthController {
             description = "iOS가 받은 authorization code와 identity token을 서버에서 다시 검증한 뒤 서비스 JWT를 발급한다. "
                     + "iOS는 로그인마다 안전한 새 rawNonce를 만들고 Apple 요청 nonce에 "
                     + "lowercase hex SHA-256(rawNonce)를 넣어야 한다.")
+    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @PostMapping("/auth/apple")
     public ApiResponse<MobileTokenResponse> appleLogin(
             @Valid @RequestBody AppleLoginRequest request,
@@ -62,6 +64,7 @@ public class AuthController {
 
     @Operation(summary = "토큰 재발급",
             description = "리프레시 토큰은 HttpOnly 쿠키에서 읽는다. 성공 시 쿠키도 새 값으로 교체된다.")
+    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @PostMapping("/auth/refresh")
     public ApiResponse<TokenResponse> refresh(
             @CookieValue(name = OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, required = false) String refreshToken,
@@ -75,6 +78,7 @@ public class AuthController {
 
     @Operation(summary = "모바일 토큰 재발급",
             description = "Keychain에 보관한 refresh token을 받아 회전된 access/refresh token을 JSON으로 반환한다.")
+    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @PostMapping("/auth/mobile/refresh")
     public ApiResponse<MobileTokenResponse> mobileRefresh(
             @Valid @RequestBody MobileRefreshRequest request,
@@ -85,6 +89,7 @@ public class AuthController {
     }
 
     @Operation(summary = "로그아웃", description = "저장된 리프레시 토큰을 폐기하고 쿠키를 지운다.")
+    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @PostMapping("/auth/logout")
     public ApiResponse<Void> logout(@Parameter(hidden = true) @CurrentUser Long userId,
                                     HttpServletResponse response) {

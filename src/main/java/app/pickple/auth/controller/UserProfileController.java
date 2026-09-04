@@ -9,6 +9,7 @@ import app.pickple.common.ResponseCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -45,6 +46,7 @@ public class UserProfileController {
     @Operation(summary = "닉네임 사용 가능 여부",
             description = "입력 중 실시간으로 부른다. 형식 위반은 400. "
                     + "여기서 사용 가능이 나와도 등록까지의 사이에 선점될 수 있어, 등록은 409로 실패할 수 있다.")
+    @SecurityRequirements   // 공개 엔드포인트 (SecurityConfig 의 permitAll)
     @GetMapping("/users/nickname/availability")
     public ApiResponse<NicknameAvailabilityResponse> checkNicknameAvailability(
             @Parameter(description = "확인할 닉네임", required = true)
