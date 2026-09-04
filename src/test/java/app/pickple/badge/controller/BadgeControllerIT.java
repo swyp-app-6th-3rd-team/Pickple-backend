@@ -31,7 +31,13 @@ import org.springframework.web.context.WebApplicationContext;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -213,7 +219,7 @@ class BadgeControllerIT {
                     Integer.class, voter.id());
 
             // 10회째에 지급된 뒤 11·12회에서도 조건은 계속 참이지만 행은 하나다.
-            org.assertj.core.api.Assertions.assertThat(rows).isEqualTo(1);
+            assertThat(rows).isEqualTo(1);
         }
     }
 
@@ -234,13 +240,78 @@ class BadgeControllerIT {
             castVote(post, skip);
             castVote(post, buy);
 
-            org.assertj.core.api.Assertions.assertThat(dailyVoteCount()).isEqualTo(afterFirst);
+            assertThat(dailyVoteCount()).isEqualTo(afterFirst);
         }
 
         private Integer dailyVoteCount() {
             return jdbcTemplate.queryForObject(
                     "SELECT COALESCE(SUM(vote_count), 0) FROM user_daily_activity WHERE user_id = ?",
                     Integer.class, voter.id());
+        }
+    }
+
+    @Nested
+    @DisplayName("동시 투표 (R-17)")
+    class Concurrency {
+
+        @Test
+        @DisplayName("임계값을 동시에 넘겨도 뱃지는 한 번만 지급된다")
+        void simultaneousThresholdCrossingGrantsOnce() throws Exception {
+            // 9회까지 채워 두고, 10번째를 여러 게시글에 동시에 던진다.
+            // 모두 "누적 10회" 를 함께 넘기므로 확인-후-삽입의 틈이 열린다.
+            voteOnDistinctPosts(9);
+
+            int racers = 8;
+            List<Post> posts = new ArrayList<>();
+            for (int i = 0; i < racers; i++) {
+                posts.add(votablePost());
+            }
+
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Integer>> results = new ArrayList<>();
+            try (ExecutorService pool = Executors.newFixedThreadPool(racers)) {
+                for (Post target : posts) {
+                    Long optionId = target.options().getFirst().id();
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return mockMvc.perform(post("/api/posts/{postId}/votes", target.id())
+                                        .header("Authorization", "Bearer " + voterToken)
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content("{\"optionId\":%d}".formatted(optionId)))
+                                .andReturn().getResponse().getStatus();
+                    }));
+                }
+                start.countDown();
+                pool.shutdown();
+                assertThat(pool.awaitTermination(60, TimeUnit.SECONDS)).isTrue();
+            }
+
+            // **투표가 뱃지 때문에 실패하지 않는다.** 확인 후 삽입이던 시절 이 테스트는
+            // 8건 중 1건만 통과했다 — 나머지 7건이 뱃지 UNIQUE 위반으로 500 이 났다.
+            // 동시 요청이 모두 "아직 없다" 를 보고 모두 삽입을 시도했기 때문이다.
+            // 원자적 삽입으로 바꾼 뒤에는 중복이 예외가 아니라 무시라 전부 성공한다.
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> result : results) {
+                statuses.add(result.get());
+            }
+            assertThat(statuses)
+                    .as("뱃지 지급 경합이 투표를 죽이지 않는다")
+                    .containsOnly(200);
+
+            // R-17 의 핵심 — 동시에 넘겨도 보유 행은 하나다.
+            Integer badgeRows = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM user_badge ub JOIN badge b ON b.id = ub.badge_id "
+                            + "WHERE ub.user_id = ? AND b.code = 'TOTAL_VOTE_10'",
+                    Integer.class, voter.id());
+            assertThat(badgeRows).as("같은 뱃지가 두 번 지급되지 않는다").isEqualTo(1);
+
+            // 집계도 유실 없이 맞는다 — UPSERT 가 원자적으로 누적하기 때문이다.
+            Integer dailyTotal = jdbcTemplate.queryForObject(
+                    "SELECT COALESCE(SUM(vote_count), 0) FROM user_daily_activity WHERE user_id = ?",
+                    Integer.class, voter.id());
+            assertThat(dailyTotal)
+                    .as("일별 집계가 전체 투표 수와 같다 (9 + %d)", racers)
+                    .isEqualTo(9 + racers);
         }
     }
 
@@ -285,6 +356,22 @@ class BadgeControllerIT {
                     .andExpect(jsonPath("$.returnObject[0].code").value("TOTAL_VOTE_100"))
                     .andExpect(jsonPath("$.returnObject[0].current").value(10))
                     .andExpect(jsonPath("$.returnObject[0].goal").value(100));
+        }
+
+        @Test
+        @DisplayName("한 계열을 다 채우면 그 슬롯이 빠진다 — 없는 미션을 지어내지 않는다")
+        void exhaustedSeriesDropsOut() throws Exception {
+            // 하루 30개를 채우면 일일 계열 둘(20·30)이 모두 끝난다.
+            // 누적은 30 이라 100회 미션이 남는다.
+            voteOnDistinctPosts(30);
+
+            mockMvc.perform(get("/api/users/me/badges/missions")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    // 일일 슬롯이 사라져 누적 하나만 남는다.
+                    .andExpect(jsonPath("$.returnObject.length()").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].code").value("TOTAL_VOTE_100"))
+                    .andExpect(jsonPath("$.returnObject[0].conditionType").value("TOTAL_VOTE"));
         }
 
         @Test

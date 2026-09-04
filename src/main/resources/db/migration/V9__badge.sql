@@ -211,3 +211,67 @@ INSERT INTO user_daily_activity (user_id, activity_date, vote_count, created_at,
 SELECT v.user_id, DATE(v.created_at), COUNT(*), NOW(), NOW()
   FROM vote v
  GROUP BY v.user_id, DATE(v.created_at);
+
+
+-- ---------------------------------------------------------
+-- 이미 조건을 넘긴 회원에게 뱃지를 소급 지급한다
+--
+-- **집계만 백필하면 절반만 고친 것이다.** 판정(BadgeService.evaluate)은 투표 시점에만
+-- 도므로, 위 INSERT 로 진행률은 정확해지지만 이미 넘긴 뱃지는 미획득으로 남는다.
+-- 500회 투표한 회원이 "500/1000" 은 제대로 보면서 10·100·500 뱃지는 없는 상태가 되고,
+-- 다음 투표를 해야 세 개가 한꺼번에 지급된다.
+--
+-- 이쪽이 오히려 발견이 늦다 — 진행률이 맞아 화면이 그럴듯해 보이기 때문이다.
+--
+-- 소급이 맞는 이유: 뱃지에 회수 개념이 없고(user_badge 에 DELETE 경로가 없다),
+-- 조건은 과거 기록만으로 판정된다. 누적은 총계라 시점과 무관하고, 일일·연속도
+-- "그날 20개를 채웠다"·"7일 이어졌다" 는 사실이 집계에 남아 있다.
+--
+-- 세 유형을 각각 SQL 로 판정한다. 애플리케이션 판정과 임계값이 갈라지지 않도록
+-- badge 테이블의 threshold 를 조인해 쓴다 — 숫자를 여기 다시 적으면 정책이 바뀔 때
+-- 고칠 자리가 둘이 된다.
+--
+-- INSERT IGNORE 가 아니라 NOT EXISTS 로 거른다. IGNORE 는 FK 위반까지 삼켜
+-- 잘못된 회원 id 가 조용히 사라진다.
+-- ---------------------------------------------------------
+
+-- 누적 — 일별 집계의 합계가 임계값 이상
+INSERT INTO user_badge (user_id, badge_id, acquired_at)
+SELECT t.user_id, b.id, NOW()
+  FROM (SELECT user_id, SUM(vote_count) AS total
+          FROM user_daily_activity
+         GROUP BY user_id) t
+  JOIN badge b ON b.condition_type = 'TOTAL_VOTE' AND t.total >= b.threshold
+ WHERE NOT EXISTS (SELECT 1 FROM user_badge ub
+                    WHERE ub.user_id = t.user_id AND ub.badge_id = b.id);
+
+-- 일일 — 하루라도 임계값 이상 투표한 날이 있으면 획득이다.
+-- 조건이 "하루에 20개 이상" 이라 한 번이라도 채웠으면 성립한다.
+INSERT INTO user_badge (user_id, badge_id, acquired_at)
+SELECT t.user_id, b.id, NOW()
+  FROM (SELECT user_id, MAX(vote_count) AS best
+          FROM user_daily_activity
+         GROUP BY user_id) t
+  JOIN badge b ON b.condition_type = 'DAILY_VOTE' AND t.best >= b.threshold
+ WHERE NOT EXISTS (SELECT 1 FROM user_badge ub
+                    WHERE ub.user_id = t.user_id AND ub.badge_id = b.id);
+
+-- 연속 — 가장 길었던 연속 구간이 임계값 이상
+--
+-- 날짜에서 행 번호를 빼면 연속인 구간은 같은 값이 된다(gaps and islands).
+-- 3/1·3/2·3/3 은 각각 -1·-1·-1 이 되고, 하루 건너뛴 3/5 는 -2 가 되어 구간이 갈린다.
+-- 그 값으로 묶어 세면 구간 길이가 나온다.
+INSERT INTO user_badge (user_id, badge_id, acquired_at)
+SELECT t.user_id, b.id, NOW()
+  FROM (SELECT user_id, MAX(run_length) AS longest
+          FROM (SELECT user_id, COUNT(*) AS run_length
+                  FROM (SELECT user_id, activity_date,
+                               DATE_SUB(activity_date,
+                                        INTERVAL ROW_NUMBER() OVER (PARTITION BY user_id
+                                                                    ORDER BY activity_date) DAY) AS grp
+                          FROM user_daily_activity) marked
+                 GROUP BY user_id, grp) runs
+         GROUP BY user_id) t
+  JOIN badge b ON b.condition_type = 'STREAK_VOTE' AND t.longest >= b.threshold
+ WHERE NOT EXISTS (SELECT 1 FROM user_badge ub
+                    WHERE ub.user_id = t.user_id AND ub.badge_id = b.id);

@@ -60,10 +60,18 @@ public class BadgeService {
      * <p><b>재투표에서는 부르지 않는다 (R-22).</b> 선택 변경은 활동을 늘리지 않으므로
      * 판정 결과가 달라질 수 없다. 부르면 조건이 바뀌지 않았는데도 매번 8행을 읽는다.
      *
-     * <p>이미 가진 뱃지는 후보에서 뺀다. 그래도 {@code UNIQUE(user_id, badge_id)} 가
-     * 최종 방어선이다 (R-17) — 확인과 삽입 사이에 동시 투표가 끼어들 수 있다.
+     * <p>이미 가진 뱃지는 후보에서 뺀다. 하지만 그 확인이 방어선은 아니다 —
+     * 동시 투표 둘이 같은 임계값을 함께 넘기면 <b>둘 다 "없다" 를 본다.</b>
+     * 실제 방어선은 {@code UNIQUE(user_id, badge_id)} 이고 (R-17),
+     * 지급이 원자적 삽입이라 중복이 예외가 아니라 무시로 끝난다.
      *
-     * @return 이번에 새로 획득한 뱃지. 없으면 빈 목록
+     * <p>그래서 반환값은 <b>"이 트랜잭션에서 지급을 시도한 뱃지"</b>이지
+     * "내가 삽입에 성공한 뱃지" 가 아니다. 동시 투표 둘이 같은 뱃지를 함께 넘기면
+     * 양쪽 다 목록에 담을 수 있다. 지금 이 값을 쓰는 곳이 없어 문제되지 않지만,
+     * 획득 모달(§12.3)처럼 "새로 얻었다" 를 사용자에게 보이는 경로가 생기면
+     * 그때는 알림이 두 번 갈 수 있으므로 판정 방식을 다시 정해야 한다.
+     *
+     * @return 이번 판정에서 조건을 넘긴 미보유 뱃지
      */
     @Transactional
     public List<Badge> evaluate(Long userId) {
@@ -75,9 +83,8 @@ public class BadgeService {
             if (owned.contains(badge.id()) || !badge.isAchievedBy(activity)) {
                 continue;
             }
-            if (userBadgeStore.grantIfAbsent(userId, badge.id())) {
-                acquired.add(badge);
-            }
+            userBadgeStore.grantIfAbsent(userId, badge.id());
+            acquired.add(badge);
         }
         return acquired;
     }

@@ -25,26 +25,18 @@ public class JpaUserBadgeStore implements UserBadgeStore {
     /**
      * {@inheritDoc}
      *
-     * <p><b>유일성을 사전 확인하고 저장한다 — 무결성 예외를 잡지 않는다.</b>
-     * 이 지급은 투표 트랜잭션 안에서 일어난다. {@code @Transactional} 안에서 무결성 예외가
-     * 나면 스프링이 트랜잭션을 rollback-only 로 표시하므로, 예외를 삼켜
-     * "이미 있으니 정상" 으로 돌려줘도 커밋 시점에 {@code UnexpectedRollbackException} 이
-     * 나고 <b>투표가 통째로 실패한다.</b> 뱃지는 투표의 부가 효과라 인질로 잡으면 안 된다.
+     * <p>원자적 삽입 한 문장이다. 확인 후 저장하면 동시 요청이 모두 "없다" 를 보고 모두
+     * 삽입을 시도한다 — 실측에서 8개 동시 요청 중 1건만 성공하고 7건이 무결성 위반으로
+     * 500 이 됐다. 뱃지는 투표의 부가 효과인데 그 실패가 투표를 통째로 죽인 것이다.
      *
-     * <p>{@code INSERT IGNORE} 도 답이 아니다 — FK 위반까지 조용히 삼켜, 없는 회원에게
-     * 뱃지를 주려던 버그가 아무 흔적 없이 사라진다.
-     *
-     * <p>확인과 삽입 사이의 좁은 창은 {@code UNIQUE(user_id, badge_id)} 가 막는다(R-17).
-     * 그 경합은 같은 사람이 같은 순간에 두 번 투표하는 희귀 경로뿐이고, 그때 나는 예외는
-     * 삼키지 않고 위로 올린다 — 조용히 잘못된 상태를 남기는 것보다 실패가 낫다.
+     * <p>이제 중복은 예외가 아니라 "아무것도 바꾸지 않음" 이라 트랜잭션이 살아 있고,
+     * 두 요청이 같은 임계값을 동시에 넘겨도 둘 다 투표에 성공한다.
+     * R-17 은 여전히 {@code UNIQUE(user_id, badge_id)} 가 지킨다 — 달라진 것은
+     * 그 제약이 <b>예외를 던지는 대신 삽입을 무시</b>하게 만든 것뿐이다.
      */
     @Override
     @Transactional
-    public boolean grantIfAbsent(Long userId, Long badgeId) {
-        if (repository.existsByUserIdAndBadgeId(userId, badgeId)) {
-            return false;
-        }
-        repository.save(UserBadgeEntity.of(userId, badgeId, LocalDateTime.now(clock)));
-        return true;
+    public void grantIfAbsent(Long userId, Long badgeId) {
+        repository.grantIfAbsent(userId, badgeId, LocalDateTime.now(clock));
     }
 }
