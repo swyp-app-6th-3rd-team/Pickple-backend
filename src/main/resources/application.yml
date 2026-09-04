@@ -175,7 +175,7 @@ springdoc:
   #
   # 새 API 경로를 만들 때 여기에 손댈 일은 없다 — 자동으로 문서에 실린다.
   # 다만 공개하면 안 되는 경로(내부용·관리자용)를 새로 만들면 반드시 여기에 더한다.
-  paths-to-exclude: /actuator/**, /scalar/**, /llms.txt, /llms.md, /error
+  paths-to-exclude: /actuator/**, /scalar/**, /llms.txt, /llms.md, /error, /docs/**
 
 # Scalar — springdoc 이 만든 스펙을 읽어 보여주는 API 문서 UI.
 scalar:

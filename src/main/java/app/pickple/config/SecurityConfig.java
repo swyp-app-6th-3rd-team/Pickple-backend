@@ -50,6 +50,8 @@ public class SecurityConfig {
             "/", "/error", "/favicon.ico",
             "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/scalar/**", "/scalar",
             "/llms.txt", "/llms.md",
+            // 문서가 싣는 ERD 그림. Boot 기본 정적 처리가 classpath:/static/docs 를 여기로 낸다.
+            "/docs/**",
             "/actuator/health/**"
     };
 
