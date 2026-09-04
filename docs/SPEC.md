@@ -64,19 +64,16 @@ app/pickple/
 { "code": "OK", "message": "정상 처리되었습니다.", "returnObject": { } }
 ```
 
-> ### ⚠️ `/api` prefix 는 걷어내기로 결정됐다 — 아직 적용 전이다
+> ### `/api` prefix 는 걷어냈다 (2026-09-04)
 >
-> 배포 도메인이 이미 `dev-api.pickple.app` 라 경로의 `/api` 는 의미가 중복된다.
-> **[ADR-0029](adr/0029-drop-api-path-prefix.md) 가 제거를 결정했다**(대안 1 채택,
-> 과도기는 Caddy 가 `/api/*` → `/*` 를 rewrite 하는 브릿지로 흡수).
+> 배포 도메인이 이미 `dev-api.pickple.app` 라 경로의 `/api` 는 의미가 중복됐다.
+> [ADR-0033](adr/0033-drop-api-prefix-implemented.md) 이 제거를 확정했고(ADR-0029 대체),
+> **과도기 브릿지는 두지 않았다** — 프론트 합의에서 불필요로 확인됐다(#91).
 >
-> **아래 표의 경로는 아직 `/api` 를 포함한 현재 동작 그대로다.** 결정이 `Proposed` 이고
-> **프론트 합의가 끝나지 않았기 때문이다** — 서버만 바꾸면 기존 호출이 전부 404 다.
-> 합의 후 후속 PR 이 경로를 바꾸면 이 표도 그때 함께 갱신한다(`/api/posts` → `/posts`).
+> 아래 표의 경로가 현재 동작이다. 구 경로 `/...` 는 살아 있지 않다.
 >
-> 관련 변경이 함께 걸리는 자리 — 후속 PR 이 **한 번에** 처리해야 조용히 깨지지 않는다:
-> `SecurityConfig` 매처 7개 · `springdoc.paths-to-match: /api/**`(`application.yml:165`,
-> 안 바꾸면 Swagger·`/llms.txt` 가 **빈 문서**가 된다) · 통합 테스트 경로.
+> 문서 노출은 `springdoc.paths-to-exclude` 로 가른다 — 새 API 경로는 자동으로 실리고,
+> **공개하면 안 되는 경로를 만들면 그 목록에 더해야 한다.**
 
 ### 3.1 인증
 
@@ -84,23 +81,23 @@ app/pickple/
 |---|---|---|---|
 | GET | `/oauth2/authorization/{google\|kakao\|naver}` | — | 소셜 로그인 시작 |
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
-| POST | `/api/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
-| GET | `/api/auth/me` | 필요 | 내 정보 |
-| POST | `/api/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
-| POST | `/api/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
-| POST | `/api/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/api/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
-| GET | `/api/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
-| GET | `/api/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
-| POST | `/api/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
-| PATCH | `/api/users/profile` | 필요 | 프로필 수정. 이미지 생략 시 쓰던 이미지 유지 |
+| POST | `/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
+| GET | `/auth/me` | 필요 | 내 정보 |
+| POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
+| POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
+| POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
+| GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
+| GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
+| POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
+| PATCH | `/users/profile` | 필요 | 프로필 수정. 이미지 생략 시 쓰던 이미지 유지 |
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
 - 웹 리프레시 토큰 — **HttpOnly 쿠키**. URL이나 본문에 담지 않는다
 - iOS 토큰 — HTTPS JSON으로 access/refresh를 받고 Keychain에 저장한다. URL·로그에 담지 않는다
 - iOS nonce — 로그인마다 안전한 새 `rawNonce`를 만든다. Apple 요청에는
-  `lowercase hex SHA-256(rawNonce)`를 넣고 `/api/auth/apple`에는 원문 `rawNonce`를 보낸다
+  `lowercase hex SHA-256(rawNonce)`를 넣고 `/auth/apple`에는 원문 `rawNonce`를 보낸다
 - 백엔드는 nonce를 발급·저장하지 않는다. 재전송 방어는 Apple authorization code의 일회성 교환에 의존한다
 
 ### 3.2 문서
@@ -116,7 +113,7 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/api/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
+| GET | `/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
 
 - `category` 는 없으면 **전체**다. `sort` 는 `LATEST`(기본) · `POPULAR` 둘이며,
   **모르는 값은 400 이 아니라 기본값으로 되돌린다** — 진입 화면이 오타 하나로 비지 않게.
@@ -147,11 +144,11 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/api/posts/{postId}/comments` | 선택 (게스트 허용) | 활성 댓글 전체 목록 |
-| POST | `/api/posts/{postId}/comments` | 필요 | 댓글 작성 |
-| PATCH | `/api/comments/{id}` | 필요 (작성자) | 댓글 내용 수정 |
-| DELETE | `/api/comments/{id}` | 필요 (작성자) | 댓글 소프트 삭제 |
-| POST | `/api/comments/{commentId}/pick` | 필요 | 댓글 원픽 |
+| GET | `/posts/{postId}/comments` | 선택 (게스트 허용) | 활성 댓글 전체 목록 |
+| POST | `/posts/{postId}/comments` | 필요 | 댓글 작성 |
+| PATCH | `/comments/{id}` | 필요 (작성자) | 댓글 내용 수정 |
+| DELETE | `/comments/{id}` | 필요 (작성자) | 댓글 소프트 삭제 |
+| POST | `/comments/{commentId}/pick` | 필요 | 댓글 원픽 |
 
 - 목록은 `(created_at, id)` 오름차순이며 현재 계약에는 페이징이 없다.
 - 댓글·작성자 프로필·원픽 수를 단일 조회로 읽는다. `nickname`이 아직 설정되지 않은
@@ -190,7 +187,7 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| POST | `/api/posts/{postId}/votes` | 필요 | 투표 참여·선택 변경 |
+| POST | `/posts/{postId}/votes` | 필요 | 투표 참여·선택 변경 |
 
 - 본문은 `{ "optionId": 1 }` 이다. 응답은 갱신된 **선택지별 득표 수와 득표율**이라
   투표 직후 화면이 다시 조회하지 않고 게이지로 전환할 수 있다(기능명세 §2.2).
@@ -218,7 +215,7 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| POST | `/api/images` | 필요 | 이미지 업로드 후 부착용 `itemContainerId` 반환 |
+| POST | `/images` | 필요 | 이미지 업로드 후 부착용 `itemContainerId` 반환 |
 
 - `multipart/form-data` 로 `images`(파일, 복수)와 `attachType`(폼 필드)을 받는다.
 - **`attachType` 은 필수이며 기본값이 없다.** `PRODUCT`(상품 사진) 또는 `COMMENT`(댓글 사진).
@@ -237,8 +234,8 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/api/users/me/grade` | 필요 | 내 등급·누적 포인트·투표 횟수·다음 등급까지 달성률 |
-| GET | `/api/grades` | 필요 | 전체 등급의 승급 필요 조건 |
+| GET | `/users/me/grade` | 필요 | 내 등급·누적 포인트·투표 횟수·다음 등급까지 달성률 |
+| GET | `/grades` | 필요 | 전체 등급의 승급 필요 조건 |
 
 - **승급은 AND 조건이다(R-15).** 누적 포인트와 누적 투표 횟수를 **모두** 충족해야 오른다.
   임계값은 정책 요약표 §2 다 — LV.1 0P / LV.2 200P·20회 / LV.3 1,000P·100회 /
@@ -272,9 +269,9 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/api/rankings/top` | — (게스트 허용) | 인기 피커. 기본 5명 |
-| GET | `/api/rankings` | — (게스트 허용) | 전체 랭킹. 무한 스크롤 10개 단위 |
-| GET | `/api/users/me/points` | 필요 | 내 포인트와 순위 |
+| GET | `/rankings/top` | — (게스트 허용) | 인기 피커. 기본 5명 |
+| GET | `/rankings` | — (게스트 허용) | 전체 랭킹. 무한 스크롤 10개 단위 |
+| GET | `/users/me/points` | 필요 | 내 포인트와 순위 |
 
 - 응답 항목은 세 화면이 같다 — `userId` · `nickname` · `profileImageUrl` · `ranking` · `point`.
   명세의 조회 데이터에는 **등급명칭**도 있으나 판정 정본 `Grade` 가 이슈 #25 에 있어
@@ -295,7 +292,7 @@ app/pickple/
 - **포인트 보유자가 없으면 빈 배열이다.** "아직 TOP 피커가 존재하지 않아요" 는 화면의
   빈 상태 문구이므로 서버가 만들지 않는다.
 - **게스트는 목록을 보되 본인 랭킹을 받지 못한다.** 목록 응답 모양이 로그인 여부에 따라
-  갈리지 않게 본인 순위는 `/api/users/me/points` 로 분리했고, 그 경로는 인증을 요구한다.
+  갈리지 않게 본인 순위는 `/users/me/points` 로 분리했고, 그 경로는 인증을 요구한다.
   화면이 "본인 순위에 도달하면 합쳐서 스크롤" 하는 동작은 클라이언트 표현이다.
 - `size` 상한은 50 이다. 없으면 top 은 5, 목록은 10.
   상한이 없으면 한 번의 요청으로 목록 전체가 나가 무한 스크롤이 무의미해진다.
@@ -304,8 +301,8 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/api/users/me/badges` | 필요 | 내 뱃지 현황(획득·미획득) + 수집 개수 |
-| GET | `/api/users/me/badges/missions` | 필요 | 미해제 미션 진행률 |
+| GET | `/users/me/badges` | 필요 | 내 뱃지 현황(획득·미획득) + 수집 개수 |
+| GET | `/users/me/badges/missions` | 필요 | 미해제 미션 진행률 |
 
 - **둘 다 인증이 필요하다.** 게스트에게는 미션을 보여주지 않고 "로그인하고 뱃지를
   획득해보세요" 를 띄우는 것이 명세다(§2.3) — 그 문구는 화면의 몫이고 서버는 401 이다.
@@ -501,7 +498,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 ## 6. 아키텍처 규칙
 
-`ArchitectureTest` 21개(1개는 의도적으로 `@Disabled`). 규칙을 추가할 때는 **일부러 위반하는
+`ArchitectureTest` 21개(전부 활성). 규칙을 추가할 때는 **일부러 위반하는
 코드를 넣어 해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
 지킨다는 증거가 되지 않는다([ADR-0008](adr/0008-domain-entity-separation.md)).
 
@@ -511,7 +508,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 도메인 순수성 | 6 | JPA·검증·Lombok·infra·web·부동소수점 의존 금지 |
 | 계층 경계 | 8 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / infra→service 금지 |
 | API 응답 계약 | 2 | 컨트롤러가 `Page`·`Window` 를 그대로 반환 금지 |
-| 컨트롤러 매핑 | 2 | 핸들러 매핑 경로 비어있음 금지 / 클래스 레벨 `@RequestMapping` 금지(**`@Disabled` — `/api` prefix 제거 시 해제**, [ADR-0029](adr/0029-drop-api-path-prefix.md)) |
+| 컨트롤러 매핑 | 2 | 핸들러 매핑 경로 비어있음 금지 / 클래스 레벨 `@RequestMapping` 금지([ADR-0033](adr/0033-drop-api-prefix-implemented.md) 적용과 함께 활성) |
 | DI | 1 | `@Autowired` 필드 주입 금지 |
 
 ---
@@ -535,7 +532,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
 | 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |
 | 2026-09-03 | 탈퇴 정본을 `users.state` 로 통일하고 `deleted_at` 제거 | 생성 컬럼이 `deleted_at` 을 보는데 코드는 `state` 만 써서 탈퇴해도 닉네임이 잠겼다(#16) |
-| 2026-09-03 | `POST /api/images` 에 `attachType` 필수 파라미터 추가 | 상품 전용에서 범용으로 전환(#62). 기존 호출자는 400 |
+| 2026-09-03 | `POST /images` 에 `attachType` 필수 파라미터 추가 | 상품 전용에서 범용으로 전환(#62). 기존 호출자는 400 |
 | 2026-08-15 | `Instant` → `LocalDateTime` | Sakila 컬럼이 `DATETIME`(타임존 없음) |
 | 2026-08-15 | `PageQuery`/`PageResult` 자체 래퍼 제거 → Spring Data 타입 직접 사용 | 무한 스크롤에 `Window` 가 필요 |
 | 2026-08-15 | `film.length` `Integer` → `Short` | `ddl-auto=validate` 가 `smallint unsigned` 불일치 검출 |
@@ -557,3 +554,4 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 2026-09-04 | 피커 랭킹 조회 계약 추가(§3.8). 정렬·커서 키를 `users.ranking` 으로 확정하고 인덱스 추가 | Issue #26. 인덱스 없이는 조각마다 회원 전체를 정렬해(200k 43.5ms) 사전 계산의 이득이 사라짐(ADR-0032) |
 | 2026-09-04 | 랭킹 배치에 `users.vote_count` 동기화 단계 추가 | Issue #26. 이 컬럼을 채우는 코드 경로가 없어 등급 판정 입력이 영원히 0이었음 |
 | 2026-09-04 | 뱃지 현황·미션 계약 추가. 판정을 `user_daily_activity` 집계로 (V9) | Issue #27. `vote` 직접 조회는 연속 판정이 회원의 투표 전체를 훑고 그 판정이 투표마다 일어난다(ADR-0031). 뱃지 이름은 정책이 변경을 예고해 데이터로 뒀다 |
+| 2026-09-04 | `/api` prefix 를 실제로 제거하고 문서 노출을 `paths-to-exclude` 로 전환 | Issue #91. 프론트 합의가 닫혀 착수. 브릿지는 불필요로 확인돼 두지 않았다(ADR-0033 이 ADR-0029 대체) |
