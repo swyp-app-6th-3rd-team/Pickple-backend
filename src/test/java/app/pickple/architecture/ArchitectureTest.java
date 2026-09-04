@@ -389,6 +389,7 @@ class ArchitectureTest {
          */
         private static final Set<String> PUBLIC_ENDPOINTS = Set.of(
                 "GET /posts",
+                "GET /posts/popular",
                 "GET /posts/{postId}/comments",
                 "GET /users/nickname/availability",
                 "GET /rankings",

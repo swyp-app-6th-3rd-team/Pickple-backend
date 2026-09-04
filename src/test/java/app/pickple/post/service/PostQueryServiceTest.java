@@ -62,6 +62,27 @@ class PostQueryServiceTest {
         assertThat(store.position).isEqualTo(ScrollPosition.keyset());
     }
 
+    @Test
+    @DisplayName("인기 Top 10 은 전체·인기순·첫 조각·10건으로 내려간다")
+    void popularTopFixesEveryParameter() {
+        // 홈 화면 계약은 "전체에서 인기 상위 열 건" 하나다. 손잡이가 없다는 것이 계약이라
+        // 네 값이 전부 고정인지 못박는다 — 하나라도 새면 목록 API 와 구별되지 않는다.
+        service.findPopularTop();
+
+        assertThat(store.category).as("카테고리 필터가 없다").isNull();
+        assertThat(store.sort).isEqualTo(PostSort.POPULAR);
+        assertThat(store.position).as("커서를 받지 않으므로 항상 첫 조각이다")
+                .isEqualTo(ScrollPosition.keyset());
+        assertThat(store.size).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("게시글이 없으면 빈 목록이다 — 더미를 지어내지 않는다")
+    void popularTopReturnsEmptyList() {
+        // 기능명세서 §2.4 의 "더미 데이터 2개" 는 화면의 빈 상태이지 서버 응답이 아니다.
+        assertThat(service.findPopularTop()).isEmpty();
+    }
+
     private static final class RecordingStore implements PostQueryStore {
 
         private PostCategory category;
