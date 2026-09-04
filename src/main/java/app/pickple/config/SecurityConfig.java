@@ -108,7 +108,16 @@ public class SecurityConfig {
                                 mvc.matcher(HttpMethod.GET, "/api/posts"),
                                 mvc.matcher(HttpMethod.GET, "/api/posts/{postId}/comments"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
-                                mvc.matcher(HttpMethod.GET, "/api/users/nickname/availability"))
+                                mvc.matcher(HttpMethod.GET, "/api/users/nickname/availability"),
+                                // 홈 화면의 인기 피커와 그 [더보기] 목록이라 로그인 전에 부른다 (§2.5·§3.1).
+                                // 게스트에게 감추는 것은 목록이 아니라 "본인 랭킹" 이고, 그건 아래
+                                // /api/users/me/points 가 인증을 요구하는 것으로 갈린다.
+                                //
+                                // ⚠️ 기능명세서 v0.3 §6.4 가 "게스트에게 댓글 목록을 주지 않는다" 로
+                                // 바뀌었지만 그것은 댓글 한정이다. 랭킹의 게스트 허용은 유효하다 —
+                                // 공개 여부는 엔드포인트마다 판단한다.
+                                mvc.matcher(HttpMethod.GET, "/api/rankings"),
+                                mvc.matcher(HttpMethod.GET, "/api/rankings/top"))
                         .permitAll()
                         .requestMatchers(mvc.matcher("/oauth2/**"), mvc.matcher("/login/oauth2/**")).permitAll()
                         .requestMatchers(
