@@ -85,6 +85,28 @@ class AuthServiceTest {
         assertThat(result.providerId()).isEqualTo("sub-1");
     }
 
+    @DisplayName("Apple 재가입 — 분리된 sub가 조회되지 않으면 새 사용자로 만든다")
+    @Test
+    void registersNewAppleUserWhenIdentityWasDetached() {
+        given(userStore.findByProviderAndProviderId(SocialProvider.APPLE, "apple-sub"))
+                .willReturn(Optional.empty());
+        given(userStore.save(any(User.class))).willAnswer(inv -> {
+            User user = inv.getArgument(0);
+            return User.restore(10L, user.provider(), user.providerId(), user.email(), user.name(),
+                    user.role(), user.state(), null, null);
+        });
+
+        User result = authService.loginOrRegister(
+                new AppleIdentity("apple-sub", "new@example.com", "새이름"));
+
+        assertThat(result.id()).isEqualTo(10L);
+        assertThat(result.provider()).isEqualTo(SocialProvider.APPLE);
+        assertThat(result.providerId()).isEqualTo("apple-sub");
+        assertThat(result.email()).isEqualTo("new@example.com");
+        assertThat(result.name()).isEqualTo("새이름");
+        assertThat(result.hasProfile()).isFalse();
+    }
+
     @DisplayName("로그인 — 기존 사용자면 프로필만 갱신한다")
     @Test
     void syncsExistingUser() {
@@ -116,9 +138,9 @@ class AuthServiceTest {
         assertThat(result.name()).isEqualTo("최초이름");
     }
 
-    @DisplayName("로그인 — 탈퇴한 계정은 거부한다")
+    @DisplayName("로그인 — 탈퇴한 비 Apple 계정은 계속 거부한다")
     @Test
-    void rejectsWithdrawnUser() {
+    void rejectsWithdrawnNonAppleUser() {
         User withdrawn = User.restore(9L, SocialProvider.GOOGLE, "sub-1",
                 null, null, Role.ROLE_USER, User.State.INACTIVE, null, null);
         given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-1")).willReturn(Optional.of(withdrawn));

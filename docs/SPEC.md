@@ -86,7 +86,7 @@ app/pickple/
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple은 로컬 탈퇴 완료 시 identity를 분리하고, token 누락 시 수동 해제 코드 반환 |
 | GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
 | GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
 | POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
@@ -422,8 +422,10 @@ app/pickple/
 ### 4.1 인증 3개
 
 ```sql
-users(id, provider, provider_id, email, name, role, state, created_at, updated_at,
-      UNIQUE KEY uk_users_provider (provider, provider_id))
+users(id, provider, provider_id NULL, email, name, role, state, created_at, updated_at,
+      UNIQUE KEY uk_users_provider (provider, provider_id),
+      CONSTRAINT ck_users_active_provider_id
+        CHECK (state <> 'ACTIVE' OR provider_id IS NOT NULL))
 
 user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
       UNIQUE KEY uk_refresh_user (user_id),
@@ -434,6 +436,11 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
       encryption_iv, encryption_key_id, created_at, updated_at,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
 ```
+
+도메인에서 `provider_id = NULL`은 **Apple 비활성 회원**에만 허용한다. DB의
+`ck_users_active_provider_id`는 활성 회원의 누락만 막는 최소 보장이며, Apple 이외 provider까지
+구분하는 더 좁은 규칙은 애플리케이션이 지킨다. MySQL unique key는 여러 `NULL`을 허용하므로
+identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성을 막지 않는다.
 
 ### 4.2 마이그레이션
 
@@ -448,6 +455,7 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V9__badge.sql` | `db/migration` | 항상 |
 | `V10__users_ranking_order_index.sql` | `db/migration` | 항상 |
 | `V11__activity_list_indexes.sql` | `db/migration` | 항상 |
+| `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -520,20 +528,26 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - 동시 회전의 패자나 옛 토큰은 401로 거부하되 현재 저장된 승자 token은 삭제하지 않는다
 - `typ` 클레임으로 액세스/리프레시를 구분해 혼용을 막는다
 - 리다이렉트 URI 는 호스트 화이트리스트 검증 (오픈 리다이렉트 방지)
-- Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
+- 활성 Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
 - Apple client secret은 `.p8`로 ES256 서명하고, Apple ID token은 JWKS의 RS256 서명을 검증한다
 - Apple provider refresh token은 별도 AES-256-GCM keyring으로 암호화해 저장한다. 랜덤 12-byte IV와
   사용자 ID·키 ID를 묶은 AAD를 사용하며 DB에는 평문을 저장하지 않는다
 - Apple code 교환 뒤 ID token 불일치나 로컬 로그인 완료가 실패하면, 새로 발급된 provider refresh token을
   보상 revoke해 로컬에서 소유하지 않는 Apple 세션이 남지 않게 한다
 - Apple 회원 탈퇴는 provider refresh token으로 `/auth/revoke`에 성공한 뒤 로컬 계정을 비활성화하고
-  서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다. Apple 일시 장애 시 503으로 재시도한다.
-  token이 없는 기존 계정은 로컬 탈퇴 후 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+  `provider_id`를 분리하며 서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다.
+  Apple 일시 장애 시 503으로 재시도하고 로컬 상태를 바꾸지 않는다. token이 없는 기존 계정은
+  로컬 탈퇴와 identity 분리를 완료한 뒤 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+- 탈퇴 뒤 같은 Apple `sub`로 로그인하면 과거 비활성 행을 되살리지 않고 새 `userId`를 만든다.
+  과거 행과 콘텐츠는 보존하지만 프로필·포인트·뱃지·투표·댓글 등 이력은 새 회원에게 승계하지 않는다
+- V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다. 다른 provider의 재가입과
+  개인정보 익명화·삭제, 재가입 초기화 악용 정책은 이 변경 범위가 아니며 Issue #45에 남긴다
 - 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
 - 회원 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 같은 트랜잭션에서 기록한다
 - authorization code·identity token·`.p8`·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
-  [ADR-0016](adr/0016-refresh-token-rotation-cas.md)
+  [ADR-0016](adr/0016-refresh-token-rotation-cas.md),
+  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md)
 - 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md)
 
 ### 5.5 로깅
@@ -603,6 +617,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
 | 2026-09-04 | `GET /posts/popular` 추가. 목록 조회 경로를 재사용하고 커서 봉투만 벗긴다 | Issue #29. 홈 화면이 커서 없는 고정 10건을 요구. 전용 쿼리를 새로 만들면 `idx_post_popular_all` 검증이 두 벌이 된다 |
 | 2026-09-04 | 등급 도메인 신설. 승급 판정 입력값을 캐시가 아니라 원장에서 읽고, 도달 등급만 `users.highest_grade` 에 저장(ADR-0030) | Issue #25. `users.vote_count` 는 선언만 있고 **쓰는 코드가 0건**이라 읽으면 전원 0 — 아무도 승급하지 못하는데 테스트는 초록인 상태가 됐을 것 |
 | 2026-09-03 | `/api` prefix 제거를 결정(ADR-0029)하고 컨트롤러 매핑 규칙을 ArchUnit 으로 강제. **경로 자체는 아직 안 바뀜** — 프론트 합의 대기 | Issue #75. `api.` 서브도메인과 의미 중복. 계약 변경이라 백엔드 단독으로 못 민다 |
