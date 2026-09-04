@@ -5,6 +5,8 @@ import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.data.domain.KeysetScrollPosition;
 import org.springframework.data.domain.ScrollPosition;
 
@@ -65,5 +67,51 @@ class RankingCursorTest {
         assertThatThrownBy(() -> RankingCursor.from(tampered))
                 .isInstanceOf(ApiException.class)
                 .hasFieldOrPropertyWithValue("code", ResponseCode.INVALID_REQUEST);
+    }
+
+    /**
+     * 숫자이기만 하면 통과시키면 안 되는 이유.
+     *
+     * <p>{@code Number.intValue()} 는 범위를 벗어난 값을 <b>예외 없이 자른다</b>.
+     * 잘린 값은 오류가 아니라 <b>틀린 조각</b>을 만든다 — {@code ranking > 0} 은
+     * 모든 행에 걸려 "다음 조각" 요청이 첫 조각을 돌려주고, 클라이언트가
+     * {@code nextCursor} 를 계속 따라가면 같은 자리를 무한히 맴돈다.
+     *
+     * <p>커서는 Base64 로 감쌌을 뿐 암호화가 아니라 누구나 만들어 보낼 수 있다.
+     * 아래 값들은 전부 손으로 만든 커서로 실제 재현한 것이다.
+     */
+    @ParameterizedTest(name = "ranking={0} 은 400 이다")
+    @MethodSource("outOfDomainRankings")
+    @DisplayName("순위 범위를 벗어난 커서는 조용히 잘리지 않고 400 이다")
+    void rejectsOutOfDomainRanking(Object ranking) {
+        KeysetScrollPosition tampered = (KeysetScrollPosition)
+                ScrollPosition.forward(java.util.Map.of("ranking", ranking));
+
+        assertThatThrownBy(() -> RankingCursor.from(tampered))
+                .isInstanceOf(ApiException.class)
+                .hasFieldOrPropertyWithValue("code", ResponseCode.INVALID_REQUEST);
+    }
+
+    private static java.util.stream.Stream<Object> outOfDomainRankings() {
+        return java.util.stream.Stream.of(
+                -1,                 // ranking > -1 은 전체에 걸린다
+                0,                  // ROW_NUMBER() 는 1 부터라 0 은 아무도 가리키지 않는다
+                4_294_967_296L,     // intValue() 가 조용히 0 으로 자르던 값
+                Long.MAX_VALUE,
+                3.7d,               // intValue() 가 조용히 3 으로 자르던 값
+                "-1",               // 문자열로 와도 같은 판정이어야 한다
+                "0");
+    }
+
+    @Test
+    @DisplayName("1위 커서는 정상이다 — 경계를 너무 좁히지 않았는지 확인")
+    void acceptsFirstRanking() {
+        KeysetScrollPosition first =
+                (KeysetScrollPosition) ScrollPosition.forward(java.util.Map.of("ranking", 1));
+
+        RankingCursor cursor = RankingCursor.from(first);
+
+        assertThat(cursor).isNotNull();
+        assertThat(cursor.ranking()).isEqualTo(1);
     }
 }
