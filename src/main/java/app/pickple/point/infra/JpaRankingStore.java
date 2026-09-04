@@ -39,6 +39,33 @@ public class JpaRankingStore implements RankingStore {
             """;
 
     /**
+     * 투표 정본에서 누적 투표 횟수를 캐시 컬럼으로 옮긴다 (ADR-0032).
+     *
+     * <p>{@code SYNC_POINTS} 와 같은 형태다 — 다른 것은 정본이 원장이 아니라
+     * {@code vote} 테이블이고, 집계가 {@code SUM} 이 아니라 {@code COUNT} 라는 점뿐이다.
+     *
+     * <p>{@code COUNT(*)} 로 충분한 근거는 {@code uk_vote_post_user (post_id, user_id)} 다.
+     * 재투표는 선택지만 바꾸는 UPDATE 라 (R-22) 한 게시글당 한 행을 넘지 않는다.
+     * 곧 행 수가 곧 투표 횟수다 — 선택을 여러 번 바꿔도 값이 부풀지 않는다.
+     *
+     * <p>{@code idx_vote_user_created (user_id, created_at)} 가 있어
+     * {@code GROUP BY user_id} 가 인덱스 순서를 그대로 쓴다.
+     *
+     * <p>{@code LEFT JOIN} 이라 한 번도 투표하지 않은 회원도 대상이다 —
+     * 합계가 없으면 {@code COALESCE} 로 0 이 되고, 이미 0 이면 아래 조건에서 걸러진다.
+     * {@code SYNC_POINTS} 와 달리 {@code GREATEST} 를 쓰지 않는다:
+     * {@code COUNT(*)} 는 음수가 될 수 없어 {@code INT UNSIGNED} 와 충돌할 경로가 없다.
+     */
+    private static final String SYNC_VOTE_COUNTS = """
+            UPDATE users u
+              LEFT JOIN (SELECT v.user_id, COUNT(*) AS total
+                           FROM vote v
+                          GROUP BY v.user_id) t ON t.user_id = u.id
+               SET u.vote_count = COALESCE(t.total, 0)
+             WHERE u.vote_count <> COALESCE(t.total, 0)
+            """;
+
+    /**
      * 활성 회원에게 순위를 매긴다.
      *
      * <p><b>{@code ROW_NUMBER} 이지 {@code RANK} 가 아니다.</b> 용어사전은 동점에서
@@ -73,6 +100,12 @@ public class JpaRankingStore implements RankingStore {
     @Transactional
     public int syncPointsFromLedger() {
         return entityManager.createNativeQuery(SYNC_POINTS).executeUpdate();
+    }
+
+    @Override
+    @Transactional
+    public int syncVoteCountsFromVotes() {
+        return entityManager.createNativeQuery(SYNC_VOTE_COUNTS).executeUpdate();
     }
 
     @Override
