@@ -64,7 +64,7 @@ class AuthFlowIT {
     @Test
     @DisplayName("인증 없이 보호 API 를 부르면 401 이고 본문이 ApiResponse 형식이다")
     void unauthenticatedReturnsJson401() throws Exception {
-        mockMvc.perform(get("/api/auth/me"))
+        mockMvc.perform(get("/auth/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(jsonPath("$.message").exists())
@@ -75,7 +75,7 @@ class AuthFlowIT {
     @Test
     @DisplayName("잘못된 토큰도 401 이다")
     void invalidTokenReturns401() throws Exception {
-        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer not.a.jwt"))
+        mockMvc.perform(get("/auth/me").header("Authorization", "Bearer not.a.jwt"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
@@ -85,7 +85,7 @@ class AuthFlowIT {
     void readsMeWithAccessToken() throws Exception {
         AuthService.TokenPair tokens = authService.issueTokens(user);
 
-        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+        mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.returnObject.userId").value(user.id()))
@@ -98,7 +98,7 @@ class AuthFlowIT {
     void refreshesWithCookie() throws Exception {
         AuthService.TokenPair tokens = authService.issueTokens(user);
 
-        MvcResult result = mockMvc.perform(post("/api/auth/refresh")
+        MvcResult result = mockMvc.perform(post("/auth/refresh")
                         .cookie(new Cookie(OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, tokens.refreshToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.accessToken").isNotEmpty())
@@ -118,7 +118,7 @@ class AuthFlowIT {
     void refreshesMobileTokenInResponseBody() throws Exception {
         AuthService.TokenPair tokens = authService.issueTokens(user);
 
-        MvcResult result = mockMvc.perform(post("/api/auth/mobile/refresh")
+        MvcResult result = mockMvc.perform(post("/auth/mobile/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + tokens.refreshToken() + "\"}"))
                 .andExpect(status().isOk())
@@ -139,7 +139,7 @@ class AuthFlowIT {
         AuthService.TokenPair winner = authService.refresh(first.refreshToken());     // 회전 발생
 
         // 옛 토큰을 다시 내밀면 저장된 해시와 다르므로 거부된다.
-        mockMvc.perform(post("/api/auth/refresh")
+        mockMvc.perform(post("/auth/refresh")
                         .cookie(new Cookie(OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, first.refreshToken())))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
@@ -151,7 +151,7 @@ class AuthFlowIT {
     @Test
     @DisplayName("재발급 — 쿠키가 없으면 401 이다")
     void rejectsRefreshWithoutCookie() throws Exception {
-        mockMvc.perform(post("/api/auth/refresh"))
+        mockMvc.perform(post("/auth/refresh"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
     }
@@ -161,12 +161,12 @@ class AuthFlowIT {
     void logoutExpiresCookieAndBlocksRefresh() throws Exception {
         AuthService.TokenPair tokens = authService.issueTokens(user);
 
-        mockMvc.perform(post("/api/auth/logout")
+        mockMvc.perform(post("/auth/logout")
                         .header("Authorization", "Bearer " + tokens.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(cookie().maxAge(OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, 0));
 
-        mockMvc.perform(post("/api/auth/refresh")
+        mockMvc.perform(post("/auth/refresh")
                         .cookie(new Cookie(OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, tokens.refreshToken())))
                 .andExpect(status().isUnauthorized());
     }
@@ -181,7 +181,7 @@ class AuthFlowIT {
     @Test
     @DisplayName("Apple 로그인 API는 공개되어 있고 키가 없으면 명확한 503을 반환한다")
     void appleLoginIsPublicAndUnavailableWithoutKey() throws Exception {
-        mockMvc.perform(post("/api/auth/apple")
+        mockMvc.perform(post("/auth/apple")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -198,7 +198,7 @@ class AuthFlowIT {
     @Test
     @DisplayName("Apple 로그인 요청의 깨진 JSON은 민감값을 로그로 넘기지 않고 400으로 처리한다")
     void rejectsMalformedAppleLoginJson() throws Exception {
-        mockMvc.perform(post("/api/auth/apple")
+        mockMvc.perform(post("/auth/apple")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"authorizationCode\":"))
                 .andExpect(status().isBadRequest())

@@ -61,7 +61,7 @@ class AuthControllerTest {
                 "raw-nonce-at-least-16-characters", "홍길동"))
                 .willReturn(new AuthService.TokenPair("service-access", "service-refresh"));
 
-        mockMvc.perform(post("/api/auth/apple")
+        mockMvc.perform(post("/auth/apple")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -83,7 +83,7 @@ class AuthControllerTest {
         given(authService.refresh("old-refresh"))
                 .willReturn(new AuthService.TokenPair("new-access", "new-refresh"));
 
-        mockMvc.perform(post("/api/auth/mobile/refresh")
+        mockMvc.perform(post("/auth/mobile/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"old-refresh\"}"))
                 .andExpect(status().isOk())
@@ -94,7 +94,7 @@ class AuthControllerTest {
 
     @Test
     void malformedAppleJsonReturns400() throws Exception {
-        mockMvc.perform(post("/api/auth/apple")
+        mockMvc.perform(post("/auth/apple")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"authorizationCode\":"))
                 .andExpect(status().isBadRequest())

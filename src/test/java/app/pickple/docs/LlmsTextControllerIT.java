@@ -74,7 +74,7 @@ class LlmsTextControllerIT {
         String body = mockMvc.perform(get("/llms.txt"))
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(body).contains("/api/auth/me");
+        assertThat(body).contains("/auth/me");
     }
 
     @Test
@@ -87,8 +87,8 @@ class LlmsTextControllerIT {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body)
-                .contains("/api/users/me/badges")
-                .contains("/api/users/me/badges/missions");
+                .contains("/users/me/badges")
+                .contains("/users/me/badges/missions");
     }
 
     @Test

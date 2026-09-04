@@ -123,7 +123,7 @@ class VoteControllerIT {
     @DisplayName("게스트는 투표할 수 없다")
     void guestCannotVote() throws Exception {
         // R-11. 인증이 없으면 도메인까지 가지 않고 401 이다.
-        mockMvc.perform(post("/api/posts/{postId}/votes", post.id())
+        mockMvc.perform(post("/posts/{postId}/votes", post.id())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(buyOptionId)))
                 .andExpect(status().isUnauthorized())
@@ -175,7 +175,7 @@ class VoteControllerIT {
         Post other = saveAgreePost("남의 글", PostCategory.LIVING);
         Long foreignOptionId = optionIdOf(other, 1);
 
-        mockMvc.perform(post("/api/posts/{postId}/votes", post.id())
+        mockMvc.perform(post("/posts/{postId}/votes", post.id())
                         .header("Authorization", bearer(voterToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(foreignOptionId)))
@@ -246,7 +246,7 @@ class VoteControllerIT {
                 new Post(author.id(), PostType.GENERAL, PostCategory.ETC, "그냥 잡담", null));
         createdPostIds.add(general.id());
 
-        mockMvc.perform(post("/api/posts/{postId}/votes", general.id())
+        mockMvc.perform(post("/posts/{postId}/votes", general.id())
                         .header("Authorization", bearer(voterToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(buyOptionId)))
@@ -257,7 +257,7 @@ class VoteControllerIT {
     @Test
     @DisplayName("선택지 id 가 없으면 400 이다")
     void rejectsMissingOptionId() throws Exception {
-        mockMvc.perform(post("/api/posts/{postId}/votes", post.id())
+        mockMvc.perform(post("/posts/{postId}/votes", post.id())
                         .header("Authorization", bearer(voterToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
@@ -285,7 +285,7 @@ class VoteControllerIT {
                 Long optionId = (i % 2 == 0) ? buyOptionId : skipOptionId;
                 results.add(pool.submit(() -> {
                     start.await();
-                    return mockMvc.perform(post("/api/posts/{postId}/votes", post.id())
+                    return mockMvc.perform(post("/posts/{postId}/votes", post.id())
                                     .header("Authorization", bearer(token))
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content(body(optionId)))
@@ -362,7 +362,7 @@ class VoteControllerIT {
     }
 
     private ResultActions vote(String token, Long optionId) throws Exception {
-        return mockMvc.perform(post("/api/posts/{postId}/votes", post.id())
+        return mockMvc.perform(post("/posts/{postId}/votes", post.id())
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body(optionId)));

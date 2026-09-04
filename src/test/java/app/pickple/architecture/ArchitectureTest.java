@@ -11,7 +11,6 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -266,25 +265,14 @@ class ArchitectureTest {
                                 || method.isAnnotatedWith(RequestMapping.class));
 
         /**
-         * ⚠️ 아직 켜지 않았다 — <b>규칙이 틀려서가 아니라 코드가 아직 안 따라와서다.</b>
+         * 경로를 알려면 클래스와 메서드 애노테이션을 머릿속에서 합성해야 한다(ADR-0029).
+         * 핸들러 메서드 한 줄만 보고 최종 경로를 알 수 있게 한다.
          *
-         * <p>지금 이 규칙을 켜면 {@code AuthController}·{@code UserProfileController}·
-         * {@code CommentController} 3개가 위반으로 잡힌다(실측). 이들을 고치는 것은
-         * 곧 {@code /api} prefix 를 걷어내는 일이고, 그건 <b>프론트 합의가 끝나야</b>
-         * 착수할 수 있는 API 계약 변경이다(ADR-0029 의 "열린 질문").
-         *
-         * <p>그럼에도 규칙을 지금 넣어두는 이유는, 컨트롤러 일괄 변경 PR 이
-         * {@code @Disabled} 한 줄만 지우면 되도록 <b>안전망을 미리 깔아두기 위해서다.</b>
-         * 규칙을 나중에 쓰면 그 사이에 들어온 컨트롤러가 옛 관행을 다시 심는다.
-         *
-         * <p><b>해제 조건</b>: 컨트롤러 5개의 클래스 레벨 매핑 제거 + SecurityConfig
-         * 매처 동기화가 끝나면 이 애노테이션을 지운다.
-         *
-         * <p>규칙이 실제로 무언가를 잡는다는 증거는 있다 — 이 애노테이션을 떼면
-         * 위 3개 클래스를 정확히 지목하며 실패한다(PR 본문에 기록).
+         * <p><b>이 규칙은 옛 관행이 다시 심기는 것을 막는다.</b> {@code /api} prefix 를
+         * 걷어내며(#91) 클래스 레벨 매핑을 전부 제거했는데, 규칙이 없으면 다음에 들어오는
+         * 컨트롤러가 같은 형태를 되살린다.
          */
         @Test
-        @Disabled("컨트롤러 일괄 변경(=/api prefix 제거, 프론트 합의 후) 시 이 줄을 지운다 — ADR-0029")
         @DisplayName("@RestController 는 클래스 레벨 @RequestMapping 을 갖지 않는다")
         void restControllersHaveNoClassLevelRequestMapping() {
             // 경로를 알려면 클래스와 메서드 애노테이션을 머릿속에서 합성해야 한다(ADR-0029).
@@ -336,7 +324,7 @@ class ArchitectureTest {
          * <p>⚠️ {@code value} 만 보면 안 된다. Spring 은 {@code value} 와 {@code path} 를
          * {@code @AliasFor} 로 묶지만 그 해석은 Spring 의 애노테이션 엔진이 하는 일이고,
          * ArchUnit 은 바이트코드를 그대로 읽으므로 <b>작성자가 쓴 속성만</b> 보인다.
-         * 실제로 ImageUploadController 는 {@code path = "/api/images"} 로 쓴다 —
+         * 실제로 ImageUploadController 는 {@code path = "/images"} 로 쓴다 —
          * {@code value} 만 검사하면 멀쩡한 코드가 위반으로 잡힌다.
          */
         private static Optional<String> mappingPathOf(JavaMethod method) {

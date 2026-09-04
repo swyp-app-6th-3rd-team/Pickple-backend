@@ -122,7 +122,7 @@ class BadgeControllerIT {
     }
 
     private void castVote(Post post, Long optionId) throws Exception {
-        mockMvc.perform(post("/api/posts/{postId}/votes", post.id())
+        mockMvc.perform(post("/posts/{postId}/votes", post.id())
                         .header("Authorization", "Bearer " + voterToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"optionId\":%d}".formatted(optionId)))
@@ -136,14 +136,14 @@ class BadgeControllerIT {
         @Test
         @DisplayName("미인증이면 401 이다 — 게스트에게는 미션을 보여주지 않는다")
         void guestIsUnauthorized() throws Exception {
-            mockMvc.perform(get("/api/users/me/badges"))
+            mockMvc.perform(get("/users/me/badges"))
                     .andExpect(status().isUnauthorized());
         }
 
         @Test
         @DisplayName("아무것도 얻지 못했어도 8종이 모두 내려오고 수집 개수는 0 이다")
         void listsAllBadgesWithNoneAcquired() throws Exception {
-            mockMvc.perform(get("/api/users/me/badges")
+            mockMvc.perform(get("/users/me/badges")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.returnObject.collectedCount").value(0))
@@ -159,7 +159,7 @@ class BadgeControllerIT {
             // 10회 투표 → 누적 10회(투표 꿈나무) 획득. 하루 20개에는 못 미친다.
             voteOnDistinctPosts(10);
 
-            mockMvc.perform(get("/api/users/me/badges")
+            mockMvc.perform(get("/users/me/badges")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.returnObject.collectedCount").value(1))
@@ -179,14 +179,14 @@ class BadgeControllerIT {
         void dailyBadgeBoundary() throws Exception {
             voteOnDistinctPosts(19);
 
-            mockMvc.perform(get("/api/users/me/badges")
+            mockMvc.perform(get("/users/me/badges")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(jsonPath("$.returnObject.badges[?(@.code == 'DAILY_VOTE_20')].acquired")
                             .value(false));
 
             voteOnDistinctPosts(1);
 
-            mockMvc.perform(get("/api/users/me/badges")
+            mockMvc.perform(get("/users/me/badges")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(jsonPath("$.returnObject.badges[?(@.code == 'DAILY_VOTE_20')].acquired")
                             .value(true));
@@ -197,13 +197,13 @@ class BadgeControllerIT {
         void totalBadgeBoundary() throws Exception {
             voteOnDistinctPosts(9);
 
-            mockMvc.perform(get("/api/users/me/badges")
+            mockMvc.perform(get("/users/me/badges")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(jsonPath("$.returnObject.collectedCount").value(0));
 
             voteOnDistinctPosts(1);
 
-            mockMvc.perform(get("/api/users/me/badges")
+            mockMvc.perform(get("/users/me/badges")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(jsonPath("$.returnObject.collectedCount").value(1));
         }
@@ -274,7 +274,7 @@ class BadgeControllerIT {
                     Long optionId = target.options().getFirst().id();
                     results.add(pool.submit(() -> {
                         start.await();
-                        return mockMvc.perform(post("/api/posts/{postId}/votes", target.id())
+                        return mockMvc.perform(post("/posts/{postId}/votes", target.id())
                                         .header("Authorization", "Bearer " + voterToken)
                                         .contentType(MediaType.APPLICATION_JSON)
                                         .content("{\"optionId\":%d}".formatted(optionId)))
@@ -342,7 +342,7 @@ class BadgeControllerIT {
                     Long optionId = (i % 2 == 0) ? optionA : optionB;
                     results.add(pool.submit(() -> {
                         start.await();
-                        return mockMvc.perform(post("/api/posts/{postId}/votes", shared.id())
+                        return mockMvc.perform(post("/posts/{postId}/votes", shared.id())
                                         .header("Authorization", "Bearer " + token)
                                         .contentType(MediaType.APPLICATION_JSON)
                                         .content("{\"optionId\":%d}".formatted(optionId)))
@@ -383,7 +383,7 @@ class BadgeControllerIT {
         @Test
         @DisplayName("미인증이면 401 이다")
         void guestIsUnauthorized() throws Exception {
-            mockMvc.perform(get("/api/users/me/badges/missions"))
+            mockMvc.perform(get("/users/me/badges/missions"))
                     .andExpect(status().isUnauthorized());
         }
 
@@ -392,7 +392,7 @@ class BadgeControllerIT {
         void returnsLowestPerSeries() throws Exception {
             voteOnDistinctPosts(3);
 
-            mockMvc.perform(get("/api/users/me/badges/missions")
+            mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(status().isOk())
                     // 누적 계열 1개 + 일일 계열 1개. 연속은 슬롯에 들어가지 않는다.
@@ -410,7 +410,7 @@ class BadgeControllerIT {
         void advancesToNextThreshold() throws Exception {
             voteOnDistinctPosts(10);
 
-            mockMvc.perform(get("/api/users/me/badges/missions")
+            mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(status().isOk())
                     // 10회를 채웠으니 누적 슬롯은 100회로 넘어간다.
@@ -426,7 +426,7 @@ class BadgeControllerIT {
             // 누적은 30 이라 100회 미션이 남는다.
             voteOnDistinctPosts(30);
 
-            mockMvc.perform(get("/api/users/me/badges/missions")
+            mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(status().isOk())
                     // 일일 슬롯이 사라져 누적 하나만 남는다.
@@ -440,13 +440,13 @@ class BadgeControllerIT {
         void progressMovesImmediately() throws Exception {
             voteOnDistinctPosts(1);
 
-            mockMvc.perform(get("/api/users/me/badges/missions")
+            mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(jsonPath("$.returnObject[1].current").value(1));
 
             voteOnDistinctPosts(1);
 
-            mockMvc.perform(get("/api/users/me/badges/missions")
+            mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(jsonPath("$.returnObject[1].current").value(2));
         }

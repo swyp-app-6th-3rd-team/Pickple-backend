@@ -122,7 +122,7 @@ class OnePickControllerIT {
         pickExpectingCreated(comment.id());
 
         // 유일성 범위가 게시글이 아니라 댓글이었다면 이 요청이 201 로 통과한다.
-        mockMvc.perform(post("/api/comments/{id}/pick", another.id())
+        mockMvc.perform(post("/comments/{id}/pick", another.id())
                         .header("Authorization", bearer(pickerToken)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ALREADY_PICKED"));
@@ -137,7 +137,7 @@ class OnePickControllerIT {
     void repickingSameCommentConflicts() throws Exception {
         pickExpectingCreated(comment.id());
 
-        mockMvc.perform(post("/api/comments/{id}/pick", comment.id())
+        mockMvc.perform(post("/comments/{id}/pick", comment.id())
                         .header("Authorization", bearer(pickerToken)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ALREADY_PICKED"));
@@ -149,7 +149,7 @@ class OnePickControllerIT {
     @DisplayName("자기 댓글은 원픽할 수 없다 — 400 (R-07)")
     void cannotPickOwnComment() throws Exception {
         // 인가 실패가 아니라 요청 자체가 무효라 403 이 아니라 400 이다.
-        mockMvc.perform(post("/api/comments/{id}/pick", comment.id())
+        mockMvc.perform(post("/comments/{id}/pick", comment.id())
                         .header("Authorization", bearer(authorToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
@@ -174,7 +174,7 @@ class OnePickControllerIT {
     @Test
     @DisplayName("인증 없이는 픽할 수 없다 — 401")
     void guestCannotPick() throws Exception {
-        mockMvc.perform(post("/api/comments/{id}/pick", comment.id()))
+        mockMvc.perform(post("/comments/{id}/pick", comment.id()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
@@ -184,7 +184,7 @@ class OnePickControllerIT {
     @Test
     @DisplayName("없는 댓글을 픽하면 400")
     void missingCommentRejected() throws Exception {
-        mockMvc.perform(post("/api/comments/{id}/pick", -1L)
+        mockMvc.perform(post("/comments/{id}/pick", -1L)
                         .header("Authorization", bearer(pickerToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
@@ -198,7 +198,7 @@ class OnePickControllerIT {
         loaded.delete();
         commentStore.save(loaded);
 
-        mockMvc.perform(post("/api/comments/{id}/pick", comment.id())
+        mockMvc.perform(post("/comments/{id}/pick", comment.id())
                         .header("Authorization", bearer(pickerToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
@@ -213,7 +213,7 @@ class OnePickControllerIT {
         loaded.delete();
         postStore.save(loaded);
 
-        mockMvc.perform(post("/api/comments/{id}/pick", comment.id())
+        mockMvc.perform(post("/comments/{id}/pick", comment.id())
                         .header("Authorization", bearer(pickerToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
@@ -222,7 +222,7 @@ class OnePickControllerIT {
     }
 
     private Long pickExpectingCreated(Long commentId) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/comments/{id}/pick", commentId)
+        MvcResult result = mockMvc.perform(post("/comments/{id}/pick", commentId)
                         .header("Authorization", bearer(pickerToken)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("CREATED"))
