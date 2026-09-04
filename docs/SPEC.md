@@ -268,6 +268,52 @@ app/pickple/
 
 ---
 
+### 3.9 뱃지
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/api/users/me/badges` | 필요 | 내 뱃지 현황(획득·미획득) + 수집 개수 |
+| GET | `/api/users/me/badges/missions` | 필요 | 미해제 미션 진행률 |
+
+- **둘 다 인증이 필요하다.** 게스트에게는 미션을 보여주지 않고 "로그인하고 뱃지를
+  획득해보세요" 를 띄우는 것이 명세다(§2.3) — 그 문구는 화면의 몫이고 서버는 401 이다.
+  별도 매처 없이 `anyRequest().authenticated()` 에 걸린다.
+- **뱃지 8종은 `badge` 테이블의 행이다**([ADR-0031](adr/0031-badge-daily-activity-aggregate.md)).
+  정책 정본이 "뱃지명은 추후 수정됩니다" 를 명시하므로 이름은 데이터이고,
+  식별자는 조건에서 딴 `code`(`TOTAL_VOTE_10` …)다. 이름이 바뀌면 행을 UPDATE 하면 되고
+  코드도 마이그레이션도 손대지 않는다. 반대로 조건 유형 셋(R-18)은 안정 계약이라 enum 이다.
+  → 클라이언트는 일러스트를 고를 때 `name` 이 아니라 **`code`** 를 쓴다.
+- 현황 응답은 **미획득 뱃지도 포함**한다. 3X3 목록이 미획득의 이름은 보여주고 일러스트만
+  가리기 때문이다(§12.2). 서버가 빼면 화면이 빈 칸을 그릴 수 없다.
+- `collectedCount` 는 §12.1 의 조회 데이터가 이 값 하나라 별도 엔드포인트 없이 여기 실었다.
+- **미션은 계열마다 하나씩**이다(§2.3). 누적 계열과 일일 계열에서 각각 **아직 못 넘은 가장 낮은
+  임계값**을 고른다 — "하위 미션 먼저 표시" 다. 다 채운 계열은 빠지고, 8종을 모두 얻으면 빈 배열이다.
+  **연속 계열은 슬롯에 넣지 않는다** — 명세가 슬롯을 둘로 못박았고 `<조회 데이터>` 에도 없다.
+- **진행률은 `current`·`goal` 두 수**다. 명세의 표기가 `누적 투표 10회 달성 (0/10)` 이라
+  퍼센트로 환산해 내리면 클라이언트가 `0/1000` 을 렌더할 수 없다. `current` 는 목표를 넘지 않는다.
+- **투표하면 그 자리에서 반영된다.** 판정이 투표와 같은 트랜잭션에서 돌기 때문이다 —
+  커밋 후로 미루면 투표는 커밋되고 활동 기록만 유실되어 집계가 조용히 어긋난다.
+
+**판정 규칙**
+
+- **일일·연속·누적을 모두 `user_daily_activity` 에서 유도한다**(R-19). `vote` 에서 직접 구하면
+  `DATE(created_at)` 이 인덱스를 무력화하고 연속 판정은 그 회원의 투표를 전부 훑는다 —
+  1,000회 투표한 사람의 "7일 연속" 에 1,000행이다. 집계 테이블은 활동한 날 수만큼만 행을 가져
+  연속은 최근 31행, 일일은 행 하나로 끝난다(실측: `range` + `Using index; Backward index scan`).
+- **누적 투표 횟수는 `users.vote_count` 가 아니라 일별 합계다.** 그 컬럼은 V3 에 있지만
+  아무도 채우지 않아 값이 전부 0 이다. 같은 사실을 두 곳이 표현하면 어긋나므로
+  별도 카운터도 두지 않는다(V5 가 같은 이유로 컬럼 하나를 걷어냈다).
+- **재투표는 일별 활동을 늘리지 않는다**(R-22). 판정이 `VoteService` 의 첫 투표 경로에만
+  붙어 있어 선택 변경으로는 "하루 20개" 가 채워지지 않는다.
+- **같은 뱃지를 두 번 주지 않는다**(R-17). `UNIQUE(user_id, badge_id)` 가 최종 방어선이다 —
+  확인과 삽입 사이에 동시 투표가 끼어들 수 있다. 지급은 유일성을 사전 확인하고 저장하며
+  무결성 예외를 삼키지 않는다(삼키면 트랜잭션이 rollback-only 가 되어 투표가 통째로 실패한다).
+- **연속의 기준일은 오늘 행의 유무가 정한다.** 오늘 투표했으면 오늘부터, 아직 안 했으면
+  어제부터 거슬러 센다 — 어제까지 6일을 채운 사람이 오늘 아침에 `0/7` 을 보면 끊긴 줄 안다.
+  획득 판정은 투표 직후에만 돌아 그 시점엔 오늘 행이 반드시 있으므로 느슨해지지 않는다.
+- 날짜는 애플리케이션이 `Asia/Seoul` `Clock` 으로 계산해 넘긴다. SQL 의 `CURRENT_DATE` 를 쓰면
+  DB 세션 타임존이 하루를 정해, 자정 근처에서 사용자가 보는 하루와 갈린다.
+
 ## 4. 스키마
 
 ### 4.1 인증 3개
@@ -296,6 +342,39 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V5__active_nickname_follows_state.sql` | `db/migration` | 항상 |
 | `V7__users_ranking_precompute.sql` | `db/migration` | 항상 |
 | `V8__grade.sql` | `db/migration` | 항상 |
+| `V9__badge.sql` | `db/migration` | 항상 |
+
+> **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
+> 번호를 메우지 않는다 — 단조 증가만 유지하면
+> out-of-order 를 켜지 않고도 적용된다.
+
+### 4.3 뱃지 3개 (V9)
+
+```sql
+badge(id, code, name, description, condition_type, threshold, display_order,
+      created_at, updated_at,
+      UNIQUE KEY uk_badge_code (code),
+      UNIQUE KEY uk_badge_condition (condition_type, threshold),
+      CHECK condition_type IN ('TOTAL_VOTE','DAILY_VOTE','STREAK_VOTE'))
+
+user_badge(id, user_id, badge_id, acquired_at,
+      UNIQUE KEY uk_user_badge (user_id, badge_id),      -- R-17 최종 방어선
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (badge_id) REFERENCES badge(id))
+
+user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_at,
+      UNIQUE KEY uk_daily_user_date (user_id, activity_date),   -- UPSERT 충돌 지점
+      FOREIGN KEY (user_id) REFERENCES users(id))
+```
+
+- `badge` 8행은 마이그레이션이 넣는다. **애플리케이션은 이 테이블에 쓰지 않는다** —
+  이름이 바뀌면 운영 DB 를 UPDATE 한다(적용된 마이그레이션은 다시 돌지 않으므로
+  V9 를 고쳐도 반영되지 않고 체크섬만 어긋난다).
+- `uk_daily_user_date` 의 컬럼 순서 `(user_id, activity_date)` 가 계약이다. 뒤집으면
+  연속 판정이 그 회원의 행을 모으지 못해 전체를 훑는다.
+- V9 는 기존 `vote` 를 일별 집계로 **백필**한다. 빈 채로 두면 배포 직후 모든 회원의
+  누적 투표가 0 이 되는데 에러가 나지 않아 사용자가 신고해야 발견된다.
+- `user_badge` 에 UPDATE·DELETE 경로가 없다. 뱃지는 한 번 얻으면 남고 회수 정책이 없다.
 
 ---
 
@@ -441,3 +520,4 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | 2026-09-03 | 원픽 API 계약 추가. 중복 원픽을 `ALREADY_PICKED`(409) 로 매핑 | Issue #24. 매핑이 없어 정책 위반이 500 으로 나가고 있었음 |
 | 2026-09-03 | 목록 응답에 `authorRanking` 추가. 5분 주기 배치로 사전 계산 | Issue #73. 조회 시점 계산은 200k 기준 102ms/조각이라 배치로 옮김(ADR-0028) |
 | 2026-09-03 | 투표 참여 계약 추가. 선택지별 집계 카운터와 투표 시 락 순서 규정 | Issue #21. 동시 투표에서 `post` 행 락 승격으로 교착이 재현돼 순서를 못박음 |
+| 2026-09-04 | 뱃지 현황·미션 계약 추가. 판정을 `user_daily_activity` 집계로 (V9) | Issue #27. `vote` 직접 조회는 연속 판정이 회원의 투표 전체를 훑고 그 판정이 투표마다 일어난다(ADR-0031). 뱃지 이름은 정책이 변경을 예고해 데이터로 뒀다 |

@@ -6,6 +6,7 @@ import app.pickple.post.domain.PostOption;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.service.ActivePostGuard;
 import app.pickple.vote.domain.Vote;
+import app.pickple.vote.domain.VoteActivityRecorder;
 import app.pickple.vote.domain.VoteStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class VoteService {
     private final PostStore postStore;
     private final ActivePostGuard activePost;
     private final PostCounters counters;
+    private final VoteActivityRecorder badges;
 
     /**
      * 투표하거나 선택을 바꾸고, 갱신된 집계를 돌려준다.
@@ -67,11 +69,25 @@ public class VoteService {
      *
      * <p>X 를 먼저 잡으면 뒤늦게 온 요청은 순서를 기다릴 뿐 고리가 생기지 않는다.
      * 같은 트랜잭션 안이라 순서를 바꿔도 원자성은 그대로다.
+     *
+     * <p><b>일별 활동 기록과 뱃지 판정이 여기에만 붙는다</b> (R-22). 선택 변경은 새 활동이
+     * 아니므로 {@link #changeChoice} 에는 없다 — 재투표로 "하루 20개" 가 채워지면
+     * 뱃지가 잘못 나간다. 두 경로가 이미 갈려 있어 호출을 잊을 자리가 없다.
+     *
+     * <p>순서는 <b>맨 뒤</b>다. 이 트랜잭션이 잠그는 테이블이 하나(회원) 늘어나는데,
+     * <b>모든 경로가 같은 순서로 잡아야</b> 서로 반대 방향으로 도는 트랜잭션이 생기지 않는다.
+     * ERD 초안 §8.8 이 정한 순서(투표 → 선택지 → 게시글 → 회원 → 일별 집계)의 끝자락이라
+     * 여기가 그 자리다.
+     *
+     * <p>락을 <b>쥐는 시간</b>이 줄어드는 것은 아니다 — InnoDB 의 FK 공유 락은 문장이
+     * 끝나도 커밋까지 유지되므로, 순서를 바꿔도 총 보유 시간은 트랜잭션 길이와 같다.
+     * 얻는 것은 순서의 일관성뿐이고, 그것이 교착을 막는 실제 장치다.
      */
     private void castFirst(Long postId, Long optionId, Long voterId) {
         counters.increaseVoteCount(postId);
         counters.increaseOptionVoteCount(optionId);
         voteStore.save(new Vote(postId, optionId, voterId));
+        badges.recordVoteAndEvaluate(voterId);
     }
 
     /**
