@@ -30,12 +30,11 @@
 app/pickple/
 ├── common/          ApiResponse · ResponseCode · PageResponse · ScrollResponse
 │                    CursorCodec · CorrelationIdFilter
-│   └── config/      KakaoUnlinkClientConfig
 ├── config/          ClockConfig · QuerydslConfig · ScalarConfig
 │                    SecurityConfig · AuthProperties · AppleProperties · KakaoProperties
-│                    FileStorageProperties · S3FileStorageConfig
-│                    ※ 앱 전역 설정은 여기, 공용 기술 설정은 common/config 에 모은다.
-│                      기능별 config 하위 패키지는 ArchitectureTest 가 막는다(#63)
+│                    FileStorageProperties · S3FileStorageConfig · KakaoUnlinkClientConfig
+│                    ※ 설정은 여기 하나로 모은다. 도메인별 config 하위 패키지는
+│                      ArchitectureTest 가 막는다(#63)
 ├── docs/            LlmsTxtController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
@@ -662,7 +661,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
-| 2026-09-05 | 공용 기술 설정 위치로 `common/config`를 허용하고 Kakao unlink HTTP Interface 구성을 이동 | PR #105 리뷰. 기능별 `config` 패키지 금지는 유지 |
+| 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |
 | 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
 | 2026-09-04 | Kakao 네이티브 ID token 로그인·프로필 분기 응답·서버 주도 unlink 추가 | Issue #101. iOS Kakao SDK 로그인과 탈퇴를 브라우저 OAuth 및 앱의 별도 호출 조율 없이 지원 |

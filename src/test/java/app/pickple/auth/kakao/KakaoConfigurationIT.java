@@ -1,7 +1,7 @@
 package app.pickple.auth.kakao;
 
-import app.pickple.common.config.KakaoUnlinkClientConfig;
 import app.pickple.config.KakaoProperties;
+import app.pickple.config.KakaoUnlinkClientConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

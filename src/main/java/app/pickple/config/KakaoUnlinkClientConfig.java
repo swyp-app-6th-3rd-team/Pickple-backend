@@ -1,7 +1,6 @@
-package app.pickple.common.config;
+package app.pickple.config;
 
 import app.pickple.auth.kakao.KakaoUnlinkClient;
-import app.pickple.config.KakaoProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
