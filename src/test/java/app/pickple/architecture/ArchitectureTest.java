@@ -395,6 +395,7 @@ class ArchitectureTest {
                 "GET /rankings",
                 "GET /rankings/top",
                 "POST /auth/apple",
+                "POST /auth/kakao",
                 "POST /auth/refresh",
                 "POST /auth/mobile/refresh",
                 "POST /auth/logout");

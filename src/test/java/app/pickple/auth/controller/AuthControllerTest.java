@@ -1,6 +1,7 @@
 package app.pickple.auth.controller;
 
 import app.pickple.auth.apple.AppleAuthService;
+import app.pickple.auth.kakao.KakaoAuthService;
 import app.pickple.config.AuthProperties;
 import app.pickple.auth.service.AuthService;
 import app.pickple.auth.service.AccountWithdrawalService;
@@ -20,6 +21,7 @@ import java.util.List;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -33,6 +35,8 @@ class AuthControllerTest {
     private AuthService authService;
     @Mock
     private AppleAuthService appleAuthService;
+    @Mock
+    private KakaoAuthService kakaoAuthService;
     @Mock
     private AccountWithdrawalService accountWithdrawalService;
 
@@ -48,10 +52,92 @@ class AuthControllerTest {
                 new AuthProperties.Auth("http://localhost/callback", List.of("localhost"), false),
                 new AuthProperties.Cors(List.of("http://localhost")));
         controller = new AuthController(
-                authService, appleAuthService, accountWithdrawalService, properties);
+                authService, appleAuthService, kakaoAuthService, accountWithdrawalService, properties);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void returnsKakaoTokensAndIncompleteProfileWithoutCaching() throws Exception {
+        given(kakaoAuthService.login("identity-token", "nonce-at-least-16-characters"))
+                .willReturn(new AuthService.LoginResult(
+                        new AuthService.TokenPair("service-access", "service-refresh"), false));
+
+        mockMvc.perform(post("/auth/kakao")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "identityToken": "identity-token",
+                                  "nonce": "nonce-at-least-16-characters"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.accessToken").value("service-access"))
+                .andExpect(jsonPath("$.returnObject.refreshToken").value("service-refresh"))
+                .andExpect(jsonPath("$.returnObject.profileCompleted").value(false))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Pragma", "no-cache"));
+
+        verify(kakaoAuthService).login("identity-token", "nonce-at-least-16-characters");
+    }
+
+    @Test
+    void returnsCompletedProfileForReturningKakaoUser() throws Exception {
+        given(kakaoAuthService.login("identity-token", "nonce-at-least-16-characters"))
+                .willReturn(new AuthService.LoginResult(
+                        new AuthService.TokenPair("service-access", "service-refresh"), true));
+
+        mockMvc.perform(post("/auth/kakao")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "identityToken": "identity-token",
+                                  "nonce": "nonce-at-least-16-characters"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.profileCompleted").value(true));
+    }
+
+    @Test
+    void rejectsInvalidKakaoRequestWithoutCallingService() throws Exception {
+        mockMvc.perform(post("/auth/kakao")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "identityToken": "identity-token",
+                                  "nonce": "short"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(post("/auth/kakao")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "identityToken": " ",
+                                  "nonce": "nonce-at-least-16-characters"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        verifyNoInteractions(kakaoAuthService);
+    }
+
+    @Test
+    void kakaoRequestAndResponseStringsRedactCredentials() {
+        var request = new AuthController.KakaoLoginRequest("secret-token", "secret-nonce-value");
+        var response = new AuthController.KakaoLoginResponse("secret-access", "secret-refresh", false);
+
+        assertThat(request.toString())
+                .isEqualTo("KakaoLoginRequest[redacted]")
+                .doesNotContain("secret-token", "secret-nonce-value");
+        assertThat(response.toString())
+                .isEqualTo("KakaoLoginResponse[redacted]")
+                .doesNotContain("secret-access", "secret-refresh");
     }
 
     @Test

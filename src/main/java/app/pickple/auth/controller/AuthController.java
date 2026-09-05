@@ -1,14 +1,15 @@
 package app.pickple.auth.controller;
 
 import app.pickple.auth.apple.AppleAuthService;
-import app.pickple.config.AuthProperties;
 import app.pickple.auth.domain.User;
+import app.pickple.auth.kakao.KakaoAuthService;
 import app.pickple.auth.oauth.OAuth2SuccessHandler;
 import app.pickple.auth.security.CurrentUser;
 import app.pickple.auth.service.AccountWithdrawalService;
 import app.pickple.auth.service.AuthService;
 import app.pickple.common.ApiResponse;
 import app.pickple.common.ResponseCode;
+import app.pickple.config.AuthProperties;
 import app.pickple.error.ApiException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -35,6 +36,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final AppleAuthService appleAuthService;
+    private final KakaoAuthService kakaoAuthService;
     private final AccountWithdrawalService accountWithdrawalService;
     private final AuthProperties properties;
 
@@ -50,6 +52,18 @@ public class AuthController {
                 request.authorizationCode(), request.identityToken(), request.rawNonce(), request.name());
         preventTokenCaching(response);
         return ApiResponse.success(MobileTokenResponse.from(tokens));
+    }
+
+    @Operation(summary = "Kakao 네이티브 로그인",
+            description = "iOS Kakao SDK가 받은 OIDC ID token과 로그인 요청에 사용한 원문 nonce를 "
+                    + "서버에서 검증한 뒤 서비스 JWT와 프로필 등록 완료 여부를 반환한다.")
+    @PostMapping("/auth/kakao")
+    public ApiResponse<KakaoLoginResponse> kakaoLogin(
+            @Valid @RequestBody KakaoLoginRequest request,
+            HttpServletResponse response) {
+        AuthService.LoginResult result = kakaoAuthService.login(request.identityToken(), request.nonce());
+        preventTokenCaching(response);
+        return ApiResponse.success(KakaoLoginResponse.from(result));
     }
 
     @Operation(summary = "내 정보",
@@ -101,7 +115,8 @@ public class AuthController {
     @Operation(summary = "회원 탈퇴",
             description = "Apple 사용자는 저장된 provider refresh token으로 Apple 연결을 해제한 뒤 계정을 비활성화한다. "
                     + "Apple 일시 장애 시 로컬 상태를 변경하지 않고 503을 반환하므로 재시도할 수 있다. "
-                    + "저장된 provider token이 없으면 로컬 탈퇴를 완료하고 수동 연결 해제가 필요한 성공 코드를 반환한다.")
+                    + "저장된 provider token이 없으면 로컬 탈퇴를 완료하고 수동 연결 해제가 필요한 성공 코드를 반환한다. "
+                    + "Kakao 사용자는 서버가 Kakao 연결을 먼저 해제한 뒤 로컬 탈퇴를 확정한다.")
     @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/auth/me")
     public ApiResponse<Void> withdraw(@Parameter(hidden = true) @CurrentUser Long userId,
@@ -182,6 +197,25 @@ public class AuthController {
         }
     }
 
+    /** Kakao 로그인은 프로필 등록 화면 분기에 필요한 상태를 토큰과 함께 반환한다. */
+    public record KakaoLoginResponse(
+            @Schema(description = "서비스 액세스 토큰") String accessToken,
+            @Schema(description = "서비스 리프레시 토큰. Keychain에 보관한다") String refreshToken,
+            @Schema(description = "서비스 프로필 등록 완료 여부. false이면 프로필 등록이 필요하다")
+            boolean profileCompleted) {
+
+        static KakaoLoginResponse from(AuthService.LoginResult result) {
+            AuthService.TokenPair tokens = result.tokens();
+            return new KakaoLoginResponse(
+                    tokens.accessToken(), tokens.refreshToken(), result.profileCompleted());
+        }
+
+        @Override
+        public String toString() {
+            return "KakaoLoginResponse[redacted]";
+        }
+    }
+
     public record AppleLoginRequest(
             @Schema(description = "Apple 이 준 authorization code. 일회성 교환이 재전송 방어다")
             @NotBlank @Size(max = 4096) String authorizationCode,
@@ -196,6 +230,18 @@ public class AuthController {
         @Override
         public String toString() {
             return "AppleLoginRequest[redacted]";
+        }
+    }
+
+    public record KakaoLoginRequest(
+            @Schema(description = "Kakao SDK가 발급한 OIDC ID token")
+            @NotBlank @Size(max = 16_384) String identityToken,
+            @Schema(description = "로그인마다 새로 만들고 Kakao SDK 요청에도 사용한 원문 nonce")
+            @NotBlank @Size(min = 16, max = 512) String nonce) {
+
+        @Override
+        public String toString() {
+            return "KakaoLoginRequest[redacted]";
         }
     }
 

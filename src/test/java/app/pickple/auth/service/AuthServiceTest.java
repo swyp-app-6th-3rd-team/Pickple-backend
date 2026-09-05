@@ -122,6 +122,65 @@ class AuthServiceTest {
         assertThat(result.name()).isEqualTo("홍길동");
     }
 
+    @DisplayName("Kakao 재로그인 — 선택 프로필 claim이 없으면 기존 값을 보존한다")
+    @Test
+    void preservesKakaoProfileWhenOptionalClaimsAreMissing() {
+        User existing = User.restore(10L, SocialProvider.KAKAO, "kakao-sub",
+                "old@example.com", "기존이름", Role.ROLE_USER, User.State.ACTIVE,
+                null, null);
+        given(userStore.findByProviderAndProviderId(SocialProvider.KAKAO, "kakao-sub"))
+                .willReturn(Optional.of(existing));
+        given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
+
+        User result = authService.loginOrRegister(
+                OAuth2UserInfo.of("kakao", Map.of("id", "kakao-sub")));
+
+        assertThat(result.email()).isEqualTo("old@example.com");
+        assertThat(result.name()).isEqualTo("기존이름");
+    }
+
+    @DisplayName("네이티브 로그인 완료 — 신규 사용자는 프로필 미완료와 서비스 토큰을 반환한다")
+    @Test
+    void completesLoginForNewUserWithIncompleteProfile() {
+        given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "native-sub"))
+                .willReturn(Optional.empty());
+        given(userStore.save(any(User.class))).willAnswer(inv -> {
+            User user = inv.getArgument(0);
+            return User.restore(11L, user.provider(), user.providerId(), user.email(), user.name(),
+                    user.role(), user.state(), null, null);
+        });
+
+        AuthService.LoginResult result = authService.completeLogin(googleUser("native-sub"));
+
+        assertThat(result.profileCompleted()).isFalse();
+        assertThat(result.tokens().accessToken()).isNotBlank();
+        assertThat(result.tokens().refreshToken()).isNotBlank();
+        verify(refreshTokenStore).store(
+                org.mockito.ArgumentMatchers.eq(11L),
+                org.mockito.ArgumentMatchers.eq(JwtService.hash(result.tokens().refreshToken())),
+                any(LocalDateTime.class));
+        assertThat(result.toString())
+                .isEqualTo("LoginResult[redacted]")
+                .doesNotContain(result.tokens().accessToken(), result.tokens().refreshToken());
+    }
+
+    @DisplayName("네이티브 로그인 완료 — 닉네임이 있는 기존 사용자는 프로필 완료를 반환한다")
+    @Test
+    void completesLoginForExistingUserWithCompletedProfile() {
+        User existing = User.restore(12L, SocialProvider.GOOGLE, "profile-sub",
+                "old@example.com", "기존이름", Role.ROLE_USER, User.State.ACTIVE,
+                "완료닉네임", "https://images.example/profile.png");
+        given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "profile-sub"))
+                .willReturn(Optional.of(existing));
+        given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
+
+        AuthService.LoginResult result = authService.completeLogin(googleUser("profile-sub"));
+
+        assertThat(result.profileCompleted()).isTrue();
+        assertThat(result.tokens().accessToken()).isNotBlank();
+        assertThat(result.tokens().refreshToken()).isNotBlank();
+    }
+
     @DisplayName("Apple 재로그인 — 앱이 보낸 이름으로 기존 이름을 덮어쓰지 않는다")
     @Test
     void doesNotOverwriteAppleNameOnRelogin() {

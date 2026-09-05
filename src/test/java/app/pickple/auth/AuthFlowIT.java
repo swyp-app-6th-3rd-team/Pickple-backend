@@ -22,6 +22,7 @@ import org.springframework.web.context.WebApplicationContext;
 import org.springframework.security.web.FilterChainProxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
@@ -179,6 +180,16 @@ class AuthFlowIT {
     }
 
     @Test
+    @DisplayName("브라우저 Kakao 로그인 진입점도 Kakao 인가 서버로 리다이렉트한다")
+    void redirectsBrowserKakaoLoginToProvider() throws Exception {
+        mockMvc.perform(get("/oauth2/authorization/kakao"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string(
+                        "Location",
+                        org.hamcrest.Matchers.startsWith("https://kauth.kakao.com/oauth/authorize")));
+    }
+
+    @Test
     @DisplayName("Apple 로그인 API는 공개되어 있고 키가 없으면 명확한 503을 반환한다")
     void appleLoginIsPublicAndUnavailableWithoutKey() throws Exception {
         mockMvc.perform(post("/auth/apple")
@@ -193,6 +204,48 @@ class AuthFlowIT {
                                 """))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("APPLE_LOGIN_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("Kakao 로그인 API는 공개되어 있고 네이티브 앱 키가 없으면 명확한 503을 반환한다")
+    void kakaoLoginIsPublicAndUnavailableWithoutKey() throws Exception {
+        mockMvc.perform(post("/auth/kakao")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "identityToken": "identity-token",
+                                  "nonce": "nonce-at-least-16-characters"
+                                }
+                                """))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("KAKAO_LOGIN_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("Kakao 로그인 요청의 깨진 JSON은 400으로 처리한다")
+    void rejectsMalformedKakaoLoginJson() throws Exception {
+        mockMvc.perform(post("/auth/kakao")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"identityToken\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("Kakao Admin 키가 없으면 탈퇴를 503으로 거부하고 로컬 계정을 보존한다")
+    void kakaoWithdrawalPreservesLocalStateWithoutAdminKey() throws Exception {
+        User kakao = userStore.save(new User(SocialProvider.KAKAO, "withdraw-kakao-sub", null, null));
+        AuthService.TokenPair tokens = authService.issueTokens(kakao);
+
+        mockMvc.perform(delete("/auth/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("KAKAO_ACCOUNT_REVOCATION_UNAVAILABLE"));
+
+        assertThat(userStore.findById(kakao.id()))
+                .get()
+                .extracting(User::isActive)
+                .isEqualTo(true);
     }
 
     @Test
