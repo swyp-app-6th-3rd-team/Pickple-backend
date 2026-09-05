@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -248,6 +249,21 @@ class WithdrawnUserAuthorizationIT {
     @Nested
     @DisplayName("인증 경로 예외 — 관문이 대신할 수 없는 곳")
     class AuthPaths {
+
+        @Test
+        @DisplayName("탈퇴 재호출이 200 이 아니라 401 이 된다 — 의식적으로 수용한 계약 변경")
+        void repeatedWithdrawalIsNoLongerIdempotent() throws Exception {
+            // 이전에는 `DELETE /auth/me` 재호출이 멱등하게 200 이었다(E2E §D-5).
+            // 중앙 차단이 들어가면 두 번째 호출이 관문에 막혀 401 이 된다.
+            //
+            // 외부에 보이는 계약 변경이라 <b>테스트로 명시한다.</b> 이걸 적어 두지 않으면
+            // 나중에 누가 "왜 멱등성이 깨졌지" 하고 되돌리려 할 수 있다 —
+            // 이미 탈퇴한 계정이 탈퇴 API 를 다시 부르는 것은 정상 흐름이 아니고,
+            // 관문에 예외를 뚫는 비용이 그 멱등성의 가치보다 크다고 판단했다(PRD-021).
+            // 이 계약 변경은 #108 에 알린다.
+            mockMvc.perform(delete("/auth/me").header("Authorization", bearer(withdrawnToken)))
+                    .andExpect(status().isUnauthorized());
+        }
 
         @Test
         @DisplayName("C-7 탈퇴자도 로그아웃해 쿠키를 지울 수 있다")
