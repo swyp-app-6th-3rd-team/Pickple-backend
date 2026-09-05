@@ -26,7 +26,7 @@ OUT_STATIC_DIR="src/main/resources/static/docs"
 mkdir -p "$OUT_STATIC_DIR"
 
 python3 - <<'PY'
-import base64, json, pathlib, re, sys, urllib.request, zlib
+import base64, hashlib, json, pathlib, re, sys, urllib.request, zlib
 
 # 테마 중립 팔레트.
 #
@@ -97,6 +97,11 @@ def render(src: str, out: str, serve: str | None) -> None:
     rect = f'<rect width="100%" height="100%" fill="{SURFACE}"/>'
     svg = re.sub(r'(<svg[^>]*>)', r'\1' + rect, svg, count=1)
 
+    # 소스 해시를 산출물에 새긴다. check-erd-drift.sh 가 이 값으로 신선도를 판정한다 —
+    # mtime 은 git 체크아웃이 전부 같은 값으로 만들어 CI 에서 무력하다.
+    digest = hashlib.sha256(pathlib.Path(src).read_bytes()).hexdigest()
+    svg = svg.replace("<svg", f"<!-- erd-source-sha256:{digest} -->\n<svg", 1)
+
     pathlib.Path(out).write_text(svg, encoding="utf-8")
     print(f"{out}  {len(svg):,} bytes  ({w:.0f}x{h:.0f}, <text> {svg.count('<text')}개)")
 
@@ -135,4 +140,8 @@ fi
 "$NODE_BIN" "$ARCHIFY" deliver architecture "$SPEC" "$HTML" --quality showcase
 # visual-check 가 산출물 옆에 스크린샷·접촉 시트를 떨군다. 서빙 디렉터리에 남기지 않는다.
 rm -f src/main/resources/static/docs/erd.visual-check.*
+
+# SVG 와 같은 이유로 소스 해시를 새긴다. archify 는 산출물을 서명하므로 덮어쓰지 않고
+# 주석 한 줄만 덧붙인다 — 렌더 내용은 건드리지 않는다.
+printf '\n<!-- erd-source-sha256:%s -->\n' "$(shasum -a 256 "$SPEC" | cut -d' ' -f1)" >> "$HTML"
 echo "$HTML  (archify 상세 페이지)"

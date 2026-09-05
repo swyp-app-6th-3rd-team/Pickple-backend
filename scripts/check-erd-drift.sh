@@ -97,7 +97,12 @@ if ! diff -q "$tmp/db-tables.txt" "$tmp/archify.txt" >/dev/null; then
   status=1
 fi
 
-# .mmd 를 고치고 렌더를 안 하면 문서에 옛 그림이 나간다. 소스가 산출물보다 새로우면 실패.
+# 소스를 고치고 렌더를 안 하면 문서에 옛 그림이 나간다.
+#
+# mtime 비교(`src -nt out`)는 쓰지 않는다 — git 은 체크아웃 시각을 mtime 으로 주므로
+# 새로 클론한 CI 에서는 모든 파일이 같은 시각이 되어 검사가 **항상 통과**한다.
+# 실제로 확인했다(fresh clone 에서 4개 파일 mtime 이 전부 동일).
+# 대신 렌더 시점의 소스 해시를 산출물 안에 새겨 두고 그 값을 대조한다.
 for pair in "docs/erd/erd.mmd:docs/erd/erd.svg" \
             "docs/erd/erd-logical.mmd:src/main/resources/static/docs/erd.svg" \
             "docs/erd/erd-logical.architecture.json:src/main/resources/static/docs/erd.html"; do
@@ -105,8 +110,17 @@ for pair in "docs/erd/erd.mmd:docs/erd/erd.svg" \
   if [[ ! -f "$out" ]]; then
     echo "::error::$out 이 없다. scripts/render-erd.sh 를 실행한다."
     status=1
-  elif [[ "$src" -nt "$out" ]]; then
-    echo "::error::$src 가 $out 보다 새롭다. scripts/render-erd.sh 로 다시 렌더한다."
+    continue
+  fi
+  want="$(shasum -a 256 "$src" | cut -d' ' -f1)"
+  # 산출물 안의 마커. 렌더 스크립트가 넣는다.
+  got="$(grep -o 'erd-source-sha256:[0-9a-f]\{64\}' "$out" | head -1 | cut -d: -f2 || true)"
+  if [[ -z "$got" ]]; then
+    echo "::error::$out 에 소스 해시 마커가 없다. scripts/render-erd.sh 로 다시 렌더한다."
+    status=1
+  elif [[ "$want" != "$got" ]]; then
+    echo "::error::$src 가 바뀌었는데 $out 이 그대로다. scripts/render-erd.sh 로 다시 렌더한다."
+    echo "  소스 ${want:0:12} vs 산출물 ${got:0:12}"
     status=1
   fi
 done
