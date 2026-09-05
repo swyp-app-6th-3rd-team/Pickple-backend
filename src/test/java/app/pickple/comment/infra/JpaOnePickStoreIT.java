@@ -6,6 +6,7 @@ import app.pickple.auth.domain.UserStore;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.OnePick;
+import app.pickple.comment.domain.DuplicatePickException;
 import app.pickple.comment.domain.OnePickStore;
 import app.pickple.comment.domain.PostCommenterStore;
 import app.pickple.post.domain.Post;
@@ -61,7 +62,7 @@ class JpaOnePickStoreIT {
     void savesAndCounts() {
         Comment comment = newComment(authorId);
 
-        Long pickId = pickStore.saveIfAbsent(comment.pick(pickerId)).orElseThrow();
+        Long pickId = pickStore.save(comment.pick(pickerId));
 
         assertThat(pickId).isNotNull();
         assertThat(pickStore.countByComment(comment.id())).isEqualTo(1L);
@@ -69,13 +70,21 @@ class JpaOnePickStoreIT {
     }
 
     @Test
-    @DisplayName("이 게시글에서 이미 픽했으면 빈 값을 돌려준다 (R-05)")
-    void duplicateReturnsEmpty() {
-        // 저장소는 "삽입됐는가" 만 알린다. 정책 해석은 서비스가 한다 (ADR-0019).
+    @DisplayName("저장된 원픽을 사용자와 게시글로 조회한다")
+    void findsPickByPickerAndPost() {
         Comment comment = newComment(authorId);
-        pickStore.saveIfAbsent(comment.pick(pickerId));
+        assertThat(pickStore.findByPickerIdAndPostId(pickerId, post.id())).isEmpty();
+        pickStore.save(comment.pick(pickerId));
+        assertThat(pickStore.findByPickerIdAndPostId(pickerId, post.id())).contains(comment.pick(pickerId));
+    }
 
-        assertThat(pickStore.saveIfAbsent(comment.pick(pickerId))).isEmpty();
+    @Test
+    @DisplayName("조회 이후에 중복 저장해도 유니크 제약을 원픽 중복으로 변환한다")
+    void duplicateSaveThrowsDomainException() {
+        Comment comment = newComment(authorId);
+        pickStore.save(comment.pick(pickerId));
+        assertThatThrownBy(() -> pickStore.save(comment.pick(pickerId)))
+                .isInstanceOf(DuplicatePickException.class);
     }
 
     @Test
@@ -86,8 +95,8 @@ class JpaOnePickStoreIT {
         Long another = userStore.save(
                 new User(SocialProvider.GOOGLE, "cm-p2-" + System.nanoTime(), null, "픽커2")).id();
 
-        pickStore.saveIfAbsent(comment.pick(pickerId));
-        pickStore.saveIfAbsent(comment.pick(another));
+        pickStore.save(comment.pick(pickerId));
+        pickStore.save(comment.pick(another));
 
         assertThat(pickStore.countByComment(comment.id())).isEqualTo(2L);
     }
@@ -103,7 +112,7 @@ class JpaOnePickStoreIT {
         OnePick forged = new OnePick(comment.id(), otherPost.id(), pickerId);
 
         // 중복이 아닌 위반은 그대로 올라온다 — 중복으로 뭉개면 원인을 못 찾는다.
-        assertThatThrownBy(() -> pickStore.saveIfAbsent(forged))
+        assertThatThrownBy(() -> pickStore.save(forged))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 

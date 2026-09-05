@@ -43,7 +43,7 @@ import static org.mockito.Mockito.*;
 
 @IntegrationTest
 @Import(LocalStackConfig.class)
-class ItemOrphanCleanupIT {
+class ItemCleanupSchedulerIT {
     private static final String BUCKET = "pickple-image-upload-it";
     private static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
     private static final Duration GRACE = Duration.ofHours(24);
@@ -87,6 +87,23 @@ class ItemOrphanCleanupIT {
         jdbc.update("DELETE FROM post WHERE user_id = ?", ownerId);
         jdbc.update("DELETE FROM item_container WHERE user_id = ?", ownerId);
         jdbc.update("DELETE FROM users WHERE id = ?", ownerId);
+    }
+
+    @Test
+    void checksOneHundredObjectKeysWithOneDatabaseQuery() {
+        ItemContainer container = upload(AttachType.PRODUCT);
+        List<String> keys = new ArrayList<>();
+        keys.add(key(container));
+        for (int i = 1; i < 100; i++) {
+            keys.add("product-images/" + ownerId + "/missing-" + i);
+        }
+        JdbcTemplate measuredJdbc = spy(jdbc);
+        var store = new JdbcItemOrphanStore(measuredJdbc);
+
+        var referencedKeys = tx().execute(status -> store.findReferencedObjectKeys(keys));
+        assertThat(referencedKeys).containsExactly(key(container));
+        assertThat(mockingDetails(measuredJdbc).getInvocations().stream()
+                .filter(call -> call.getMethod().getName().equals("queryForList")).count()).isEqualTo(1);
     }
 
     @Test
@@ -288,7 +305,7 @@ class ItemOrphanCleanupIT {
                 assertThat(exists(key(result[0]))).isTrue();
                 var lookup = executor.submit(() -> {
                     looking.countDown();
-                    return orphans.containsObjectKey(key(result[0]));
+                    return orphans.findReferencedObjectKeys(List.of(key(result[0]))).contains(key(result[0]));
                 });
                 await(looking);
                 assertThatThrownBy(() -> lookup.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
@@ -303,7 +320,7 @@ class ItemOrphanCleanupIT {
 
     private void run(FileObjectStorage objectStorage, Instant now) {
         var properties = new ItemCleanupProperties(true, "-", GRACE, managedSince, 2);
-        new ItemOrphanCleanup(orphans, objectStorage, properties, Clock.fixed(now, ZONE)).clean();
+        new ItemCleanupScheduler(orphans, objectStorage, properties, Clock.fixed(now, ZONE)).clean();
     }
 
     private ItemContainer upload(AttachType type) {

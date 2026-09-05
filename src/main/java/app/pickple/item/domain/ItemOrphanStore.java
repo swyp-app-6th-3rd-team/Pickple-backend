@@ -2,6 +2,7 @@ package app.pickple.item.domain;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 /** 미부착 메타데이터 회수와 객체 키 존재 확인을 위한 포트. */
 public interface ItemOrphanStore {
@@ -15,5 +16,5 @@ public interface ItemOrphanStore {
     List<String> removeIfUnattached(Long containerId, LocalDateTime managedSince, LocalDateTime cutoff);
 
     /** 진행 중인 메타데이터 쓰기의 커밋/롤백을 확인한다. 확인 실패는 예외로 알린다. */
-    boolean containsObjectKey(String itemKey);
+    Set<String> findReferencedObjectKeys(List<String> itemKeys);
 }

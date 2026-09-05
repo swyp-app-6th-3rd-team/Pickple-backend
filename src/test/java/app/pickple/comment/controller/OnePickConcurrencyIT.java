@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * 돌아 다른 스레드가 그 행을 보지 못한다. 동시성을 재현하려면 각 요청이 실제로 커밋되어야 하므로
  * 트랜잭션 밖에서 돌리고 뒷정리를 손으로 한다.
  *
- * <p><b>확인 후 삽입은 뚫린다.</b> {@code JpaOnePickStore} 가 존재를 먼저 확인하지만
+ * <p>{@code OnePickService} 가 기존 픽을 먼저 조회하지만
  * 확인과 삽입 사이에 틈이 있다. 최종 방어선은 {@code UNIQUE(user_id, post_id)} 다 (ADR-0020).
  * 이 테스트가 보는 것은 그 틈이 데이터를 깨뜨리지 않는다는 사실이다.
  */

@@ -172,8 +172,8 @@ class CommentControllerIT {
         commentService.write(new Comment(postEntity.id(), commentAuthor.id(), "두 번째", null));
         commentService.write(new Comment(postEntity.id(), otherUser.id(), "세 번째", null));
 
-        assertThat(onePickStore.saveIfAbsent(picked.pick(postAuthor.id()))).isPresent();
-        assertThat(onePickStore.saveIfAbsent(picked.pick(secondPicker.id()))).isPresent();
+        assertThat(onePickStore.save(picked.pick(postAuthor.id()))).isNotNull();
+        assertThat(onePickStore.save(picked.pick(secondPicker.id()))).isNotNull();
 
         Post counted = postStore.findById(postEntity.id()).orElseThrow();
         assertThat(counted.commentCount()).isEqualTo(3L);

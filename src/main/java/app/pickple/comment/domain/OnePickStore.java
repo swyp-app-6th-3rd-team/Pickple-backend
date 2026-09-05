@@ -1,23 +1,18 @@
 package app.pickple.comment.domain;
 
-/**
- * 원픽 저장소.
- *
- * <p>중복 판정은 애플리케이션이 아니라 {@code UNIQUE(user_id, post_id)} 가 한다 (R-05) —
- * 확인 후 삽입하는 방식은 동시 요청에서 뚫린다.
- *
- * <p><b>저장소는 "삽입됐는가" 라는 사실만 알린다.</b> 그것이 "이미 픽했다" 는
- * 정책 위반이라는 해석은 서비스의 몫이다 (ADR-0019).
- */
+import java.util.Optional;
+
+/** 원픽 조회와 저장을 위한 포트. */
 public interface OnePickStore {
 
+    Optional<OnePick> findByPickerIdAndPostId(Long pickerId, Long postId);
+
     /**
-     * 아직 픽하지 않았다면 기록한다.
+     * 원픽을 기록한다. 식별자는 포인트 멱등키가 된다 (R-13).
      *
-     * @return 저장된 픽의 식별자. 이미 픽했으면 빈 값. 식별자는 포인트 멱등키가 된다 (R-13)
-     * @throws DuplicatePickException 확인 후 삽입 사이에 다른 요청이 같은 게시글을 픽한 경우
+     * @throws DuplicatePickException 같은 사용자가 같은 게시글에 이미 픽을 저장한 경우
      */
-    java.util.Optional<Long> saveIfAbsent(OnePick pick);
+    Long save(OnePick pick);
 
     /** 댓글이 받은 원픽 수. */
     long countByComment(Long commentId);

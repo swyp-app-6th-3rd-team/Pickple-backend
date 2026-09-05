@@ -189,7 +189,7 @@ class JpaGradeStoreIT {
         Post post = postStore.save(
                 new Post(otherId, PostType.GENERAL, PostCategory.ETC, "포인트 대상", null));
         Comment comment = commentStore.save(new Comment(post.id(), otherId, "의견", null));
-        Long pickId = pickStore.saveIfAbsent(comment.pick(thirdId)).orElseThrow();
+        Long pickId = pickStore.save(comment.pick(thirdId));
         pointStore.saveIfAbsent(PointHistory.forPick(userId, reason, pickId));
     }
 

@@ -53,7 +53,7 @@ class JpaPointHistoryStoreIT {
         Post post = postStore.save(
                 new Post(authorId, PostType.GENERAL, PostCategory.ETC, "포인트 대상", null));
         Comment comment = commentStore.save(new Comment(post.id(), authorId, "좋은 의견", null));
-        onePickId = pickStore.saveIfAbsent(comment.pick(pickerId)).orElseThrow();
+        onePickId = pickStore.save(comment.pick(pickerId));
     }
 
     @Test

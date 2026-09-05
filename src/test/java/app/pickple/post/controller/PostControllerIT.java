@@ -9,7 +9,8 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
-import app.pickple.point.service.RankingBatchService;
+import app.pickple.point.infra.RankingScheduler;
+import app.pickple.point.domain.RankingStore;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
@@ -83,7 +84,7 @@ class PostControllerIT {
     @Autowired
     private EntityManagerFactory entityManagerFactory;
     @Autowired
-    private RankingBatchService rankingBatch;
+    private RankingStore rankingStore;
 
     /**
      * 이 클래스만 쓰는 카테고리.
@@ -95,6 +96,7 @@ class PostControllerIT {
      */
     private static final PostCategory EMPTY_CATEGORY = PostCategory.ELECTRONICS;
 
+    private RankingScheduler rankingScheduler;
     private MockMvc mockMvc;
     private User author;
     private long seed;
@@ -102,6 +104,7 @@ class PostControllerIT {
 
     @BeforeEach
     void setUp() {
+        rankingScheduler = new RankingScheduler(rankingStore);
         mockMvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(springSecurityFilterChain)
                 .build();
@@ -441,7 +444,7 @@ class PostControllerIT {
         stampCreatedAt(postId, 1);
         flush();
 
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
         flush();
 
         Integer expected = jdbcTemplate.queryForObject(
@@ -478,7 +481,7 @@ class PostControllerIT {
         for (int i = 0; i < 3; i++) {
             stampCreatedAt(saveGeneralPost("랭킹 " + i, EMPTY_CATEGORY).id(), i + 1);
         }
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
         flush();
 
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();

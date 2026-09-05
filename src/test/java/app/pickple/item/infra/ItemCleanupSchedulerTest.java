@@ -11,20 +11,21 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.*;
 import java.util.List;
+import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class ItemOrphanCleanupTest {
+class ItemCleanupSchedulerTest {
     private static final Instant NOW = Instant.parse("2026-09-05T00:00:00Z");
     @Mock private ItemOrphanStore store;
     @Mock private FileObjectStorage storage;
-    private ItemOrphanCleanup cleanup;
+    private ItemCleanupScheduler cleanup;
 
     @BeforeEach
     void setUp() {
-        cleanup = new ItemOrphanCleanup(store, storage,
+        cleanup = new ItemCleanupScheduler(store, storage,
                 new ItemCleanupProperties(true, "-", Duration.ofHours(24), NOW.minus(Duration.ofDays(7)), 2),
                 Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
         lenient().when(storage.list(anyString(), isNull(), eq(2)))
@@ -33,7 +34,7 @@ class ItemOrphanCleanupTest {
 
     @Test
     void doesNothingWhenDisabled() {
-        new ItemOrphanCleanup(store, storage, new ItemCleanupProperties(false, "-", Duration.ofHours(24), null, 2),
+        new ItemCleanupScheduler(store, storage, new ItemCleanupProperties(false, "-", Duration.ofHours(24), null, 2),
                 Clock.fixed(NOW, ZoneOffset.UTC)).clean();
         verifyNoInteractions(store, storage);
     }
@@ -50,9 +51,11 @@ class ItemOrphanCleanupTest {
     }
 
     @Test
-    void metadataLookupFailureProtectsObjectAndContinues() {
-        when(storage.list(eq("product-images/"), isNull(), eq(2))).thenReturn(page("first", "next"));
-        when(store.containsObjectKey("first")).thenThrow(new IllegalStateException("lock timeout"));
+    void metadataLookupFailureProtectsPageAndContinuesWithNextPage() {
+        when(storage.list(eq("product-images/"), isNull(), eq(2)))
+                .thenReturn(new FileObjectStorage.ObjectPage(page("first").objects(), "next-page"));
+        when(storage.list("product-images/", "next-page", 2)).thenReturn(page("next"));
+        when(store.findReferencedObjectKeys(List.of("first"))).thenThrow(new IllegalStateException("lock timeout"));
         cleanup.clean();
         verify(storage, never()).delete("first");
         verify(storage).delete("next");
@@ -70,9 +73,19 @@ class ItemOrphanCleanupTest {
     void keepsAKeyStillReferencedByAnotherContainer() {
         when(store.findCandidates(any(), any(), eq(0L), eq(2))).thenReturn(List.of(1L));
         when(store.removeIfUnattached(eq(1L), any(), any())).thenReturn(List.of("shared"));
-        when(store.containsObjectKey("shared")).thenReturn(true);
+        when(store.findReferencedObjectKeys(List.of("shared"))).thenReturn(Set.of("shared"));
         cleanup.clean();
         verify(storage, never()).delete(anyString());
+    }
+
+    @Test
+    void checksAllKeysInAPageWithOneStoreCall() {
+        when(storage.list(eq("product-images/"), isNull(), eq(2))).thenReturn(page("orphan", "attached"));
+        when(store.findReferencedObjectKeys(List.of("orphan", "attached"))).thenReturn(Set.of("attached"));
+        cleanup.clean();
+        verify(store, times(1)).findReferencedObjectKeys(anyList());
+        verify(storage).delete("orphan");
+        verify(storage, never()).delete("attached");
     }
 
     private FileObjectStorage.ObjectPage page(String... keys) {

@@ -15,17 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 원픽과 그에 따른 포인트 지급.
- *
- * <p><b>여기가 서비스인 이유</b> — R-12(원픽 1건에 두 사람이 받는다)는
- * 댓글·원픽·포인트 세 도메인이 얽혀 어느 애그리거트도 혼자 판정할 수 없다.
- * 반면 R-07(자기 댓글 금지)은 댓글 하나로 판정되므로 {@link Comment#pick(Long)} 이 갖는다.
- * 기준은 규칙의 종류가 아니라 <b>판정에 필요한 정보의 범위</b>다 (ADR-0019).
- *
- * <p>저장소는 "삽입됐는가" 만 알린다. 그것을 "이미 픽했다" 는 정책 위반으로 해석하는 것이
- * 이 계층의 일이다.
- */
+/** 원픽의 중복 여부를 확인하고 원픽 저장과 포인트 지급을 함께 처리한다. */
 @Service
 @RequiredArgsConstructor
 public class OnePickService {
@@ -58,9 +48,10 @@ public class OnePickService {
         // R-07 은 댓글 하나로 판정된다 — 도메인이 막는다.
         OnePick pick = comment.pick(pickerId);
 
-        // 경합 시의 DB 제약 해석은 저장소가 맡는다. 서비스는 같은 도메인 예외를 사용한다.
-        Long pickId = pickStore.saveIfAbsent(pick)
-                .orElseThrow(() -> new DuplicatePickException(comment.postId(), pickerId));
+        if (pickStore.findByPickerIdAndPostId(pickerId, comment.postId()).isPresent()) {
+            throw new DuplicatePickException(comment.postId(), pickerId);
+        }
+        Long pickId = pickStore.save(pick);
 
         grant(comment.authorId(), PointReason.PICKED, pickId);
         grant(pickerId, PointReason.PICKING, pickId);

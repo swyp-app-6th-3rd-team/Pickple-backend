@@ -10,6 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Collections;
+import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
@@ -55,9 +57,14 @@ public class JdbcItemOrphanStore implements ItemOrphanStore {
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED, timeout = 5)
-    public boolean containsObjectKey(String itemKey) {
+    public Set<String> findReferencedObjectKeys(List<String> itemKeys) {
+        if (itemKeys.isEmpty()) {
+            return Set.of();
+        }
         // 일반 스냅샷 조회는 아직 커밋되지 않은 업로드를 '없음'으로 오판한다.
-        return !jdbc.queryForList("SELECT id FROM item_resource WHERE item_key = ? FOR SHARE",
-                Long.class, itemKey).isEmpty();
+        String placeholders = String.join(",", Collections.nCopies(itemKeys.size(), "?"));
+        return Set.copyOf(jdbc.queryForList(
+                "SELECT item_key FROM item_resource WHERE item_key IN (" + placeholders + ") FOR SHARE",
+                String.class, itemKeys.toArray()));
     }
 }

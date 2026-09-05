@@ -10,7 +10,8 @@ import app.pickple.comment.domain.OnePickStore;
 import app.pickple.point.domain.PointHistory;
 import app.pickple.point.domain.PointHistoryStore;
 import app.pickple.point.domain.PointReason;
-import app.pickple.point.service.RankingBatchService;
+import app.pickple.point.infra.RankingScheduler;
+import app.pickple.point.domain.RankingStore;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostStore;
@@ -67,7 +68,7 @@ class RankingControllerIT {
     @Autowired
     private PointHistoryStore pointStore;
     @Autowired
-    private RankingBatchService rankingBatch;
+    private RankingStore rankingStore;
     @Autowired
     private JwtService jwtService;
     @Autowired
@@ -75,6 +76,7 @@ class RankingControllerIT {
     @Autowired
     private TransactionTemplate transactionTemplate;
 
+    private RankingScheduler rankingScheduler;
     private MockMvc mockMvc;
     private long seed;
 
@@ -90,6 +92,7 @@ class RankingControllerIT {
 
     @BeforeEach
     void setUp() {
+        rankingScheduler = new RankingScheduler(rankingStore);
         mockMvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(springSecurityFilterChain)
                 .build();
@@ -156,7 +159,7 @@ class RankingControllerIT {
         for (int i = 0; i < 10; i++) {
             grant(newUser("top-" + i), i + 1);
         }
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
@@ -174,7 +177,7 @@ class RankingControllerIT {
         for (int i = 0; i < 10; i++) {
             grant(newUser("bound-" + i), i + 1);
         }
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         // 이 경로로 목록 전체를 뽑아 무한 스크롤을 우회하지 못하게 한다.
         // 상한(50)에 걸리므로, 회원이 11명(대상 10 + 픽커 1)인 지금은 전원이 나온다.
@@ -197,7 +200,7 @@ class RankingControllerIT {
         grant(first, 1);
         grant(second, 1);
         grant(third, 1);
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         mockMvc.perform(get("/rankings/top"))
                 .andExpect(status().isOk())
@@ -218,7 +221,7 @@ class RankingControllerIT {
     @DisplayName("게스트는 랭킹 목록을 보지만 본인 랭킹은 받지 못한다")
     void guestGetsNoMyRanking() throws Exception {
         grant(newUser("guest-view"), 2);
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         // 목록 자체는 게스트에게 열려 있다 (§2.5·§3.1).
         // 대상 1명 + 픽커 1명. 픽커는 0P 라 뒤에 선다.
@@ -239,7 +242,7 @@ class RankingControllerIT {
     @DisplayName("게스트 목록 응답에는 본인 랭킹 필드 자체가 없다")
     void guestListHasNoMyRankingField() throws Exception {
         grant(newUser("no-field"), 1);
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         // 응답 모양이 로그인 여부에 따라 갈리지 않는다 — 목록은 언제나 목록이다.
         mockMvc.perform(get("/rankings"))
@@ -257,7 +260,7 @@ class RankingControllerIT {
     void pointMatchesLedgerSum() throws Exception {
         User user = newUser("ledger");
         grant(user, 3);   // PICKED +10 × 3
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         long ledgerSum = pointStore.sumByUser(user.id());
         assertThat(ledgerSum).isEqualTo(30L);
@@ -283,7 +286,7 @@ class RankingControllerIT {
         User other = newUser("other");
         grant(other, 5);   // 50P — 이쪽이 1위
         grant(me, 1);      // 10P — 2위
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         mockMvc.perform(get("/users/me/points").header("Authorization", bearer(me)))
                 .andExpect(status().isOk())
@@ -319,7 +322,7 @@ class RankingControllerIT {
         }
         // 대상 25명 + 픽커 1명이 순위를 받는다.
         int total = targets + 1;
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         List<Integer> seen = new ArrayList<>();
         String cursor = null;
@@ -351,7 +354,7 @@ class RankingControllerIT {
         for (int i = 0; i < 12; i++) {
             grant(newUser("slice-" + i), i + 1);
         }
-        rankingBatch.refresh();
+        rankingScheduler.refresh();
 
         mockMvc.perform(get("/rankings"))
                 .andExpect(status().isOk())
@@ -391,7 +394,7 @@ class RankingControllerIT {
             Post post = postStore.save(
                     new Post(userId, PostType.GENERAL, PostCategory.ETC, "랭킹 대상", null));
             Comment comment = commentStore.save(new Comment(post.id(), userId, "의견", null));
-            Long pickId = pickStore.saveIfAbsent(comment.pick(picker.id())).orElseThrow();
+            Long pickId = pickStore.save(comment.pick(picker.id()));
             pointStore.saveIfAbsent(PointHistory.forPick(userId, PointReason.PICKED, pickId));
         }
     }

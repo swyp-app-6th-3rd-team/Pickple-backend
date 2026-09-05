@@ -324,7 +324,7 @@ class JpaRankingStoreIT {
             Post post = postStore.save(
                     new Post(userId, PostType.GENERAL, PostCategory.ETC, "랭킹 대상", null));
             Comment comment = commentStore.save(new Comment(post.id(), userId, "의견", null));
-            Long pickId = pickStore.saveIfAbsent(comment.pick(pickerId)).orElseThrow();
+            Long pickId = pickStore.save(comment.pick(pickerId));
             pointStore.saveIfAbsent(PointHistory.forPick(userId, PointReason.PICKED, pickId));
         }
     }
