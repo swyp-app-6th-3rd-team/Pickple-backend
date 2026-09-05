@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * 마이페이지 "내 활동" 화면의 읽기 모델 저장소 (기능명세 §7.2 · §7.4 · §9.1 · §9.2).
  *
- * <p>{@code PostQueryStore} 와 나눈 이유는 <b>좁히는 주체가 다르기 때문</b>이다.
+ * <p>{@code PostStore} 와 나눈 이유는 <b>좁히는 주체가 다르기 때문</b>이다.
  * 공개 목록은 카테고리로 좁히지만 여기는 <b>보는 사람의 활동</b>으로 좁힌다.
  * 같은 저장소에 합치면 모든 조회 메서드가 쓰지도 않는 {@code viewerId} 를 받게 되고,
  * 공개 목록에 사용자 식별자가 흘러드는 경로가 생긴다.
@@ -70,7 +70,7 @@ public interface ActivityQueryStore {
     /**
      * 활동 목록 한 줄 (§9.2 조회 데이터).
      *
-     * <p>{@code PostQueryStore.PostListView} 와 필드가 겹치지만 <b>같은 타입을 쓰지 않는다.</b>
+     * <p>{@code PostStore.PostListView} 와 필드가 겹치지만 <b>같은 타입을 쓰지 않는다.</b>
      * 이쪽은 작성자 랭킹이 없고({@code authorRanking} — 내 활동 화면은 작성자를 보여주지 않는다)
      * 대신 {@link #activityAt} 이 있다. 한 타입으로 합치면 양쪽 모두 쓰지 않는 필드를
      * 들고 다니게 되고, 어느 화면이 무엇을 쓰는지 타입이 말해주지 못한다.

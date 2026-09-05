@@ -22,7 +22,7 @@ import static app.pickple.point.infra.RankingListRepository.Column;
  * 프로필 저장 같은 평범한 쓰기가 배치가 계산한 값을 덮어쓴다({@link JpaRankingStore} 참조).
  *
  * <p>다만 <b>타입은 그대로 쓴다</b> — {@code ScrollResponse.of(...)} 와 ArchUnit 규칙이
- * 그 위에 서 있다(ADR-0004). {@link JpaPostQueryStore} 와 같은 형태다.
+ * 그 위에 서 있다(ADR-0004). {@link app.pickple.post.infra.JpaPostStore} 와 같은 형태다.
  */
 @Component
 @RequiredArgsConstructor

@@ -1,5 +1,6 @@
 package app.pickple.post.service;
 
+import app.pickple.common.CursorCodec;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
@@ -9,7 +10,6 @@ import app.pickple.item.domain.ItemResource;
 import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
-import app.pickple.post.domain.PostQueryStore;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
@@ -21,12 +21,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.KeysetScrollPosition;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.random.RandomGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +39,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class PostServiceTest {
@@ -46,9 +49,54 @@ class PostServiceTest {
     @Mock
     private ItemContainerStore itemContainerStore;
     @Mock
-    private PostQueryStore postQueryStore;
+    private RandomGenerator randomGenerator;
     @InjectMocks
     private PostService service;
+
+    @Test
+    @DisplayName("랜덤 카드 첫 요청은 새 시드와 유형·사용자·10건 크기를 전달한다")
+    void startsRandomSliceWithNewSeed() {
+        given(randomGenerator.nextLong()).willReturn(314L);
+        Window<PostStore.RandomPostView> empty =
+                Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+        given(postStore.findRandomSlice(PostType.AGREE, 7L, ScrollPosition.keyset(), 10, 314L))
+                .willReturn(empty);
+
+        assertThat(service.findRandomSlice(PostType.AGREE, null, 7L)).isSameAs(empty);
+        verify(randomGenerator).nextLong();
+    }
+
+    @Test
+    @DisplayName("랜덤 카드 후속 요청은 시드를 다시 만들지 않고 커서를 전달한다")
+    void continuesRandomSliceWithoutReseeding() {
+        KeysetScrollPosition position = ScrollPosition.forward(Map.of(
+                "randomSeed", 314, "postType", "A_B", "randomKey", 123, "id", 45));
+
+        service.findRandomSlice(PostType.A_B, CursorCodec.encode(position), null);
+
+        verify(postStore).findRandomSlice(PostType.A_B, null, position, 10, 0L);
+        verifyNoInteractions(randomGenerator);
+    }
+
+    @Test
+    @DisplayName("투표 유형이 없거나 일반 유형이면 랜덤 조회 전에 400으로 거부한다")
+    void rejectsInvalidRandomType() {
+        for (PostType type : new PostType[]{null, PostType.GENERAL}) {
+            assertThatThrownBy(() -> service.findRandomSlice(type, null, null))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        }
+        verifyNoInteractions(postStore, randomGenerator);
+    }
+
+    @Test
+    @DisplayName("깨진 랜덤 커서는 DB 조회나 시드 생성 전에 400으로 거부한다")
+    void rejectsMalformedRandomCursorBeforeQuery() {
+        assertThatThrownBy(() -> service.findRandomSlice(PostType.AGREE, "not-a-cursor", null))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        verifyNoInteractions(postStore, randomGenerator);
+    }
 
     @Test
     @DisplayName("찬반 게시글은 상품명을 제목으로 쓰고 서버가 선택지 둘을 만든다")
@@ -184,7 +232,7 @@ class PostServiceTest {
     void appliesQueryDefaults() {
         service.findSlice(null, null, null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), any(ScrollPosition.class), eq(PostService.DEFAULT_SIZE));
     }
 
@@ -193,7 +241,7 @@ class PostServiceTest {
     void passesQueryFiltersDown() {
         service.findSlice(PostCategory.BEAUTY, "POPULAR", null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 eq(PostCategory.BEAUTY), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
     }
 
@@ -205,11 +253,11 @@ class PostServiceTest {
         service.findSlice(null, null, null, 100_000);
         service.findSlice(null, null, null, 25);
 
-        verify(postQueryStore, times(2)).findSlice(
+        verify(postStore, times(2)).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(50));
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(25));
     }
 
@@ -218,27 +266,27 @@ class PostServiceTest {
     void decodesAbsentCursorAsFirstSlice() {
         service.findSlice(null, null, null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
     }
 
     @Test
     @DisplayName("인기 Top 10 은 전체·인기순·첫 조각·10건으로 조회한다")
     void popularTopFixesEveryParameter() {
-        given(postQueryStore.findSlice(
+        given(postStore.findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
                 .willReturn(emptyWindow());
 
         service.findPopularTop();
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10));
     }
 
     @Test
     @DisplayName("인기 Top 10 은 게시글이 없으면 빈 목록이다")
     void popularTopReturnsEmptyList() {
-        given(postQueryStore.findSlice(
+        given(postStore.findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
                 .willReturn(emptyWindow());
 
@@ -266,7 +314,7 @@ class PostServiceTest {
         return container;
     }
 
-    private Window<PostQueryStore.PostListView> emptyWindow() {
+    private Window<PostStore.PostListView> emptyWindow() {
         return Window.from(List.of(), index -> ScrollPosition.keyset(), false);
     }
 }

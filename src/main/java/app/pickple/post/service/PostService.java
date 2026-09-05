@@ -11,7 +11,6 @@ import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
 import app.pickple.post.domain.PostProduct;
-import app.pickple.post.domain.PostQueryStore;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
@@ -24,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.random.RandomGenerator;
 
 /** 게시글 작성과 목록 조회 유스케이스를 제공한다. */
 @Service
@@ -37,9 +37,12 @@ public class PostService {
     /** 홈 화면 인기 게시글의 고정 건수 (§2.4). 조각 크기와 달리 클라이언트가 바꾸지 못한다. */
     private static final int POPULAR_TOP_SIZE = 10;
 
+    /** 홈 랜덤 투표 카드의 고정 조각 크기 (§2.2). */
+    private static final int RANDOM_SLICE_SIZE = 10;
+
     private final PostStore postStore;
     private final ItemContainerStore itemContainerStore;
-    private final PostQueryStore postQueryStore;
+    private final RandomGenerator randomGenerator;
 
     /** 업로드된 상품 사진 컨테이너를 검증하고 게시글 애그리거트를 한 트랜잭션으로 발행한다. */
     @Transactional
@@ -77,11 +80,11 @@ public class PostService {
      * @param cursor   없으면 첫 조각
      */
     @Transactional(readOnly = true)
-    public Window<PostQueryStore.PostListView> findSlice(
+    public Window<PostStore.PostListView> findSlice(
             PostCategory category, String sort, String cursor, Integer size) {
 
         ScrollPosition position = CursorCodec.decode(cursor);
-        return postQueryStore.findSlice(category, PostSort.from(sort), position, sliceSize(size));
+        return postStore.findSlice(category, PostSort.from(sort), position, sliceSize(size));
     }
 
     /**
@@ -91,10 +94,25 @@ public class PostService {
      * 커서 봉투를 벗기고 내용만 반환한다. 더 보기는 {@code GET /posts?sort=POPULAR} 로 간다.
      */
     @Transactional(readOnly = true)
-    public List<PostQueryStore.PostListView> findPopularTop() {
-        return postQueryStore
+    public List<PostStore.PostListView> findPopularTop() {
+        return postStore
                 .findSlice(null, PostSort.POPULAR, ScrollPosition.keyset(), POPULAR_TOP_SIZE)
                 .getContent();
+    }
+
+    /**
+     * 홈 랜덤 투표 카드 한 조각을 조회한다 (§2.1 · §2.2).
+     * 첫 요청에서만 시드를 만들고 후속 요청은 커서에 담긴 시드와 정렬 경계를 이어간다.
+     */
+    @Transactional(readOnly = true)
+    public Window<PostStore.RandomPostView> findRandomSlice(
+            PostType type, String cursor, Long viewerId) {
+        if (type == null || !type.hasVoting()) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "랜덤 카드 유형은 AGREE 또는 A_B여야 합니다.");
+        }
+        ScrollPosition position = CursorCodec.decode(cursor);
+        long initialSeed = position.isInitial() ? randomGenerator.nextLong() : 0L;
+        return postStore.findRandomSlice(type, viewerId, position, RANDOM_SLICE_SIZE, initialSeed);
     }
 
     private Post assemble(Long authorId, CreateCommand command, List<ProductCommand> products) {
