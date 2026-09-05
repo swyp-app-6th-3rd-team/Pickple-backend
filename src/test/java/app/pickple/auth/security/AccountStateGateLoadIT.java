@@ -11,11 +11,13 @@ import app.pickple.post.domain.PostType;
 import app.pickple.support.IntegrationTest;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -78,6 +80,11 @@ class AccountStateGateLoadIT {
     private JwtService jwtService;
     @Autowired
     private DataSource dataSource;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    /** 이 테스트가 커밋한 게시글. 롤백이 없으니 직접 지운다. */
+    private final List<Long> createdPostIds = new ArrayList<>();
 
     private MockMvc mockMvc;
     private String token;
@@ -92,8 +99,28 @@ class AccountStateGateLoadIT {
         User user = userStore.save(new User(SocialProvider.GOOGLE, "load-" + seed, null, "부하"));
         token = jwtService.createAccessToken(user);
         for (int i = 0; i < 20; i++) {
-            postStore.save(new Post(user.id(), PostType.GENERAL, PostCategory.ETC, "부하 " + i, null));
+            createdPostIds.add(postStore.save(
+                    new Post(user.id(), PostType.GENERAL, PostCategory.ETC, "부하 " + i, null)).id());
         }
+    }
+
+    /**
+     * 남긴 게시글을 지운다.
+     *
+     * <p><b>이게 없으면 다른 테스트가 깨진다.</b> {@code PopularPostsIT} 는 EXPLAIN 으로
+     * 옵티마이저가 {@code idx_post_popular_all} 을 고르는지 확인하는데, 여기서 남긴 게시글이
+     * 테이블 통계를 바꿔 옵티마이저가 다른 인덱스와 filesort 를 고르게 만든다
+     * (실제로 겪었다 — 신선한 컨테이너에서는 통과하고 재사용 컨테이너에서만 실패했다).
+     * {@code VoteControllerIT} 가 같은 이유로 같은 뒷정리를 한다.
+     *
+     * <p>회원은 남긴다 — 게시글 없는 회원은 어떤 목록에도 나타나지 않는다.
+     */
+    @AfterEach
+    void tearDown() {
+        for (Long postId : createdPostIds) {
+            jdbcTemplate.update("DELETE FROM post WHERE id = ?", postId);
+        }
+        createdPostIds.clear();
     }
 
     @Test
