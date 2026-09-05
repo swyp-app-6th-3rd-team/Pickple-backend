@@ -75,7 +75,7 @@ public class ItemContainer {
     /** 이 컨테이너를 그 용도로 쓸 수 있는지 확인한다. */
     public void verifyUsableAs(AttachType required) {
         if (this.attachType != required) {
-            throw new IllegalStateException(
+            throw new ItemContainerNotAttachableException(
                     "%s 용 컨테이너를 %s 에 붙일 수 없습니다.".formatted(attachType, required));
         }
     }

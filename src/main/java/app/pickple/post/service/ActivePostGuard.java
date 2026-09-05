@@ -1,5 +1,7 @@
 package app.pickple.post.service;
 
+import app.pickple.common.ResponseCode;
+import app.pickple.error.ApiException;
 import app.pickple.post.domain.PostStore;
 
 import lombok.RequiredArgsConstructor;
@@ -30,7 +32,9 @@ public class ActivePostGuard {
     /** 활성 게시글이면 통과, 없거나 삭제됐으면 거부한다. */
     public void requireActive(Long postId) {
         if (!postStore.existsActiveById(postId)) {
-            throw new IllegalStateException("활성 게시글을 찾을 수 없습니다: id=" + postId);
+            throw new ApiException(
+                    ResponseCode.INVALID_REQUEST,
+                    "활성 게시글을 찾을 수 없습니다: id=" + postId);
         }
     }
 }
