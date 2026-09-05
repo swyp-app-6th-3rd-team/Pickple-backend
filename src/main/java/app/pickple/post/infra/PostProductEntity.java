@@ -13,6 +13,7 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.Length;
 
 import java.time.LocalDateTime;
 
@@ -47,7 +48,7 @@ public class PostProductEntity {
     @Column(name = "price")
     private Integer price;
 
-    @Column(name = "link_url", columnDefinition = "LONGTEXT")
+    @Column(name = "link_url", length = Length.LONG32)
     private String linkUrl;
 
     @Column(name = "display_order", nullable = false)

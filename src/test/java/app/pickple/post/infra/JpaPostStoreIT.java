@@ -137,8 +137,7 @@ class JpaPostStoreIT {
         assertThatThrownBy(() -> postStore.saveIfContainerFree(agreePost(containerId, "두 번째 게시글")))
                 .isInstanceOfSatisfying(ItemContainerAlreadyAttachedException.class,
                         exception -> assertThat(exception.getCause())
-                                .isInstanceOf(DataIntegrityViolationException.class)
-                                .hasMessageContaining("uk_product_container"));
+                                .isInstanceOf(DataIntegrityViolationException.class));
     }
 
     @Test

@@ -4,6 +4,7 @@ import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostStore;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -85,11 +86,26 @@ public class JpaPostStore implements PostStore {
 
     private static boolean hasConstraint(Throwable throwable, String constraintName) {
         for (Throwable cause = throwable; cause != null; cause = cause.getCause()) {
-            String message = cause.getMessage();
-            if (message != null && message.contains(constraintName)) {
+            if (cause instanceof ConstraintViolationException violation
+                    && sameConstraint(violation.getConstraintName(), constraintName)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean sameConstraint(String actualName, String expectedName) {
+        if (actualName == null) {
+            return false;
+        }
+        String unquoted = actualName
+                .replace("`", "")
+                .replace("\"", "")
+                .replace("'", "");
+        int qualifierSeparator = unquoted.lastIndexOf('.');
+        String simpleName = qualifierSeparator < 0
+                ? unquoted
+                : unquoted.substring(qualifierSeparator + 1);
+        return simpleName.equalsIgnoreCase(expectedName);
     }
 }
