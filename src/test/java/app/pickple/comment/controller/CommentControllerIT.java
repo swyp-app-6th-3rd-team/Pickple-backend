@@ -204,7 +204,8 @@ class CommentControllerIT {
                 .andExpect(jsonPath("$.returnObject.comments[0].mine").value(false))
                 .andExpect(jsonPath("$.returnObject.comments[0].createdAgo").isString());
 
-        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2L);
+        // 인증 필수 목록이므로 계정 활성 상태 확인 1회 + 댓글 목록 조회 2회다.
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(3L);
     }
 
     @Test
