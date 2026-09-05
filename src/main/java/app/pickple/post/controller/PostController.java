@@ -1,29 +1,51 @@
 package app.pickple.post.controller;
 
+import app.pickple.auth.security.CurrentUser;
 import app.pickple.common.ApiResponse;
+import app.pickple.common.ResponseCode;
 import app.pickple.common.ScrollResponse;
+import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostQueryStore;
 import app.pickple.post.domain.PostType;
-import app.pickple.post.service.PostQueryService;
+import app.pickple.post.service.PostService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
-@Tag(name = "Post", description = "게시글 목록 · 상세")
+@Tag(name = "Post", description = "게시글 작성 · 목록 · 상세")
 @RestController
 @RequiredArgsConstructor
 public class PostController {
 
-    private final PostQueryService postQueryService;
+    private final PostService postService;
+
+    @Operation(
+            summary = "게시글 작성",
+            description = "업로드 API가 반환한 itemContainerId를 상품에 연결하고 유형별 상품·사진·선택지 규칙을 검증합니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/posts")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<PostCreateResponse> create(
+            @Parameter(hidden = true) @CurrentUser Long userId,
+            @Valid @RequestBody PostCreateRequest request) {
+        Post post = postService.create(userId, request.toCommand());
+        return ApiResponse.of(ResponseCode.CREATED, PostCreateResponse.from(post));
+    }
 
     /**
      * 게시글 목록. 게스트도 부를 수 있는 진입 화면이라 인증을 요구하지 않는다.
@@ -43,7 +65,7 @@ public class PostController {
             @Parameter(description = "조각 크기. 기본 10") @RequestParam(required = false) Integer size) {
 
         return ApiResponse.success(ScrollResponse.of(
-                postQueryService.findSlice(category, sort, cursor, size), PostListItem::from));
+                postService.findSlice(category, sort, cursor, size), PostListItem::from));
     }
 
     /**
@@ -63,7 +85,7 @@ public class PostController {
     @GetMapping("/posts/popular")
     public ApiResponse<List<PostListItem>> findPopular() {
         return ApiResponse.success(
-                postQueryService.findPopularTop().stream().map(PostListItem::from).toList());
+                postService.findPopularTop().stream().map(PostListItem::from).toList());
     }
 
     /**

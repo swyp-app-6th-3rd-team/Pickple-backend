@@ -22,6 +22,7 @@ public enum ResponseCode {
     NOT_FOUND(HttpStatus.NOT_FOUND, "대상을 찾을 수 없습니다."),
     NICKNAME_ALREADY_IN_USE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다."),
     ALREADY_PICKED(HttpStatus.CONFLICT, "이 게시글에서 이미 원픽했습니다."),
+    ITEM_CONTAINER_ALREADY_IN_USE(HttpStatus.CONFLICT, "이미 다른 게시글에서 사용 중인 이미지입니다."),
 
     // 인증 · 인가
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),

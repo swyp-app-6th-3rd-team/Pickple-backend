@@ -8,7 +8,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -35,5 +39,16 @@ public class JpaItemContainerStore implements ItemContainerStore {
     @Transactional(readOnly = true)
     public Optional<ItemContainer> findById(Long id) {
         return repository.findById(id).map(ItemContainerEntity::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, ItemContainer> findAllByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return repository.findAllWithResourcesByIdIn(ids).stream()
+                .map(ItemContainerEntity::toDomain)
+                .collect(Collectors.toUnmodifiableMap(ItemContainer::id, Function.identity()));
     }
 }

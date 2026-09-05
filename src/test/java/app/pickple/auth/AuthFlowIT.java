@@ -74,6 +74,33 @@ class AuthFlowIT {
     }
 
     @Test
+    @DisplayName("게스트는 계정관리와 등급 API를 조회할 수 없고 인증 사용자는 등급을 조회한다")
+    void guestCannotAccessAccountOrGradeApis() throws Exception {
+        mockMvc.perform(delete("/auth/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(get("/users/me/grade"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(get("/grades"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        String accessToken = authService.issueTokens(user).accessToken();
+        mockMvc.perform(get("/users/me/grade")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
+
+        mockMvc.perform(get("/grades")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
+    }
+
+    @Test
     @DisplayName("잘못된 토큰도 401 이다")
     void invalidTokenReturns401() throws Exception {
         mockMvc.perform(get("/auth/me").header("Authorization", "Bearer not.a.jwt"))
@@ -170,6 +197,15 @@ class AuthFlowIT {
         mockMvc.perform(post("/auth/refresh")
                         .cookie(new Cookie(OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, tokens.refreshToken())))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("로그아웃 API는 토큰 없이도 쿠키를 정리할 수 있다")
+    void logoutIsPublicForCookieCleanup() throws Exception {
+        mockMvc.perform(post("/auth/logout"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(cookie().maxAge(OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE, 0));
     }
 
     @Test

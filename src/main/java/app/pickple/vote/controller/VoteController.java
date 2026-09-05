@@ -25,7 +25,8 @@ import java.util.List;
  * <b>투표 응답이 곧 결과 화면의 데이터</b>다. 투표하고 다시 조회하게 만들면
  * 그 사이 들어온 다른 표까지 섞여 내 표의 결과가 아닌 값을 보게 된다.
  *
- * <p>게스트는 투표할 수 없다 (R-11). 이 경로는 {@code SecurityConfig} 의
+ * <p>게스트의 최대 3회 선택은 클라이언트 로컬에서만 처리하고 서버에는 기록하지 않는다
+ * (R-11). 따라서 이 경로는 {@code SecurityConfig} 의
  * {@code anyRequest().authenticated()} 에 걸려 인증 없이는 401 이다.
  */
 @Tag(name = "Vote", description = "투표 참여 · 결과")

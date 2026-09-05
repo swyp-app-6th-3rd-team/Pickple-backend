@@ -1,4 +1,4 @@
-package app.pickple.auth;
+package app.pickple.auth.controller;
 
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
@@ -277,13 +277,19 @@ class UserProfileControllerIT {
     }
 
     @Test
-    @DisplayName("미인증 프로필 조회·등록은 401 이다")
+    @DisplayName("미인증 프로필 조회·등록·수정은 401 이다")
     void guestCannotReadOrWriteProfile() throws Exception {
         mockMvc.perform(get("/users/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
         mockMvc.perform(post("/users/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"피클\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(patch("/users/profile")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"피클\"}"))
                 .andExpect(status().isUnauthorized())

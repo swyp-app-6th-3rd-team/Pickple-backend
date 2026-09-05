@@ -35,7 +35,7 @@ app/pickple/
 │                    FileStorageProperties · S3FileStorageConfig · KakaoUnlinkClientConfig
 │                    ※ 설정은 여기 하나로 모은다. 도메인별 config 하위 패키지는
 │                      ArchitectureTest 가 막는다(#63)
-├── docs/            LlmsTxtController · OpenApiMarkdownRenderer · DocsConfig
+├── docs/            LlmsTextController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
 └── auth/            OAuth2 + Apple/Kakao native login + JWT
@@ -127,9 +127,26 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
+| POST | `/posts` | 필요 | 게시글 작성 |
 | GET | `/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
 | GET | `/posts/popular` | 선택 (게스트 허용) | 인기 게시글 Top 10 (홈 화면) |
 
+- 작성 요청은 `type`, `category`, `title`, `description`, `products[]`를 사용한다.
+  `products[]`의 각 항목은 `itemContainerId`, `name`, `price`, `linkUrl`을 가진다.
+- `AGREE`는 상품이 정확히 1개이고 `title`을 따로 요구하지 않는다. 저장되는 제목은 상품명이며,
+  서버가 `사자`·`말자` 선택지를 정확히 2개 만든다. 상품 사진은 1~3장이어야 한다.
+- `A_B`는 30자 이내 주제인 `title`과 상품이 정확히 2개 필요하다. 상품마다 사진은 정확히
+  1장이고, 서버가 A·B 상품을 각각 가리키는 선택지를 만든다.
+- `GENERAL`은 30자 이내 `title`이 필요하며 상품과 선택지가 없어야 한다.
+- 설명은 선택이고 300자 이내, 상품명은 필수이고 30자 이내, 가격은 선택이고
+  0~999,999,999다. 상품 URL은 선택 텍스트로 형식·업무 길이 제한을 두지 않으며, 서버는
+  해당 값에 접속하지 않고 MySQL `LONGTEXT`의 물리 한계 안에서 그대로 저장한다.
+- 이미 다른 게시글 상품에 연결된 이미지 컨테이너는 사전 검사와 DB 유일성 충돌 모두
+  `ITEM_CONTAINER_ALREADY_IN_USE`(409)로 응답한다.
+- 상품의 `itemContainerId`는 작성자 본인이 업로드한 `PRODUCT` 용도여야 하며 한 상품에만
+  붙일 수 있다. 존재하지 않거나 타인 소유이거나 이미 사용된 컨테이너는 거부한다.
+- 작성 성공은 201 `CREATED`와 `{ "postId": number }`를 반환한다. `전체`는 저장 카테고리가
+  아니라 목록에서 `category`를 생략한 상태이므로 작성 값으로 받지 않는다.
 - `category` 는 없으면 **전체**다. `sort` 는 `LATEST`(기본) · `POPULAR` 둘이며,
   **모르는 값은 400 이 아니라 기본값으로 되돌린다** — 진입 화면이 오타 하나로 비지 않게.
 - `size` 는 기본 10, 상한 50. 무한 스크롤 한 조각이다.
@@ -176,7 +193,7 @@ app/pickple/
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/posts/{postId}/comments` | 선택 (게스트 허용) | 활성 댓글 전체 목록 |
+| GET | `/posts/{postId}/comments` | 필요 | 활성 댓글 전체 목록 |
 | POST | `/posts/{postId}/comments` | 필요 | 댓글 작성 |
 | PATCH | `/comments/{id}` | 필요 (작성자) | 댓글 내용 수정 |
 | DELETE | `/comments/{id}` | 필요 (작성자) | 댓글 소프트 삭제 |
@@ -186,7 +203,7 @@ app/pickple/
 - 댓글·작성자 프로필·원픽 수를 단일 조회로 읽는다. `nickname`이 아직 설정되지 않은
   기존 사용자는 소셜 `name`을 대체 표시값으로 사용한다.
 - 각 항목은 원본 `createdAt`과 화면용 `createdAgo`, 현재 요청자의 댓글인지 나타내는
-  `mine`을 함께 제공한다. 게스트 요청의 `mine`은 항상 `false`다.
+  `mine`을 함께 제공한다.
 - 차단·신고와 게스트 로그인 유도 모달은 서버 댓글 CRUD가 아니라 후속 기능/UI 범위다.
 
 **원픽** (ADR-0018·ADR-0020)
@@ -224,7 +241,8 @@ app/pickple/
 - 본문은 `{ "optionId": 1 }` 이다. 응답은 갱신된 **선택지별 득표 수와 득표율**이라
   투표 직후 화면이 다시 조회하지 않고 게이지로 전환할 수 있다(기능명세 §2.2).
   따로 조회하게 만들면 그 사이 들어온 다른 표까지 섞여 내 표의 결과가 아닌 값을 보여준다.
-- **게스트는 투표할 수 없다(R-11).** 별도 매처 없이 `anyRequest()` 의 인가 관문으로 401 이다.
+- **게스트의 최대 3회 선택은 클라이언트 로컬에서만 처리하고 서버에는 기록하지 않는다(R-11).**
+  따라서 서버 투표 API는 별도 매처 없이 `anyRequest()` 의 인가 관문으로 401 이다.
   그 관문은 인증 여부에 더해 **계정이 활성인지**까지 본다 — 탈퇴자도 여기서 401 이다(ADR-0035).
 - **한 게시글에 한 사람은 한 표다(R-09).** 인원은 선택지가 아니라 게시글 단위로 센다.
   이미 투표한 사람이 다시 보내면 새 행을 만들지 않고 선택지만 바꾼다 —
@@ -471,6 +489,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V10__users_ranking_order_index.sql` | `db/migration` | 항상 |
 | `V11__activity_list_indexes.sql` | `db/migration` | 항상 |
 | `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
+| `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -503,8 +522,6 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - V9 는 기존 `vote` 를 일별 집계로 **백필**한다. 빈 채로 두면 배포 직후 모든 회원의
   누적 투표가 0 이 되는데 에러가 나지 않아 사용자가 신고해야 발견된다.
 - `user_badge` 에 UPDATE·DELETE 경로가 없다. 뱃지는 한 번 얻으면 남고 회수 정책이 없다.
-
-| `V10__users_ranking_order_index.sql` | `db/migration` | 항상 |
 
 ---
 
@@ -613,13 +630,16 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 미인증 · 토큰 오류 | `UNAUTHORIZED` / `INVALID_TOKEN` / `EXPIRED_TOKEN` | 401 |
 | 권한 없음 | `FORBIDDEN` | 403 |
 | 대상 없음 | `NOT_FOUND` | 404 |
-| 상태 충돌 — 닉네임 선점 · 이미 원픽함 | `NICKNAME_ALREADY_IN_USE` / `ALREADY_PICKED` | 409 |
+| 상태 충돌 — 닉네임 선점 · 이미 원픽함 · 이미지 컨테이너 재사용 | `NICKNAME_ALREADY_IN_USE` / `ALREADY_PICKED` / `ITEM_CONTAINER_ALREADY_IN_USE` | 409 |
 | Apple 키 미설정·Apple 서버 일시 장애 | `APPLE_LOGIN_UNAVAILABLE` | 503 |
 | Apple 회원 탈퇴 연결 해제 일시 장애 | `APPLE_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
 | Apple token 없는 기존 계정의 로컬 탈퇴 완료 | `APPLE_MANUAL_REVOCATION_REQUIRED` | 200 |
 | Kakao 키 미설정·JWKS 일시 장애 | `KAKAO_LOGIN_UNAVAILABLE` | 503 |
 | Kakao 회원 탈퇴 연결 해제 일시 장애 | `KAKAO_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
 | 그 외 | `SYSTEM_ERROR` | 500 |
+
+> 게시글을 삭제해도 연결된 이미지 컨테이너는 점유 상태를 유지한다. 삭제한 게시글에 사용된 이미지를
+> 다른 게시글에서 재사용하면 `ITEM_CONTAINER_ALREADY_IN_USE`(409)로 응답한다.
 
 ---
 
@@ -664,10 +684,14 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |
 | 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
+| 2026-09-04 | 이미지 컨테이너 재사용을 입력 오류가 아닌 상태 충돌(409)로 통일 | Issue #17 리뷰. 사전 검사와 DB 경합이 같은 API 계약을 가져야 함 |
+| 2026-09-04 | 최신 게스트 정책에 맞춰 댓글 목록 조회를 인증 필수로 변경 | 게스트는 게시글 탐색은 가능하지만 댓글 열람은 제한 |
 | 2026-09-04 | Kakao 네이티브 ID token 로그인·프로필 분기 응답·서버 주도 unlink 추가 | Issue #101. iOS Kakao SDK 로그인과 탈퇴를 브라우저 OAuth 및 앱의 별도 호출 조율 없이 지원 |
 | 2026-09-04 | `GET /posts/popular` 추가. 목록 조회 경로를 재사용하고 커서 봉투만 벗긴다 | Issue #29. 홈 화면이 커서 없는 고정 10건을 요구. 전용 쿼리를 새로 만들면 `idx_post_popular_all` 검증이 두 벌이 된다 |
 | 2026-09-04 | 등급 도메인 신설. 승급 판정 입력값을 캐시가 아니라 원장에서 읽고, 도달 등급만 `users.highest_grade` 에 저장(ADR-0030) | Issue #25. `users.vote_count` 는 선언만 있고 **쓰는 코드가 0건**이라 읽으면 전원 0 — 아무도 승급하지 못하는데 테스트는 초록인 상태가 됐을 것 |
-| 2026-09-03 | `/api` prefix 제거를 결정(ADR-0029)하고 컨트롤러 매핑 규칙을 ArchUnit 으로 강제. **경로 자체는 아직 안 바뀜** — 프론트 합의 대기 | Issue #75. `api.` 서브도메인과 의미 중복. 계약 변경이라 백엔드 단독으로 못 민다 |
+| 2026-09-04 | 엔드포인트의 `/api` prefix를 제거하고 메서드에 전체 경로를 선언 | Issue #91. ADR-0033으로 ADR-0029의 과도기 결정을 대체 |
+| 2026-09-03 | 게시글 작성 계약과 상품 URL `LONGTEXT` 마이그레이션 추가 | Issue #17. 유형별 상품·사진·선택지 규칙과 업로드 컨테이너 소유권·재사용 방지 |
+| 2026-09-03 | ArchitectureTest 표에 테스트 네이밍·config 위치 규칙 반영(당시 19개) | 새 규칙이 표에 반영되지 않았음 |
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
 | 2026-09-03 | 도메인별 `config` 하위 패키지를 루트 `config` 로 통합 | 설정이 흩어져 부트스트랩 전체를 한눈에 못 봄(#63). ArchitectureTest 로 재발 차단 |
 | 2026-09-03 | 탈퇴 정본을 `users.state` 로 통일하고 `deleted_at` 제거 | 생성 컬럼이 `deleted_at` 을 보는데 코드는 `state` 만 써서 탈퇴해도 닉네임이 잠겼다(#16) |

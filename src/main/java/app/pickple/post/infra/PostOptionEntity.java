@@ -58,7 +58,7 @@ public class PostOptionEntity {
     private PostOptionEntity(PostEntity post, PostOption option, LocalDateTime now) {
         this.id = option.id();
         this.post = post;
-        this.postProductId = option.postProductId();
+        this.postProductId = post.resolvePostProductId(option);
         this.label = option.label();
         this.displayOrder = (byte) option.displayOrder();
         this.createdAt = now;

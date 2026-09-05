@@ -96,16 +96,24 @@ class CommentControllerIT {
     }
 
     @Test
-    void guestCanReadEmptyListButCannotWrite() throws Exception {
+    void guestCannotReadOrWriteComments() throws Exception {
         mockMvc.perform(get("/posts/{postId}/comments", postEntity.id()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("OK"))
-                .andExpect(jsonPath("$.returnObject.commentCount").value(0))
-                .andExpect(jsonPath("$.returnObject.comments").isEmpty());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
         mockMvc.perform(post("/posts/{postId}/comments", postEntity.id())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"로그인 없이 작성\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(patch("/comments/{id}", 1L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"로그인 없이 수정\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(delete("/comments/{id}", 1L))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
@@ -152,7 +160,8 @@ class CommentControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"));
 
-        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id()))
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(commentAuthorToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.commentCount").value(0))
                 .andExpect(jsonPath("$.returnObject.comments").isEmpty());
@@ -186,7 +195,8 @@ class CommentControllerIT {
         statistics.setStatisticsEnabled(true);
         statistics.clear();
 
-        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id()))
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(otherUserToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.commentCount").value(3))
                 .andExpect(jsonPath("$.returnObject.comments[0].id").value(picked.id()))
@@ -194,7 +204,8 @@ class CommentControllerIT {
                 .andExpect(jsonPath("$.returnObject.comments[0].mine").value(false))
                 .andExpect(jsonPath("$.returnObject.comments[0].createdAgo").isString());
 
-        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2L);
+        // 인증 필수 목록이므로 계정 활성 상태 확인 1회 + 댓글 목록 조회 2회다.
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(3L);
     }
 
     @Test

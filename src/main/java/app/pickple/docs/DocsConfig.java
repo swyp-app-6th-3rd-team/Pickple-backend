@@ -76,7 +76,7 @@ public class DocsConfig {
      *
      * <p>렌더러 자체는 스프링을 모르는 순수 클래스다(그래야 순환 참조 전개를 컨테이너 없이 테스트한다).
      * 그래서 {@code @Component} 를 붙이는 대신 여기서 조립한다.
-     * {@link LlmsTxtController} 와 같은 조건을 걸어 둘이 함께 켜지고 함께 꺼지도록 한다.
+     * {@link LlmsTextController} 와 같은 조건을 걸어 둘이 함께 켜지고 함께 꺼지도록 한다.
      */
     @Bean
     @ConditionalOnProperty(prefix = "llms-txt", name = "enabled", havingValue = "true", matchIfMissing = true)

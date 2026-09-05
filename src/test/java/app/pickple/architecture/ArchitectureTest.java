@@ -384,13 +384,11 @@ class ArchitectureTest {
          * 함께 고치지 않으면 이 테스트가 빨간불로 알려준다(그게 이 목록의 값어치다).
          *
          * <p>키는 {@code "METHOD 경로"} 다. 같은 경로라도 메서드마다 공개 여부가
-         * 갈리기 때문이다 — {@code GET /posts/{postId}/comments} 는 공개지만
-         * {@code POST} 는 인증이 필요하다.
+         * 갈리기 때문이다. 현재 게시글과 댓글 경로는 모두 메서드별 공개 여부를 따로 적는다.
          */
         private static final Set<String> PUBLIC_ENDPOINTS = Set.of(
                 "GET /posts",
                 "GET /posts/popular",
-                "GET /posts/{postId}/comments",
                 "GET /users/nickname/availability",
                 "GET /rankings",
                 "GET /rankings/top",
@@ -428,7 +426,7 @@ class ArchitectureTest {
          */
         private static final Set<String> DOCS_CONTROLLERS = Set.of(
                 "app.pickple.config.ScalarConfig",
-                "app.pickple.docs.LlmsTxtController");
+                "app.pickple.docs.LlmsTextController");
 
         @Test
         @DisplayName("permitAll 이 아닌 핸들러는 @SecurityRequirement 를 갖는다")

@@ -21,6 +21,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -82,6 +84,28 @@ class PostStoreGuardIT {
         assertThatThrownBy(() -> postStore.save(broken))
                 .isInstanceOf(PostNotPublishableException.class)
                 .hasMessageContaining("선택지는 2개");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 게시글 수정은 영속화 오류로 분류한다")
+    void missingPostOnUpdateIsPersistenceFailure() {
+        Post missing = Post.restore(
+                Long.MAX_VALUE,
+                authorId,
+                PostType.GENERAL,
+                PostCategory.ETC,
+                "없는 글",
+                null,
+                List.of(),
+                List.of(),
+                0L,
+                0L,
+                0L,
+                false);
+
+        assertThatThrownBy(() -> postStore.save(missing))
+                .isInstanceOf(PostPersistenceException.class)
+                .hasMessageContaining("id=" + Long.MAX_VALUE);
     }
 
     @Test

@@ -7,6 +7,7 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
+import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
@@ -14,11 +15,18 @@ import app.pickple.post.domain.PostProduct;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.support.IntegrationTest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +43,12 @@ class JpaPostStoreIT {
 
     @Autowired
     private UserStore userStore;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private Long authorId;
 
@@ -59,7 +73,7 @@ class JpaPostStoreIT {
                 .addOption(PostOption.ofLabel("말자", 2));
         post.verifyPublishable();
 
-        Post saved = postStore.save(post);
+        Post saved = postStore.saveIfContainerFree(post);
 
         Post found = postStore.findById(saved.id()).orElseThrow();
         assertThat(found.type()).isEqualTo(PostType.AGREE);
@@ -73,16 +87,19 @@ class JpaPostStoreIT {
     void savesAbPostWithProductOptions() {
         Long c1 = newProductContainer();
         Long c2 = newProductContainer();
-        // A/B 선택지는 상품 id 를 가리켜야 하는데, 그 id 는 저장 후에야 생긴다.
-        // 상품을 먼저 저장해 id 를 얻고, 그 id 로 선택지를 만들어 다시 저장한다.
-        Post draft = new Post(authorId, PostType.A_B, PostCategory.BEAUTY, "A vs B", null)
+        Post post = new Post(authorId, PostType.A_B, PostCategory.BEAUTY, "A vs B", null)
                 .addProduct(new PostProduct(c1, "A 상품", 10_000L, null, 1))
-                .addProduct(new PostProduct(c2, "B 상품", 20_000L, null, 2));
+                .addProduct(new PostProduct(c2, "B 상품", 20_000L, null, 2))
+                .addOption(PostOption.ofProductDisplayOrder(1, 1))
+                .addOption(PostOption.ofProductDisplayOrder(2, 2));
 
-        // 선택지 없이 저장하려 하면 R-04 가 막는다 — 이것이 이 모델의 제약이다.
-        assertThatThrownBy(() -> postStore.save(draft))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("선택지는 2개");
+        Post saved = postStore.saveIfContainerFree(post);
+
+        Post found = postStore.findById(saved.id()).orElseThrow();
+        assertThat(found.products()).hasSize(2);
+        assertThat(found.options()).hasSize(2);
+        assertThat(found.options()).extracting(PostOption::postProductId)
+                .containsExactly(found.products().get(0).id(), found.products().get(1).id());
     }
 
     @Test
@@ -107,8 +124,42 @@ class JpaPostStoreIT {
                 .addOption(PostOption.ofLabel("사자", 1))
                 .addOption(PostOption.ofLabel("말자", 2));
 
-        assertThatThrownBy(() -> postStore.save(post))
-                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> postStore.saveIfContainerFree(post))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("같은 컨테이너를 두 게시글에 붙이면 실제 유니크 키 위반을 도메인 예외로 변환한다")
+    void duplicateContainerHitsUniqueKey() {
+        Long containerId = newProductContainer();
+        postStore.saveIfContainerFree(agreePost(containerId, "첫 게시글"));
+
+        assertThatThrownBy(() -> postStore.saveIfContainerFree(agreePost(containerId, "두 번째 게시글")))
+                .isInstanceOfSatisfying(ItemContainerAlreadyAttachedException.class,
+                        exception -> assertThat(exception.getCause())
+                                .isInstanceOf(DataIntegrityViolationException.class));
+    }
+
+    @Test
+    @DisplayName("여러 컨테이너의 부착 여부를 한 번의 쿼리로 조회한다")
+    void findsAttachedContainerIdsInBatch() {
+        Long firstAttached = newProductContainer();
+        Long secondAttached = newProductContainer();
+        Long free = newProductContainer();
+        postStore.saveIfContainerFree(agreePost(firstAttached, "첫 번째 게시글"));
+        postStore.saveIfContainerFree(agreePost(secondAttached, "둘째 게시글"));
+        entityManager.flush();
+        entityManager.clear();
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        Set<Long> attached = postStore.findAttachedItemContainerIds(
+                Set.of(firstAttached, secondAttached, free));
+
+        assertThat(attached).containsExactlyInAnyOrder(firstAttached, secondAttached);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1L);
     }
 
     @Test
@@ -139,5 +190,12 @@ class JpaPostStoreIT {
         assertThat(reloaded.type()).isEqualTo(PostType.GENERAL);
         assertThat(reloaded.title()).isEqualTo("바뀐 제목");
         assertThat(reloaded.category()).isEqualTo(PostCategory.LIVING);
+    }
+
+    private Post agreePost(Long containerId, String title) {
+        return new Post(authorId, PostType.AGREE, PostCategory.ETC, title, null)
+                .addProduct(new PostProduct(containerId, "상품", 1000L, null, 1))
+                .addOption(PostOption.ofLabel("사자", 1))
+                .addOption(PostOption.ofLabel("말자", 2));
     }
 }

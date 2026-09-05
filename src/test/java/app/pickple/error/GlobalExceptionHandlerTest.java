@@ -5,6 +5,7 @@ import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
+import app.pickple.post.domain.PostConsistencyException;
 import app.pickple.post.domain.PostProduct;
 import app.pickple.post.domain.PostType;
 import app.pickple.vote.infra.VotePersistenceException;
@@ -82,6 +83,12 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("게시글 내부 참조 모순은 500과 스택이 있는 ERROR로 응답한다")
+    void postConsistencyFailureIsServerError() throws Exception {
+        assertServerError("/test/errors/post-consistency", PostConsistencyException.class);
+    }
+
+    @Test
     @DisplayName("투표 영속화 오류는 500과 스택이 있는 ERROR로 응답한다")
     void votePersistenceFailureIsServerError() throws Exception {
         assertServerError("/test/errors/vote-persistence", VotePersistenceException.class);
@@ -140,6 +147,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test/errors/illegal-state")
         void illegalState() {
             throw new IllegalStateException("분류되지 않은 내부 상태 오류");
+        }
+
+        @GetMapping("/test/errors/post-consistency")
+        void postConsistency() {
+            throw new PostConsistencyException("게시글 상품-선택지 참조 모순");
         }
 
         @GetMapping("/test/errors/vote-persistence")

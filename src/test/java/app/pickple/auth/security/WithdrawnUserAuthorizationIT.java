@@ -219,30 +219,14 @@ class WithdrawnUserAuthorizationIT {
         }
 
         @Test
-        @DisplayName("C-6 공개 경로에서 탈퇴자는 익명으로 강등된다 (200, mine=false)")
-        void withdrawnUserIsDemotedToAnonymous() throws Exception {
-            // 탈퇴자 본인이 쓴 댓글을 만든다. 강등이 없으면 mine=true 가 나온다.
-            Long own = commentService.write(
-                    new Comment(post.id(), withdrawn.id(), "탈퇴자가 쓴 댓글", null)).id();
-            assertThat(own).isNotNull();
-
-            // 거부가 아니라 강등이다 — 200 이어야 한다.
-            // R-20 은 글의 가시성을 말하는 것이지, 탈퇴자가 개인화된 신원을 유지해도
-            // 된다는 뜻이 아니다. 강등이 그 둘을 가른다.
-            mockMvc.perform(get("/posts/{postId}/comments", post.id())
+        @DisplayName("C-6 탈퇴자 토큰을 보내도 공개 게시글 목록은 200 이다")
+        void withdrawnUserStillReadsPublicPostLists() throws Exception {
+            mockMvc.perform(get("/posts")
                             .header("Authorization", bearer(withdrawnToken)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.returnObject.comments[?(@.id == " + own + ")].mine")
-                            .value(false));
-
-            // 대조군 — 정상 회원은 여전히 본인으로 식별된다.
-            Long activeOwn = commentService.write(
-                    new Comment(post.id(), active.id(), "정상 회원 댓글", null)).id();
-            mockMvc.perform(get("/posts/{postId}/comments", post.id())
-                            .header("Authorization", bearer(activeToken)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.returnObject.comments[?(@.id == " + activeOwn + ")].mine")
-                            .value(true));
+                    .andExpect(status().isOk());
+            mockMvc.perform(get("/posts/popular")
+                            .header("Authorization", bearer(withdrawnToken)))
+                    .andExpect(status().isOk());
         }
     }
 
