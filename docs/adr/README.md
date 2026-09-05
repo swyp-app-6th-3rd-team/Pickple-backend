@@ -28,7 +28,7 @@
 | [0018](0018-onepick-as-behavior.md) | 원픽을 행위로 모델링한다 | Accepted (유일성 범위는 0020 이 갱신) |
 | [0019](0019-policy-belongs-above-infrastructure.md) | 정책 판단을 인프라에서 걷어낸다 | Accepted |
 | [0020](0020-onepick-uniqueness-scope.md) | 원픽의 유일성 범위는 게시글이다 | Accepted |
-| [0021](0021-s3-image-object-storage.md) | 이미지 객체는 S3에 저장한다 | Accepted |
+| [0021](0021-s3-image-object-storage.md) | 이미지 객체는 S3에 저장한다 | Accepted (보상 삭제 대체 제안: 0038) |
 | [0022](0022-route53-and-caddy-tls.md) | 도메인은 Route53 이 관리하고 TLS 는 Caddy 가 종단한다 | Accepted |
 | [0023](0023-external-db-ssh-access.md) | MySQL 과 SSH 를 비표준 포트로 외부에 연다 | Accepted |
 | [0024](0024-local-run-environment.md) | 로컬 실행은 `.env` 임포트로, compose 는 local 과 ec2 둘만 둔다 | Accepted |
@@ -45,3 +45,4 @@
 | [0035](0035-withdrawn-user-central-authorization.md) | 탈퇴 회원 차단을 인가 계층 한 곳으로 모은다 | Accepted |
 | [0036](0036-my-activity-list-reads-posts-through-activity-index.md) | 내 활동 목록은 활동 인덱스로 게시글을 읽고, 커서는 활동 시각과 게시글 ID를 쓴다 | Accepted |
 | [0037](0037-apple-withdrawal-detaches-provider-identity.md) | Apple 탈퇴는 provider identity를 분리하고 재로그인은 새 회원으로 만든다 | Accepted |
+| [0038](0038-periodic-item-orphan-cleanup.md) | 이미지 고아 객체는 주기적으로 정리한다 | Proposed (0021 보상 삭제 대체, 0027 활성화 조건 보완) |

@@ -6,4 +6,8 @@ public class DuplicatePickException extends RuntimeException {
     public DuplicatePickException(Long postId, Long pickerId) {
         super("이 게시글에서 이미 원픽했습니다: postId=%d, pickerId=%d".formatted(postId, pickerId));
     }
+
+    public DuplicatePickException(Long postId, Long pickerId, Throwable cause) {
+        super("이 게시글에서 이미 원픽했습니다: postId=%d, pickerId=%d".formatted(postId, pickerId), cause);
+    }
 }

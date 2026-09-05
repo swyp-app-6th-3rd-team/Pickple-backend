@@ -10,7 +10,6 @@ import app.pickple.point.domain.PointHistoryStore;
 import app.pickple.point.domain.PointReason;
 import app.pickple.post.service.ActivePostGuard;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,18 +52,9 @@ public class OnePickService {
         // R-07 은 댓글 하나로 판정된다 — 도메인이 막는다.
         OnePick pick = comment.pick(pickerId);
 
-        // R-05 는 동시성이 있어 유니크 키가 가른다. 그 사실을 정책으로 해석하는 건 여기다.
-        //
-        // 존재 확인과 삽입 사이의 좁은 창에서 두 요청이 겹치면 뒤쪽이 유니크 위반으로 실패한다.
-        // 그것도 "이미 픽했다" 는 같은 사실이므로 같은 예외로 통일한다 —
-        // 호출자가 타이밍에 따라 다른 예외를 받으면 예외 계약이 성립하지 않는다.
-        Long pickId;
-        try {
-            pickId = pickStore.saveIfAbsent(pick)
-                    .orElseThrow(() -> new DuplicatePickException(comment.postId(), pickerId));
-        } catch (DataIntegrityViolationException e) {
-            throw new DuplicatePickException(comment.postId(), pickerId);
-        }
+        // 경합 시의 DB 제약 해석은 저장소가 맡는다. 서비스는 같은 도메인 예외를 사용한다.
+        Long pickId = pickStore.saveIfAbsent(pick)
+                .orElseThrow(() -> new DuplicatePickException(comment.postId(), pickerId));
 
         grant(comment.authorId(), PointReason.PICKED, pickId);
         grant(pickerId, PointReason.PICKING, pickId);

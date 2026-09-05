@@ -15,6 +15,7 @@ public interface OnePickStore {
      * 아직 픽하지 않았다면 기록한다.
      *
      * @return 저장된 픽의 식별자. 이미 픽했으면 빈 값. 식별자는 포인트 멱등키가 된다 (R-13)
+     * @throws DuplicatePickException 확인 후 삽입 사이에 다른 요청이 같은 게시글을 픽한 경우
      */
     java.util.Optional<Long> saveIfAbsent(OnePick pick);
 

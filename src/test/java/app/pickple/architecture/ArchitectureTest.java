@@ -194,6 +194,17 @@ class ArchitectureTest {
     class LayerBoundary {
 
         @Test
+        @DisplayName("서비스는 DB 예외, JDBC, 명령형 트랜잭션과 JPA에 의존하지 않는다")
+        void servicesDoNotDependOnPersistenceInfrastructure() {
+            // 선언적 org.springframework.transaction.annotation.Transactional은 허용한다.
+            noClasses().that().resideInAPackage("..service..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.springframework.dao..", "org.springframework.jdbc..",
+                            "org.springframework.transaction.support..", "jakarta.persistence..")
+                    .check(classesUnderTest);
+        }
+
+        @Test
         @DisplayName("저장소 인터페이스는 도메인 패키지에만 존재한다")
         void storeInterfacesLiveInDomain() {
             classes().that().haveSimpleNameEndingWith("Store").and().areInterfaces()

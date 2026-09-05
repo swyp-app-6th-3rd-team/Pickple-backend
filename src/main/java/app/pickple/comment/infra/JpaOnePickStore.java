@@ -1,8 +1,11 @@
 package app.pickple.comment.infra;
 
 import app.pickple.comment.domain.OnePick;
+import app.pickple.comment.domain.DuplicatePickException;
 import app.pickple.comment.domain.OnePickStore;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,8 +40,25 @@ public class JpaOnePickStore implements OnePickStore {
         if (repository.existsByUserIdAndPostId(pick.pickerId(), pick.postId())) {
             return Optional.empty();
         }
-        return Optional.of(repository.save(
-                OnePickEntity.from(pick, LocalDateTime.now(clock))).getId());
+        try {
+            return Optional.of(repository.saveAndFlush(
+                    OnePickEntity.from(pick, LocalDateTime.now(clock))).getId());
+        } catch (DataIntegrityViolationException failure) {
+            for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+                if (cause instanceof ConstraintViolationException violation
+                        && violation.getErrorCode() == 1062
+                        && isPickUniqueKey(violation.getConstraintName())) {
+                    // 실패한 JPA 트랜잭션에서 빈 값을 반환하면 rollback-only를 숨기게 된다.
+                    throw new DuplicatePickException(pick.postId(), pick.pickerId(), failure);
+                }
+            }
+            throw failure;
+        }
+    }
+
+    private boolean isPickUniqueKey(String constraintName) {
+        return constraintName != null && (constraintName.equals("uk_pick_user_post")
+                || constraintName.equals("comment_pick.uk_pick_user_post"));
     }
 
     @Override

@@ -10,6 +10,7 @@ import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetUrlRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
@@ -21,6 +22,26 @@ public class S3FileObjectStorage implements FileObjectStorage {
 
     private final S3Client fileS3Client;
     private final FileStorageProperties properties;
+
+    @Override
+    public String accessUrl(String itemKey) {
+        return accessUrl(configuredBucket(), itemKey);
+    }
+
+    @Override
+    public ObjectPage list(String prefix, String continuationToken, int pageSize) {
+        String bucket = configuredBucket();
+        try {
+            var page = fileS3Client.listObjectsV2(ListObjectsV2Request.builder()
+                    .bucket(bucket).prefix(prefix).continuationToken(continuationToken)
+                    .maxKeys(pageSize).build());
+            return new ObjectPage(page.contents().stream()
+                    .map(object -> new StoredObject(object.key(), object.lastModified())).toList(),
+                    Boolean.TRUE.equals(page.isTruncated()) ? page.nextContinuationToken() : null);
+        } catch (S3Exception | SdkClientException e) {
+            throw new FileObjectStorageException("S3 이미지 목록 조회에 실패했습니다.", e);
+        }
+    }
 
     @Override
     public String put(String itemKey, byte[] content, String contentType) {
