@@ -431,15 +431,26 @@ class ActivityControllerIT {
         }
 
         @Test
-        @DisplayName("한 조각은 SQL 한 번으로 나간다")
-        void oneStatementPerSlice() throws Exception {
+        @DisplayName("조각 크기가 12배가 되어도 SQL 횟수는 그대로다 — N+1 이 없다")
+        void statementCountDoesNotGrowWithSliceSize() throws Exception {
             for (int i = 0; i < 12; i++) {
                 Post post = saveAgreePost("N+1 확인" + i);
                 voteOn(post);
             }
 
-            assertThat(countStatements(ACTIVITIES + "?type=VOTE&size=1", 1)).isEqualTo(1L);
-            assertThat(countStatements(ACTIVITIES + "?type=VOTE&size=12", 12)).isEqualTo(1L);
+            long oneRow = countStatements(ACTIVITIES + "?type=VOTE&size=1", 1);
+            long twelveRows = countStatements(ACTIVITIES + "?type=VOTE&size=12", 12);
+
+            // 지키려는 성질은 "1회" 라는 숫자가 아니라 <b>행 수에 비례하지 않는다</b> 는 것이다.
+            // 절대값을 박아 두면 요청당 상수 비용이 하나 늘 때마다 이 테스트가 깨지면서
+            // 정작 N+1 이 생겼는지는 알려주지 못한다.
+            assertThat(twelveRows).isEqualTo(oneRow);
+
+            // 그 상수가 무엇으로 이루어졌는지도 고정한다. 늘어나면 이유를 대야 한다.
+            //   1) 활동 목록 조회 — 조각 하나를 한 번에 읽는다
+            //   2) 탈퇴 회원 차단 관문의 상태 확인 (#106, ADR-0035)
+            //      요청당 1회이고 행 수와 무관하다. type=const / key=PRIMARY 로 끝난다.
+            assertThat(oneRow).isEqualTo(2L);
         }
 
         @Test
