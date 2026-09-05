@@ -47,6 +47,8 @@ ID가 있는 도메인 객체를 갱신하려는데 대응하는 행이 없거�
 상태가 사라졌다면 호출자가 요청을 고쳐 해결할 수 없다.
 
 - 저장 어댑터의 모순은 각 기능 `infra` 패키지의 `*PersistenceException`으로 표현한다.
+- 서버가 조립하거나 영속 상태에서 복원한 도메인 객체의 내부 모순은 해당 기능 `domain`
+  패키지의 `*ConsistencyException`으로 표현한다.
 - 여러 포트 호출 사이의 모순은 해당 기능 `service` 패키지의 `*ConsistencyException`으로
   표현한다. 서비스가 인프라 예외 타입에 의존하지 않게 한다.
 - 이 내부 예외들은 HTTP 코드를 갖지 않는다. 전역의 예상하지 못한 예외 처리로
@@ -58,6 +60,7 @@ ID가 있는 도메인 객체를 갱신하려는데 대응하는 행이 없거�
 |---|---|---|
 | `Post.verifyPublishable()`의 R-02·R-04 | 요청 구성 오류 | `PostNotPublishableException` → 400 |
 | `Post.verifyPhotoCount()`의 R-03 | 요청 구성 오류 | `PostNotPublishableException` → 400 |
+| PR #76 `Post.verifyAbOptionTargets()`의 선택지-상품 참조 모순 | 서버 조립·복원 상태의 내부 일관성 오류 | `PostConsistencyException` → 500 |
 | `ActivePostGuard`가 비활성 또는 없는 게시글을 거부 | 요청 대상 상태 오류 | `ApiException(INVALID_REQUEST)` → 400 |
 | `OnePickService`가 삭제된 댓글을 `Comment.pick()` 전에 거부 | 요청 대상 상태 오류 | `ApiException(INVALID_REQUEST)` → 400 |
 | `ItemContainer.verifyUsableAs()`가 잘못된 용도를 거부 | 요청 구성 오류 | `ItemContainerNotAttachableException` → 400 |
@@ -70,11 +73,21 @@ ID가 있는 도메인 객체를 갱신하려는데 대응하는 행이 없거�
 `JpaPostStore`의 갱신 대상 행 소실과 새 게시글 상품 ID 생성 순서 위반은 아직 `develop`에
 들어오지 않은 PR #76의 코드다. PR #76은 해당 지점을 `post.infra.PostPersistenceException`으로
 표현한다. #114에서는 그 코드를 중복 도입하지 않고, PR #76이 합쳐질 때 이 ADR의 같은 규칙에 따라
-500과 스택 로그를 유지한다. PR #76이 추가하는 A/B 선택지 검증의 원시 `IllegalStateException`은
-병합 전에 각각 `PostNotPublishableException`으로 명시해야 한다. 넓은 예외 변환으로 이를 대신하지
-않는다. `ItemContainer.verifyUsableAs()`를 직접 호출하는 경로는 전용 도메인 예외의 정확한 전역
-번역으로 400을 유지하고, 같은 생성 요청의 R-03 사진 수 검증도 명시적인
-`PostNotPublishableException`을 사용하므로 400 계약을 유지한다.
+500과 스택 로그를 유지한다.
+
+PR #76의 현재 생성 API는 A/B 선택지가 가리킬 상품을 요청으로 받지 않는다. `PostService`가 두
+선택지를 상품 표시 순서 1·2에 맞춰 생성하므로, `verifyAbOptionTargets()`의 다섯 실패는 호출자가
+요청을 고쳐 해결하는 규칙 위반이 아니라 서버 조립 또는 영속 상태 복원의 모순이다. 따라서 병합
+전에 이 다섯 원시 `IllegalStateException`을 모두 `post.domain.PostConsistencyException`으로
+명시하고 500과 스택 로그를 유지한다. 향후 API가 선택지 타깃을 직접 입력받게 되면 요청 DTO와
+서비스 경계에서 클라이언트가 제어하는 검증만 별도의 4xx로 번역하며, 내부 불변식 예외를 일괄
+4xx로 바꾸지 않는다.
+
+반면 같은 생성 요청의 R-03 사진 수는 요청에서 선택한 이미지 컨테이너로 해결할 수 있으므로
+`PostNotPublishableException`을 사용해 400 계약을 유지한다. 이때 PR #76의 안전한 메시지 형식인
+상품 표시 순서를 유지하고 요청 상품명은 오류 메시지나 로그에 포함하지 않는다.
+`ItemContainer.verifyUsableAs()`를 직접 호출하는 경로도 전용 도메인 예외의 정확한 전역 번역으로
+400을 유지한다.
 
 남아 있는 원시 `IllegalStateException`도 다음처럼 전수 분류한다.
 
@@ -118,6 +131,7 @@ ID가 있는 도메인 객체를 갱신하려는데 대응하는 행이 없거�
 - 저장 행 소실과 내부 순서 위반의 스택이 남아 상관관계 ID로 원인을 추적할 수 있다.
 - 새 예외 지점은 타입과 패키지만 보고 어느 계층이 분류 책임을 갖는지 알 수 있다.
 - R-02·R-04의 기존 400 계약은 유지된다.
+- 서버가 생성한 A/B 선택지 타깃의 모순은 요청 오류로 숨지 않고 500과 스택으로 드러난다.
 
 **대가**
 
@@ -147,6 +161,9 @@ ID가 있는 도메인 객체를 갱신하려는데 대응하는 행이 없거�
 - 각 저장소 테스트가 존재하지 않는 갱신 대상에 대해 기능별 `*PersistenceException`을 던지는지
   확인한다.
 - `PostStoreGuardIT`가 R-02·R-04 검증이 저장 경로에서 빠지지 않는지 계속 확인한다.
+- PR #76 병합 시 `verifyAbOptionTargets()`의 다섯 분기를 `PostConsistencyException`으로 고정하고,
+  R-03은 상품 표시 순서를 사용하는 안전한 메시지와 `PostNotPublishableException` 400을 유지하는
+  회귀 테스트를 추가한다.
 
 ## 참고
 
