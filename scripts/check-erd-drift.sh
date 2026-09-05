@@ -19,7 +19,21 @@
 #     테이블 *개수* 만 물리 ERD 와 맞는지 본다.
 set -euo pipefail
 
+# 로케일을 고정한다. 러너에서 `grep: Invalid collation character` 로 죽었는데,
+# 로케일이 정해지지 않으면 문자 범위(a-z, 가-힣)의 collation 해석이 환경마다 갈린다.
+# UTF-8 을 명시해 한글이 든 .mmd 를 바이트가 아니라 문자로 읽게 하고,
+# 아래 정규식에서도 범위 표현 대신 구조(들여쓰기·중괄호)로 매칭한다.
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+
 cd "$(dirname "$0")/.."
+
+# macOS 는 shasum, 리눅스(러너)는 sha256sum 이다. 한쪽만 쓰면 다른 쪽에서 127 로 죽는다.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  else shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
 
 ERD="docs/erd/erd.mmd"
 ERD_LOGICAL="docs/erd/erd-logical.mmd"
@@ -67,7 +81,7 @@ fi
 # 들여쓰기가 어긋나면 블록 판정이 풀려 컬럼이 이전 테이블에 붙는다. 그 경우
 # 아래 집합 비교에서 "없는 컬럼/남는 컬럼" 양쪽으로 튀므로 조용히 통과하지는 않는다.
 awk '
-  /^    [a-z_]+ \{/ { t = $1; next }
+  /^    [^ ]+ \{$/  { t = $1; next }
   /^    \}/         { t = ""; next }
   t && NF >= 2 && $1 !~ /^%%/ { print t "." $2 }
 ' "$ERD" | sort > "$tmp/erd.txt"
@@ -91,8 +105,11 @@ fi
 
 # 논리 ERD 는 이름이 한글이라 컬럼 대조를 못 한다. 엔티티 개수만 맞춘다 —
 # 테이블이 새로 생겼는데 논리 ERD 에만 안 넣는 흔한 누락을 잡는다.
-phys_count="$(grep -cE '^    [a-z_]+ \{' "$ERD")"
-logi_count="$(grep -cE '^    [가-힣]+ \{' "$ERD_LOGICAL")"
+# 문자 범위([a-z], [가-힣])는 로케일에 따라 collation 이 달라져 GNU grep 에서
+# "Invalid collation character" 로 죽는다(실제로 CI 에서 밟았다). 범위를 쓰지 않고
+# "4칸 들여쓰기 + 여는 중괄호로 끝나는 줄" 이라는 구조만으로 센다.
+phys_count="$(grep -cE '^    [^ ]+ \{$' "$ERD")"
+logi_count="$(grep -cE '^    [^ ]+ \{$' "$ERD_LOGICAL")"
 if [[ "$phys_count" != "$logi_count" ]]; then
   echo "::error::엔티티 개수가 다르다 — $ERD $phys_count 개, $ERD_LOGICAL $logi_count 개."
   status=1
@@ -119,6 +136,7 @@ fi
 # 새로 클론한 CI 에서는 모든 파일이 같은 시각이 되어 검사가 **항상 통과**한다.
 # 실제로 확인했다(fresh clone 에서 4개 파일 mtime 이 전부 동일).
 # 대신 렌더 시점의 소스 해시를 산출물 안에 새겨 두고 그 값을 대조한다.
+#
 # erd.html 도 검사한다. DocsConfig 가 "실제로 읽을 때는 이 페이지를 열어라" 라고
 # 안내하는 정본이라, 여기가 낡으면 독자가 옛 그림을 본다 — 테이블 집합만 맞으면
 # 관계선·라벨·설명·그룹핑이 바뀌어도 통과하던 구멍이 있었다.
@@ -135,9 +153,9 @@ for pair in "docs/erd/erd.mmd:docs/erd/erd.svg" \
     status=1
     continue
   fi
-  want="$(shasum -a 256 "$src" | cut -d' ' -f1)"
+  want="$(sha256_of "$src")"
   # 산출물 안의 마커. 렌더 스크립트가 넣는다.
-  got="$(grep -o 'erd-source-sha256:[0-9a-f]\{64\}' "$out" | head -1 | cut -d: -f2 || true)"
+  got="$(grep -o 'erd-source-sha256:[[:xdigit:]]\{64\}' "$out" | head -1 | cut -d: -f2 || true)"
   if [[ -z "$got" ]]; then
     echo "::error::$out 에 소스 해시 마커가 없다. scripts/render-erd.sh 로 다시 렌더한다."
     status=1

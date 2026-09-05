@@ -22,6 +22,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# macOS 는 shasum, 리눅스(러너)는 sha256sum 이다. 한쪽만 쓰면 다른 쪽에서 127 로 죽는다.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  else shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
 # --check: 렌더하지 않고 "어느 산출물이 낡았는지"만 알린다. archify 가 없는 사람도
 # 자기 변경이 무엇을 낡게 만들었는지 확인할 수 있다(고칠 수는 없어도 알 수는 있게).
 if [[ "${1:-}" == "--check" ]]; then
@@ -30,8 +37,8 @@ if [[ "${1:-}" == "--check" ]]; then
               "docs/erd/erd-logical.mmd:src/main/resources/static/docs/erd.svg" \
               "docs/erd/erd-logical.architecture.json:src/main/resources/static/docs/erd.html"; do
     src="${pair%%:*}"; out="${pair##*:}"
-    want="$(shasum -a 256 "$src" | cut -d' ' -f1)"
-    got="$(grep -o 'erd-source-sha256:[0-9a-f]\{64\}' "$out" 2>/dev/null | head -1 | cut -d: -f2 || true)"
+    want="$(sha256_of "$src")"
+    got="$(grep -o 'erd-source-sha256:[[:xdigit:]]\{64\}' "$out" 2>/dev/null | head -1 | cut -d: -f2 || true)"
     if [[ "$want" == "$got" ]]; then
       echo "최신  $out"
     else
@@ -137,11 +144,12 @@ PY
 # 위 SVG 렌더는 네트워크(mermaid.ink)만 있으면 누구나·CI 도 돌릴 수 있다.
 # 아래 archify 단계는 **개인 스킬 설치본**($HOME/.claude/skills)에 의존한다.
 # 저장소만 클론한 사람은 이 단계를 돌릴 수 없으므로, 없으면 조용히 건너뛰고
-# SVG 만 갱신한다(에러 아님). 그래서 CI 의 erd-drift 검사도 erd.html 은 보지 않는다 —
-# 고칠 방법이 없는 검사는 막다른 골목이 된다. 대신 spec 의 테이블 집합만 대조한다.
+# SVG 만 갱신한다(에러 아님).
 #
-# erd.html 을 다시 만들어야 하는데 archify 가 없다면, spec(JSON)만 고쳐 커밋하고
-# archify 보유자에게 렌더를 요청한다. spec 은 텍스트라 누구나 고칠 수 있다.
+# 다만 CI 의 erd-drift 는 erd.html 도 검사한다 — DocsConfig 가 이 페이지를 "실제로 읽을
+# 때 여는 정본" 으로 안내해서, 낡으면 독자가 옛 그림을 보기 때문이다. 그래서 archify 가
+# 없는데 spec 을 고치면 CI 가 막힌다. 그때는 spec(JSON)만 고쳐 커밋하고 archify 보유자에게
+# 렌더를 요청한다(README 의 ERD 절). `--check` 로 무엇이 낡았는지는 archify 없이도 본다.
 #
 # 확대·팬·테마 전환이 되는 상세 페이지. Scalar 본문에서 "전체 화면으로 열기" 로 연다.
 # Mermaid 의 ER 레이아웃은 가로 폭을 못 줄인다 — 논리 ERD 도 4364px 라 Scalar 소개
@@ -174,5 +182,5 @@ rm -f src/main/resources/static/docs/erd.visual-check.*
 
 # SVG 와 같은 이유로 소스 해시를 새긴다. archify 는 산출물을 서명하므로 덮어쓰지 않고
 # 주석 한 줄만 덧붙인다 — 렌더 내용은 건드리지 않는다.
-printf '\n<!-- erd-source-sha256:%s -->\n' "$(shasum -a 256 "$SPEC" | cut -d' ' -f1)" >> "$HTML"
+printf '\n<!-- erd-source-sha256:%s -->\n' "$(sha256_of "$SPEC")" >> "$HTML"
 echo "$HTML  (archify 상세 페이지)"
