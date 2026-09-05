@@ -5,6 +5,8 @@ import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.DuplicatePickException;
 import app.pickple.comment.domain.OnePick;
 import app.pickple.comment.domain.OnePickStore;
+import app.pickple.common.ResponseCode;
+import app.pickple.error.ApiException;
 import app.pickple.point.domain.PointHistory;
 import app.pickple.point.domain.PointHistoryStore;
 import app.pickple.point.domain.PointReason;
@@ -46,6 +48,10 @@ public class OnePickService {
     public Long pick(Long commentId, Long pickerId) {
         Comment comment = commentStore.findById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("댓글을 찾을 수 없습니다: id=" + commentId));
+
+        if (comment.isDeleted()) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "삭제된 댓글은 원픽할 수 없습니다.");
+        }
 
         activePost.requireActive(comment.postId());
 

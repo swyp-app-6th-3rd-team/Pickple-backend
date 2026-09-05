@@ -46,3 +46,4 @@
 | [0036](0036-my-activity-list-reads-posts-through-activity-index.md) | 내 활동 목록은 활동 인덱스로 게시글을 읽고, 커서는 활동 시각과 게시글 ID를 쓴다 | Accepted |
 | [0037](0037-apple-withdrawal-detaches-provider-identity.md) | Apple 탈퇴는 provider identity를 분리하고 재로그인은 새 회원으로 만든다 | Accepted |
 | [0038](0038-periodic-item-orphan-cleanup.md) | 이미지 고아 객체는 주기적으로 정리한다 | Proposed (0021 보상 삭제 대체, 0027 활성화 조건 보완) |
+| [0039](0039-explicit-http-exception-boundary.md) | HTTP 예외 경계를 요청 오류와 내부 오류로 명시한다 | Accepted |

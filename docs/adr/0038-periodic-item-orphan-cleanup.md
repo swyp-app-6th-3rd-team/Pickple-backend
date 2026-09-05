@@ -1,11 +1,12 @@
 # ADR-0038 — 이미지 고아 객체는 주기적으로 정리한다
 
-**상태**: Proposed (이슈 #49 구현, PR 제출 전)
+**상태**: Proposed (이슈 #49 구현, PR #116 검토 중)
 
 **관계**: [ADR-0021](0021-s3-image-object-storage.md)의 즉시 best-effort 보상 삭제를 대체한다.
 [ADR-0027](0027-image-public-access-via-cloudfront.md)의 공개 접근 방식은 유지하며,
 목록 권한은 별도 인프라 작업을 거쳐야 하는 운영 활성화 조건으로 보완한다.
-[ADR-0019](0019-policy-belongs-above-infrastructure.md)의 계층 경계를 DB 예외까지 명시한다.
+[ADR-0019](0019-policy-belongs-above-infrastructure.md)의 계층 경계를 따르고,
+[ADR-0039](0039-explicit-http-exception-boundary.md)의 요청 오류와 내부 오류 분류를 따른다.
 
 ## 맥락
 
