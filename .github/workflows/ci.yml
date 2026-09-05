@@ -87,16 +87,16 @@ jobs:
 
       - name: Apply migrations
         # Flyway Gradle 플러그인을 쓰지 않는다 — 스키마만 세우면 되는데 플러그인을 더하면
-        # 빌드에 의존성이 하나 늘고, 버전 정합을 따로 관리해야 한다. 마이그레이션 SQL 을
-        # 버전 순서대로 그냥 먹인다. 여기서 필요한 건 "최종 스키마 모양" 뿐이다.
+        # 빌드에 의존성이 하나 늘고, 버전 정합을 따로 관리해야 한다.
         #
-        # 파일명 앞의 숫자로 정렬한다 — 사전순으로 두면 V10 이 V3 앞에 온다.
+        # 다만 순서는 Flyway 와 같아야 한다. 셸 `sort` 로는 안 되므로(V1.10 을 V1.2 앞에
+        # 놓거나, V1.2 를 V1 앞에 놓는다) 정렬을 scripts/list-migrations.sh 에 두고
+        # CI 와 로컬이 같은 코드를 쓴다. 그 스크립트는 R__·U__ 를 발견하면 실패한다.
         run: |
-          for f in $(ls src/main/resources/db/migration/V*.sql \
-                     | sort -t V -k2 -n); do
+          while IFS= read -r f; do
             echo "applying $f"
             mysql -h 127.0.0.1 -P 3306 -uroot -pci-root pickple < "$f"
-          done
+          done < <(scripts/list-migrations.sh)
 
       - name: Check ERD drift
         env:
