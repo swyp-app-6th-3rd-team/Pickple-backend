@@ -22,6 +22,26 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# --check: 렌더하지 않고 "어느 산출물이 낡았는지"만 알린다. archify 가 없는 사람도
+# 자기 변경이 무엇을 낡게 만들었는지 확인할 수 있다(고칠 수는 없어도 알 수는 있게).
+if [[ "${1:-}" == "--check" ]]; then
+  rc=0
+  for pair in "docs/erd/erd.mmd:docs/erd/erd.svg" \
+              "docs/erd/erd-logical.mmd:src/main/resources/static/docs/erd.svg" \
+              "docs/erd/erd-logical.architecture.json:src/main/resources/static/docs/erd.html"; do
+    src="${pair%%:*}"; out="${pair##*:}"
+    want="$(shasum -a 256 "$src" | cut -d' ' -f1)"
+    got="$(grep -o 'erd-source-sha256:[0-9a-f]\{64\}' "$out" 2>/dev/null | head -1 | cut -d: -f2 || true)"
+    if [[ "$want" == "$got" ]]; then
+      echo "최신  $out"
+    else
+      echo "낡음  $out  <- $src"
+      rc=1
+    fi
+  done
+  exit "$rc"
+fi
+
 OUT_STATIC_DIR="src/main/resources/static/docs"
 mkdir -p "$OUT_STATIC_DIR"
 

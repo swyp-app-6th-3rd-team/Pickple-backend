@@ -119,12 +119,16 @@ fi
 # 새로 클론한 CI 에서는 모든 파일이 같은 시각이 되어 검사가 **항상 통과**한다.
 # 실제로 확인했다(fresh clone 에서 4개 파일 mtime 이 전부 동일).
 # 대신 렌더 시점의 소스 해시를 산출물 안에 새겨 두고 그 값을 대조한다.
-# erd.html 은 검사하지 않는다. 그 렌더는 archify(개인 스킬 설치본)에 의존해서
-# 이 저장소만 클론한 사람은 다시 만들 수 없다 — CI 에서 실패시켜 봐야 고칠 방법이
-# 없는 막다른 검사가 된다. 대신 위에서 spec 의 테이블 집합을 대조한다.
-# 그건 텍스트라 누구나 고칠 수 있고, 스키마 정합이라는 실제 목적에도 그게 맞다.
+# erd.html 도 검사한다. DocsConfig 가 "실제로 읽을 때는 이 페이지를 열어라" 라고
+# 안내하는 정본이라, 여기가 낡으면 독자가 옛 그림을 본다 — 테이블 집합만 맞으면
+# 관계선·라벨·설명·그룹핑이 바뀌어도 통과하던 구멍이 있었다.
+#
+# 이 검사를 되살리면 archify 없는 사람이 spec 을 고쳤을 때 CI 가 막는다. 그래서
+# scripts/render-erd.sh 에 --check 를 두어 **archify 없이도 무엇이 어긋났는지**
+# 알 수 있게 했고, 아래 실패 메시지가 그 경로를 안내한다.
 for pair in "docs/erd/erd.mmd:docs/erd/erd.svg" \
-            "docs/erd/erd-logical.mmd:src/main/resources/static/docs/erd.svg"; do
+            "docs/erd/erd-logical.mmd:src/main/resources/static/docs/erd.svg" \
+            "docs/erd/erd-logical.architecture.json:src/main/resources/static/docs/erd.html"; do
   src="${pair%%:*}"; out="${pair##*:}"
   if [[ ! -f "$out" ]]; then
     echo "::error::$out 이 없다. scripts/render-erd.sh 를 실행한다."
@@ -140,6 +144,10 @@ for pair in "docs/erd/erd.mmd:docs/erd/erd.svg" \
   elif [[ "$want" != "$got" ]]; then
     echo "::error::$src 가 바뀌었는데 $out 이 그대로다. scripts/render-erd.sh 로 다시 렌더한다."
     echo "  소스 ${want:0:12} vs 산출물 ${got:0:12}"
+    if [[ "$out" == *erd.html ]]; then
+      echo "  이 산출물은 archify 가 있어야 다시 만든다. 없으면 spec 만 커밋하고"
+      echo "  archify 보유자에게 렌더를 요청한다(README 의 ERD 절 참고)."
+    fi
     status=1
   fi
 done
