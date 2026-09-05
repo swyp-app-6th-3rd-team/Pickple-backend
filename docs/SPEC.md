@@ -587,6 +587,9 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | Apple token 없는 기존 계정의 로컬 탈퇴 완료 | `APPLE_MANUAL_REVOCATION_REQUIRED` | 200 |
 | 그 외 | `SYSTEM_ERROR` | 500 |
 
+> 게시글을 삭제해도 연결된 이미지 컨테이너는 점유 상태를 유지한다. 삭제한 게시글에 사용된 이미지를
+> 다른 게시글에서 재사용하면 `ITEM_CONTAINER_ALREADY_IN_USE`(409)로 응답한다.
+
 ---
 
 ## 6. 아키텍처 규칙
