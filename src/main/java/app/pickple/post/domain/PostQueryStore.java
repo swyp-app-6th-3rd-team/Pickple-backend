@@ -4,9 +4,10 @@ import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
- * 게시글 목록 화면에 필요한 읽기 모델 저장소.
+ * 게시글 목록과 홈 투표 카드에 필요한 읽기 모델 저장소.
  *
  * <p>쓰기용 {@link PostStore} 와 나눈 이유는 <b>모양이 다르기 때문</b>이다.
  * 쓰기는 애그리거트 전체({@link Post} + 상품 + 선택지)를 오가야 불변식을 지킬 수 있지만,
@@ -28,6 +29,18 @@ public interface PostQueryStore {
      * @param size     한 조각의 크기
      */
     Window<PostListView> findSlice(PostCategory category, PostSort sort, ScrollPosition position, int size);
+
+    /**
+     * 한 유형의 투표 게시글을 시드 기반 임의 순서로 읽는다.
+     *
+     * @param type        {@link PostType#AGREE} 또는 {@link PostType#A_B}
+     * @param viewerId    로그인 사용자 식별자. 게스트면 {@code null}
+     * @param position    이전 응답의 커서. 첫 조각이면 빈 keyset
+     * @param size        한 조각의 고정 크기
+     * @param initialSeed 첫 조각의 임의 순서를 만드는 시드. 후속 조각은 커서의 시드를 쓴다
+     */
+    Window<RandomPostView> findRandomSlice(
+            PostType type, Long viewerId, ScrollPosition position, int size, long initialSeed);
 
     /**
      * 목록 한 줄. 유형에 따라 의미가 갈리는 필드가 있다 (§4.2).
@@ -62,5 +75,38 @@ public interface PostQueryStore {
             Long authorId,
             String authorNickname,
             Integer authorRanking) {
+    }
+
+    /**
+     * 카드 한 장.
+     *
+     * @param selectedOptionId 현재 사용자가 고른 선택지. 게스트·미투표자는 {@code null}
+     */
+    record RandomPostView(
+            Long id,
+            PostType type,
+            String title,
+            String description,
+            long voterCount,
+            Long selectedOptionId,
+            List<RandomProductView> products,
+            List<RandomOptionView> options) {
+    }
+
+    /** 찬반은 한 상품, A/B는 표시 순서대로 두 상품이다. */
+    record RandomProductView(Long id, String name, int displayOrder, String imageUrl) {
+    }
+
+    /**
+     * 투표 선택지. 찬반은 {@code label}, A/B는 {@code productId}로 표시 내용을 찾는다.
+     *
+     * @param voteCount 응답에 직접 노출하지 않고, 참여자에게만 득표율을 계산하는 원본 값
+     */
+    record RandomOptionView(
+            Long id,
+            String label,
+            Long productId,
+            int displayOrder,
+            long voteCount) {
     }
 }

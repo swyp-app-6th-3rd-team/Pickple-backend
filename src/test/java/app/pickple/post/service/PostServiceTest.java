@@ -1,5 +1,6 @@
 package app.pickple.post.service;
 
+import app.pickple.common.CursorCodec;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
@@ -21,12 +22,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.KeysetScrollPosition;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.random.RandomGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +40,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class PostServiceTest {
@@ -47,8 +51,55 @@ class PostServiceTest {
     private ItemContainerStore itemContainerStore;
     @Mock
     private PostQueryStore postQueryStore;
+    @Mock
+    private RandomGenerator randomGenerator;
     @InjectMocks
     private PostService service;
+
+    @Test
+    @DisplayName("랜덤 카드 첫 요청은 새 시드와 유형·사용자·10건 크기를 전달한다")
+    void startsRandomSliceWithNewSeed() {
+        given(randomGenerator.nextLong()).willReturn(314L);
+        Window<PostQueryStore.RandomPostView> empty =
+                Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+        given(postQueryStore.findRandomSlice(PostType.AGREE, 7L, ScrollPosition.keyset(), 10, 314L))
+                .willReturn(empty);
+
+        assertThat(service.findRandomSlice(PostType.AGREE, null, 7L)).isSameAs(empty);
+        verify(randomGenerator).nextLong();
+    }
+
+    @Test
+    @DisplayName("랜덤 카드 후속 요청은 시드를 다시 만들지 않고 커서를 전달한다")
+    void continuesRandomSliceWithoutReseeding() {
+        KeysetScrollPosition position = ScrollPosition.forward(Map.of(
+                "randomSeed", 314, "postType", "A_B", "randomKey", 123, "id", 45));
+
+        service.findRandomSlice(PostType.A_B, CursorCodec.encode(position), null);
+
+        verify(postQueryStore).findRandomSlice(PostType.A_B, null, position, 10, 0L);
+        verifyNoInteractions(randomGenerator);
+    }
+
+    @Test
+    @DisplayName("투표 유형이 없거나 일반 유형이면 랜덤 조회 전에 400으로 거부한다")
+    void rejectsInvalidRandomType() {
+        for (PostType type : new PostType[]{null, PostType.GENERAL}) {
+            assertThatThrownBy(() -> service.findRandomSlice(type, null, null))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        }
+        verifyNoInteractions(postQueryStore, randomGenerator);
+    }
+
+    @Test
+    @DisplayName("깨진 랜덤 커서는 DB 조회나 시드 생성 전에 400으로 거부한다")
+    void rejectsMalformedRandomCursorBeforeQuery() {
+        assertThatThrownBy(() -> service.findRandomSlice(PostType.AGREE, "not-a-cursor", null))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        verifyNoInteractions(postQueryStore, randomGenerator);
+    }
 
     @Test
     @DisplayName("찬반 게시글은 상품명을 제목으로 쓰고 서버가 선택지 둘을 만든다")
