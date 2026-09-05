@@ -602,7 +602,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 ## 6. 아키텍처 규칙
 
-`ArchitectureTest` 21개(전부 활성). 규칙을 추가할 때는 **일부러 위반하는
+`ArchitectureTest` 24개(전부 활성). 규칙을 추가할 때는 **일부러 위반하는
 코드를 넣어 해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
 지킨다는 증거가 되지 않는다([ADR-0008](adr/0008-domain-entity-separation.md)).
 
@@ -610,10 +610,17 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 |---|---|---|
 | 테스트 네이밍 | 1 | 통합 테스트 클래스 이름은 `IT` 로 끝난다 |
 | 도메인 순수성 | 6 | JPA·검증·Lombok·infra·web·부동소수점 의존 금지 |
-| 계층 경계 | 8 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / infra→service 금지 |
+| 계층 경계 | 9 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / infra→service 금지 / 컨트롤러가 Entity 노출 금지 / 설정 클래스는 루트 config |
 | API 응답 계약 | 2 | 컨트롤러가 `Page`·`Window` 를 그대로 반환 금지 |
+| API 문서 | 1 | permitAll 이 아닌 핸들러는 `@SecurityRequirement` 를 갖는다([ADR-0034](adr/0034-security-requirement-on-authenticated-endpoints.md)) |
 | 컨트롤러 매핑 | 2 | 핸들러 매핑 경로 비어있음 금지 / 클래스 레벨 `@RequestMapping` 금지([ADR-0033](adr/0033-drop-api-prefix-implemented.md) 적용과 함께 활성) |
+| 탈퇴 회원 차단 관문 | 2 | `SecurityConfig` 가 관문과 두 필터를 배선한다 / 상태 조회가 저장소 인터페이스를 지난다([ADR-0035](adr/0035-withdrawn-user-central-authorization.md)) |
 | DI | 1 | `@Autowired` 필드 주입 금지 |
+
+> **이 표는 합계가 규칙 수와 맞아야 한다.** 어긋나면 규칙을 추가하고 문서를 안 고친 것이다.
+> 실제로 그랬다 — `API 문서` 그룹이 통째로 빠지고 계층 경계가 8 로 적혀 있어,
+> 본문은 21 인데 표 합계는 20 이고 실제는 22 였다(#106 의 2개를 더해 지금 24).
+> 세는 방법: `ArchitectureTest` 의 `@Nested` 그룹별 `@Test` 개수.
 
 ---
 
