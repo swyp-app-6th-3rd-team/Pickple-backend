@@ -11,6 +11,7 @@ import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostCounters;
 import app.pickple.post.domain.PostOption;
+import app.pickple.post.domain.PostNotPublishableException;
 import app.pickple.post.domain.PostProduct;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
@@ -70,7 +71,7 @@ class PostStoreGuardIT {
                 .addOption(PostOption.ofLabel("말자", 2));
 
         assertThatThrownBy(() -> postStore.save(broken))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(PostNotPublishableException.class)
                 .hasMessageContaining("상품은 1개");
     }
 
@@ -81,7 +82,7 @@ class PostStoreGuardIT {
                 .addProduct(new PostProduct(container(), "A", 1000L, null, 1));
 
         assertThatThrownBy(() -> postStore.save(broken))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(PostNotPublishableException.class)
                 .hasMessageContaining("선택지는 2개");
     }
 

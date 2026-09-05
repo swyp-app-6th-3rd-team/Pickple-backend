@@ -3,6 +3,8 @@ package app.pickple.error;
 import app.pickple.comment.domain.DuplicatePickException;
 import app.pickple.common.ApiResponse;
 import app.pickple.common.ResponseCode;
+import app.pickple.item.domain.ItemContainerNotAttachableException;
+import app.pickple.post.domain.PostNotPublishableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
@@ -50,6 +52,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException e) {
+        // 요청 경로도 사용자 입력이므로 민감 값이 섞일 가능성을 피하고 상세를 남기지 않는다.
+        log.warn("리소스를 찾을 수 없습니다");
         return status(ResponseCode.NOT_FOUND);
     }
 
@@ -79,9 +83,18 @@ public class GlobalExceptionHandler {
         return status(ResponseCode.INVALID_REQUEST);
     }
 
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ApiResponse<Void>> handleIllegalState(IllegalStateException e) {
-        log.warn("도메인 상태 전이 위반: {}", e.getMessage());
+    /** 요청으로 만든 게시글 구성이 R-02·R-04 등의 발행 규칙을 어겼다. */
+    @ExceptionHandler(PostNotPublishableException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePostNotPublishable(PostNotPublishableException e) {
+        log.warn("게시글 발행 조건 위반: {}", e.getMessage());
+        return status(ResponseCode.INVALID_REQUEST);
+    }
+
+    /** 요청한 부착 대상과 이미지 컨테이너의 용도가 맞지 않는다. */
+    @ExceptionHandler(ItemContainerNotAttachableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleItemContainerNotAttachable(
+            ItemContainerNotAttachableException e) {
+        log.warn("이미지 컨테이너 용도 불일치: {}", e.getMessage());
         return status(ResponseCode.INVALID_REQUEST);
     }
 

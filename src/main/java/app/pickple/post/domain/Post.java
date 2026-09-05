@@ -117,35 +117,35 @@ public class Post {
 
     private void verifyProductCount() {
         if (products.size() != type.productCount()) {
-            throw new IllegalStateException(
+            throw new PostNotPublishableException(
                     "%s 게시글의 상품은 %d개여야 합니다. 현재 %d개입니다."
                             .formatted(type, type.productCount(), products.size()));
         }
         long distinctOrders = products.stream().map(PostProduct::displayOrder).distinct().count();
         if (distinctOrders != products.size()) {
-            throw new IllegalStateException("상품의 표시 순서가 중복됩니다.");
+            throw new PostNotPublishableException("상품의 표시 순서가 중복됩니다.");
         }
     }
 
     private void verifyOptionCount() {
         if (options.size() != type.optionCount()) {
-            throw new IllegalStateException(
+            throw new PostNotPublishableException(
                     "%s 게시글의 선택지는 %d개여야 합니다. 현재 %d개입니다."
                             .formatted(type, type.optionCount(), options.size()));
         }
         long distinctOrders = options.stream().map(PostOption::displayOrder).distinct().count();
         if (distinctOrders != options.size()) {
-            throw new IllegalStateException("선택지의 표시 순서가 중복됩니다.");
+            throw new PostNotPublishableException("선택지의 표시 순서가 중복됩니다.");
         }
     }
 
     /** 찬반은 라벨형, A/B는 상품참조형이어야 한다. 섞이면 화면이 표현할 수 없다. */
     private void verifyOptionShape() {
         if (type == PostType.AGREE && options.stream().anyMatch(PostOption::pointsToProduct)) {
-            throw new IllegalStateException("찬반 게시글의 선택지는 라벨이어야 합니다.");
+            throw new PostNotPublishableException("찬반 게시글의 선택지는 라벨이어야 합니다.");
         }
         if (type == PostType.A_B && options.stream().anyMatch(o -> !o.pointsToProduct())) {
-            throw new IllegalStateException("A/B 게시글의 선택지는 상품을 가리켜야 합니다.");
+            throw new PostNotPublishableException("A/B 게시글의 선택지는 상품을 가리켜야 합니다.");
         }
     }
 
@@ -160,7 +160,7 @@ public class Post {
         boolean allById = options.stream()
                 .allMatch(option -> option.postProductId() != null);
         if (!allByDisplayOrder && !allById) {
-            throw new IllegalStateException("A/B 선택지는 같은 방식으로 상품을 가리켜야 합니다.");
+            throw new PostConsistencyException("A/B 선택지는 같은 방식으로 상품을 가리켜야 합니다.");
         }
 
         if (allByDisplayOrder) {
@@ -171,7 +171,7 @@ public class Post {
                     .map(PostOption::postProductDisplayOrder)
                     .collect(Collectors.toSet());
             if (optionTargets.size() != options.size() || !optionTargets.equals(productOrders)) {
-                throw new IllegalStateException("A/B 선택지는 A·B 상품을 각각 한 번씩 가리켜야 합니다.");
+                throw new PostConsistencyException("A/B 선택지는 A·B 상품을 각각 한 번씩 가리켜야 합니다.");
             }
             return;
         }
@@ -180,16 +180,16 @@ public class Post {
                 .map(PostOption::postProductId)
                 .collect(Collectors.toSet());
         if (optionTargets.size() != options.size()) {
-            throw new IllegalStateException("A/B 선택지는 같은 상품을 중복해서 가리킬 수 없습니다.");
+            throw new PostConsistencyException("A/B 선택지는 같은 상품을 중복해서 가리킬 수 없습니다.");
         }
         if (products.stream().anyMatch(product -> product.id() == null)) {
-            throw new IllegalStateException("새 A/B 선택지는 상품 표시 순서로 상품을 가리켜야 합니다.");
+            throw new PostConsistencyException("새 A/B 선택지는 상품 표시 순서로 상품을 가리켜야 합니다.");
         }
         Set<Long> productIds = products.stream()
                 .map(PostProduct::id)
                 .collect(Collectors.toSet());
         if (!optionTargets.equals(productIds)) {
-            throw new IllegalStateException("A/B 선택지는 이 게시글의 상품만 가리킬 수 있습니다.");
+            throw new PostConsistencyException("A/B 선택지는 이 게시글의 상품만 가리킬 수 있습니다.");
         }
     }
 
@@ -198,7 +198,7 @@ public class Post {
         for (PostProduct product : products) {
             int count = photoCounter.applyAsInt(product);
             if (count < type.minPhotos() || count > type.maxPhotos()) {
-                throw new IllegalStateException(
+                throw new PostNotPublishableException(
                         "%s 게시글의 %d번 상품 사진은 %d~%d장이어야 합니다. 현재 %d장입니다."
                                 .formatted(type, product.displayOrder(), type.minPhotos(), type.maxPhotos(), count));
             }

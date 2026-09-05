@@ -26,6 +26,10 @@ class PostTest {
         return new PostProduct((long) order, "상품" + order, 10_000L, null, order);
     }
 
+    private static PostProduct storedProduct(long id, int order) {
+        return PostProduct.restore(id, (long) order, "상품" + order, 10_000L, null, order);
+    }
+
     @Nested
     @DisplayName("상품 수 (R-02)")
     class ProductCount {
@@ -36,7 +40,7 @@ class PostTest {
             Post post = agree();
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("상품은 1개");
         }
 
@@ -48,7 +52,7 @@ class PostTest {
                     .addOption(PostOption.ofLabel("말자", 2));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("현재 2개");
         }
 
@@ -60,7 +64,7 @@ class PostTest {
                     .addOption(PostOption.ofProduct(2L, 2));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("상품은 2개");
         }
 
@@ -70,7 +74,7 @@ class PostTest {
             Post post = general().addProduct(product(1));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("상품은 0개");
         }
 
@@ -83,7 +87,7 @@ class PostTest {
                     .addOption(PostOption.ofProduct(2L, 2));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("표시 순서가 중복");
         }
     }
@@ -99,7 +103,7 @@ class PostTest {
                     .addOption(PostOption.ofLabel("사자", 1));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("선택지는 2개");
         }
 
@@ -109,7 +113,7 @@ class PostTest {
             Post post = general().addOption(PostOption.ofLabel("사자", 1));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("선택지는 0개");
         }
 
@@ -121,7 +125,7 @@ class PostTest {
                     .addOption(PostOption.ofProduct(2L, 2));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("라벨이어야");
         }
 
@@ -133,7 +137,7 @@ class PostTest {
                     .addOption(PostOption.ofLabel("말자", 2));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("상품을 가리켜야");
         }
 
@@ -165,8 +169,20 @@ class PostTest {
                     .addOption(PostOption.ofProductDisplayOrder(1, 2));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostConsistencyException.class)
                     .hasMessageContaining("각각 한 번씩");
+        }
+
+        @Test
+        @DisplayName("A/B 선택지가 상품 id와 표시 순서를 섞어 가리키면 내부 오류로 분류한다")
+        void abOptionsCannotMixTargetRepresentations() {
+            Post post = ab().addProduct(product(1)).addProduct(product(2))
+                    .addOption(PostOption.ofProductDisplayOrder(1, 1))
+                    .addOption(PostOption.ofProduct(102L, 2));
+
+            assertThatThrownBy(post::verifyPublishable)
+                    .isInstanceOf(PostConsistencyException.class)
+                    .hasMessageContaining("같은 방식");
         }
 
         @Test
@@ -177,8 +193,32 @@ class PostTest {
                     .addOption(PostOption.ofProduct(102L, 2));
 
             assertThatThrownBy(post::verifyPublishable)
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostConsistencyException.class)
                     .hasMessageContaining("표시 순서");
+        }
+
+        @Test
+        @DisplayName("저장된 A/B 선택지가 같은 상품 id를 중복 참조하면 내부 오류로 분류한다")
+        void storedAbOptionsCannotTargetSameProductId() {
+            Post post = ab().addProduct(storedProduct(101L, 1)).addProduct(storedProduct(102L, 2))
+                    .addOption(PostOption.ofProduct(101L, 1))
+                    .addOption(PostOption.ofProduct(101L, 2));
+
+            assertThatThrownBy(post::verifyPublishable)
+                    .isInstanceOf(PostConsistencyException.class)
+                    .hasMessageContaining("중복");
+        }
+
+        @Test
+        @DisplayName("저장된 A/B 선택지가 다른 게시글 상품을 참조하면 내부 오류로 분류한다")
+        void storedAbOptionsCannotTargetForeignProduct() {
+            Post post = ab().addProduct(storedProduct(101L, 1)).addProduct(storedProduct(102L, 2))
+                    .addOption(PostOption.ofProduct(101L, 1))
+                    .addOption(PostOption.ofProduct(999L, 2));
+
+            assertThatThrownBy(post::verifyPublishable)
+                    .isInstanceOf(PostConsistencyException.class)
+                    .hasMessageContaining("이 게시글의 상품");
         }
     }
 
@@ -193,7 +233,7 @@ class PostTest {
 
             assertThatCode(() -> post.verifyPhotoCount(p -> 3)).doesNotThrowAnyException();
             assertThatThrownBy(() -> post.verifyPhotoCount(p -> 4))
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("1~3장");
         }
 
@@ -203,7 +243,7 @@ class PostTest {
             Post post = ab().addProduct(product(1)).addProduct(product(2));
 
             assertThatThrownBy(() -> post.verifyPhotoCount(p -> 2))
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("1~1장");
         }
 
@@ -213,7 +253,7 @@ class PostTest {
             Post post = agree().addProduct(product(1));
 
             assertThatThrownBy(() -> post.verifyPhotoCount(p -> 0))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(PostNotPublishableException.class);
         }
 
         @Test
@@ -223,7 +263,7 @@ class PostTest {
             Post post = agree().addProduct(new PostProduct(1L, forgedLogLine, null, null, 1));
 
             assertThatThrownBy(() -> post.verifyPhotoCount(p -> 0))
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(PostNotPublishableException.class)
                     .hasMessageContaining("1번 상품")
                     .hasMessageNotContaining(forgedLogLine);
         }

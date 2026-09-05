@@ -27,7 +27,7 @@ public class JpaCommentStore implements CommentStore, CommentQueryStore {
             return repository.save(CommentEntity.from(comment, now)).toDomain();
         }
         CommentEntity entity = repository.findById(comment.id())
-                .orElseThrow(() -> new IllegalStateException("댓글을 찾을 수 없습니다: id=" + comment.id()));
+                .orElseThrow(() -> new CommentPersistenceException("댓글을 찾을 수 없습니다: id=" + comment.id()));
         entity.applyState(comment, now);
         return entity.toDomain();
     }
