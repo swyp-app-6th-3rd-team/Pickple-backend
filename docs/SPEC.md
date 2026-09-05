@@ -31,14 +31,14 @@ app/pickple/
 ├── common/          ApiResponse · ResponseCode · PageResponse · ScrollResponse
 │                    CursorCodec · CorrelationIdFilter
 ├── config/          ClockConfig · QuerydslConfig · ScalarConfig
-│                    SecurityConfig · AuthProperties · AppleProperties
-│                    FileStorageProperties · S3FileStorageConfig
+│                    SecurityConfig · AuthProperties · AppleProperties · KakaoProperties
+│                    FileStorageProperties · S3FileStorageConfig · KakaoUnlinkClientConfig
 │                    ※ 설정은 여기 하나로 모은다. 도메인별 config 하위 패키지는
 │                      ArchitectureTest 가 막는다(#63)
 ├── docs/            LlmsTextController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
-└── auth/            OAuth2 + Apple native login + JWT
+└── auth/            OAuth2 + Apple/Kakao native login + JWT
     ├── domain/      User · Role · SocialProvider · SocialIdentity · *Store
     ├── service/     AuthService · JwtService · AccountWithdrawal*Service
     ├── infra/       UserEntity · *TokenEntity · Jpa*Store
@@ -48,6 +48,7 @@ app/pickple/
     ├── security/    JwtAuthenticationFilter · @CurrentUser
     │                RestAuthenticationEntryPoint · RestAccessDeniedHandler
     ├── apple/       client secret · code 교환/revoke · ID token 검증 · provider token 암호화
+    ├── kakao/       ID token 검증 · 서비스 JWT 발급 · HTTP Interface Admin API unlink
     └── controller/  AuthController
 ```
 
@@ -82,15 +83,25 @@ app/pickple/
 | GET | `/oauth2/authorization/{google\|kakao\|naver}` | — | 소셜 로그인 시작 |
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
 | POST | `/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
+| POST | `/auth/kakao` | — | iOS Kakao ID token·nonce 검증 + 서비스 JWT 발급 |
 | GET | `/auth/me` | 필요 | 내 정보 |
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple은 로컬 탈퇴 완료 시 identity를 분리하고, token 누락 시 수동 해제 코드 반환 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple은 로컬 탈퇴 완료 시 identity를 분리하고 token 누락 시 수동 해제 코드, Kakao unlink 실패는 503 |
 | GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
 | GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
 | POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
 | PATCH | `/users/profile` | 필요 | 프로필 수정. 이미지 생략 시 쓰던 이미지 유지 |
+
+**Kakao 네이티브 로그인 응답**
+
+- `returnObject.accessToken` · `returnObject.refreshToken` — Pickple JWT다. Kakao token과 구분해
+  iOS Keychain에 저장하고 URL·로그에는 남기지 않는다.
+- `returnObject.profileCompleted` — 서비스 프로필 등록 완료 여부다. `true`면 홈으로,
+  `false`면 `/users/profile`을 통한 프로필 설정 화면으로 이동한다.
+- 완료 여부는 서비스 닉네임 등록으로 판정한다. Kakao ID token의 선택적 `nickname` claim이나
+  기본 프로필 이미지 존재 여부만으로 `true`가 되지 않는다.
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
@@ -98,7 +109,10 @@ app/pickple/
 - iOS 토큰 — HTTPS JSON으로 access/refresh를 받고 Keychain에 저장한다. URL·로그에 담지 않는다
 - iOS nonce — 로그인마다 안전한 새 `rawNonce`를 만든다. Apple 요청에는
   `lowercase hex SHA-256(rawNonce)`를 넣고 `/auth/apple`에는 원문 `rawNonce`를 보낸다
-- 백엔드는 nonce를 발급·저장하지 않는다. 재전송 방어는 Apple authorization code의 일회성 교환에 의존한다
+- Kakao nonce — 로그인마다 안전한 새 원문 nonce를 만들고 Kakao SDK와 `/auth/kakao`에 같은 값을 보낸다.
+  Apple 방식처럼 해시하지 않는다
+- 백엔드는 nonce를 발급·저장하지 않는다. Apple은 authorization code의 일회성 교환으로 재전송을 막고,
+  Kakao는 ID token과 nonce 묶음 탈취 시 만료 전 재전송 가능성을 수용한다. 더 강한 방어는 ADR-0038의 후속 범위다
 
 ### 3.2 문서
 
@@ -574,12 +588,19 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다. 다른 provider의 재가입과
   개인정보 익명화·삭제, 재가입 초기화 악용 정책은 이 변경 범위가 아니며 Issue #45에 남긴다
 - 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
+- Kakao 사용자는 `(KAKAO, ID token의 sub)`로 식별한다. 네이티브 토큰은 Kakao JWKS의 RS256 서명과
+  `iss`·네이티브 앱 키 `aud`·`exp`·`sub`·원문 `nonce`를 모두 검증한다
+- Kakao의 `email`·`nickname` claim은 선택값이다. 누락값으로 기존 사용자 정보를 지우지 않으며,
+  서비스 프로필 완료 여부는 별도 닉네임 등록 상태로 판정한다
+- Kakao 회원 탈퇴는 허용 API를 제한한 Admin 키로 `/v1/user/unlink`에 성공한 뒤 로컬 계정을 비활성화한다.
+  Kakao 장애나 키 누락 시 503으로 로컬 상태를 보존하고, 이미 해제된 `-101`은 멱등 성공으로 처리한다
 - 회원 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 같은 트랜잭션에서 기록한다
-- authorization code·identity token·`.p8`·access/refresh token은 로그에 남기지 않는다
+- authorization code·identity token·nonce·`.p8`·Admin 키·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
-  [ADR-0016](adr/0016-refresh-token-rotation-cas.md),
+  [ADR-0016](adr/0016-refresh-token-rotation-cas.md), [ADR-0038](adr/0038-native-kakao-sign-in.md),
   [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md)
-- 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md)
+- 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md),
+  [Kakao 로그인 Runbook](kakao-sign-in-runbook.md)
 
 ### 5.5 로깅
 
@@ -613,6 +634,8 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | Apple 키 미설정·Apple 서버 일시 장애 | `APPLE_LOGIN_UNAVAILABLE` | 503 |
 | Apple 회원 탈퇴 연결 해제 일시 장애 | `APPLE_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
 | Apple token 없는 기존 계정의 로컬 탈퇴 완료 | `APPLE_MANUAL_REVOCATION_REQUIRED` | 200 |
+| Kakao 키 미설정·JWKS 일시 장애 | `KAKAO_LOGIN_UNAVAILABLE` | 503 |
+| Kakao 회원 탈퇴 연결 해제 일시 장애 | `KAKAO_ACCOUNT_REVOCATION_UNAVAILABLE` | 503 |
 | 그 외 | `SYSTEM_ERROR` | 500 |
 
 > 게시글을 삭제해도 연결된 이미지 컨테이너는 점유 상태를 유지한다. 삭제한 게시글에 사용된 이미지를
@@ -658,10 +681,12 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |
 | 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
 | 2026-09-04 | 이미지 컨테이너 재사용을 입력 오류가 아닌 상태 충돌(409)로 통일 | Issue #17 리뷰. 사전 검사와 DB 경합이 같은 API 계약을 가져야 함 |
 | 2026-09-04 | 최신 게스트 정책에 맞춰 댓글 목록 조회를 인증 필수로 변경 | 게스트는 게시글 탐색은 가능하지만 댓글 열람은 제한 |
+| 2026-09-04 | Kakao 네이티브 ID token 로그인·프로필 분기 응답·서버 주도 unlink 추가 | Issue #101. iOS Kakao SDK 로그인과 탈퇴를 브라우저 OAuth 및 앱의 별도 호출 조율 없이 지원 |
 | 2026-09-04 | `GET /posts/popular` 추가. 목록 조회 경로를 재사용하고 커서 봉투만 벗긴다 | Issue #29. 홈 화면이 커서 없는 고정 10건을 요구. 전용 쿼리를 새로 만들면 `idx_post_popular_all` 검증이 두 벌이 된다 |
 | 2026-09-04 | 등급 도메인 신설. 승급 판정 입력값을 캐시가 아니라 원장에서 읽고, 도달 등급만 `users.highest_grade` 에 저장(ADR-0030) | Issue #25. `users.vote_count` 는 선언만 있고 **쓰는 코드가 0건**이라 읽으면 전원 0 — 아무도 승급하지 못하는데 테스트는 초록인 상태가 됐을 것 |
 | 2026-09-04 | 엔드포인트의 `/api` prefix를 제거하고 메서드에 전체 경로를 선언 | Issue #91. ADR-0033으로 ADR-0029의 과도기 결정을 대체 |
