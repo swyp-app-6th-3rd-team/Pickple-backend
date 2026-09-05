@@ -20,10 +20,15 @@ public class DocsConfig {
 
             ## ERD
 
-            ![Pickple ERD](/docs/erd.png)
+            **[전체 화면으로 열기](/docs/erd.html)** — 이 소개 칼럼은 폭이 470px 남짓이라
+            16개 엔티티가 다 들어가면 글자가 뭉갠다. 아래 그림은 미리보기이고, 실제로 읽을
+            때는 위 링크를 연다(확대·팬·검색과 테마 전환이 된다).
 
-            그림의 정본은 JPA 엔티티다(`ddl-auto: validate` 로 DB 와 일치가 보증된다).
-            원본은 `docs/erd/erd.mmd` 이고 `scripts/render-erd.sh` 로 다시 렌더한다.
+            [![Pickple ERD](/docs/erd.svg)](/docs/erd.html)
+
+            도메인 구조를 읽기 위한 논리 ERD 다. 자료형·인덱스까지 담은 물리 ERD 는
+            `docs/erd/erd.mmd` 에 있고, 실제 스키마와 어긋나면 CI 가 막는다.
+            원본을 고쳤으면 `scripts/render-erd.sh` 로 다시 렌더한다.
 
             ## 인증
 

@@ -1,0 +1,469 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Pickple 논리 ERD",
+    "output": "erd.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "post-flow",
+        "label": "게시글과 의견",
+        "focus": [
+          "users",
+          "post",
+          "post_option",
+          "post_product",
+          "vote",
+          "comment"
+        ],
+        "note": "회원이 올린 게시글에 선택지와 상품이 딸리고, 투표와 댓글로 의견이 모인다."
+      },
+      {
+        "id": "onepick-reward",
+        "label": "원픽과 보상",
+        "focus": [
+          "comment",
+          "comment_pick",
+          "point_history",
+          "badge",
+          "user_badge"
+        ],
+        "note": "작성자가 고른 원픽 하나가 포인트 적립의 근거가 되고, 누적이 뱃지로 이어진다."
+      },
+      {
+        "id": "counters",
+        "label": "집계와 랭킹",
+        "focus": [
+          "users",
+          "post",
+          "post_commenter",
+          "user_daily_activity"
+        ],
+        "note": "조회 때 세지 않도록 카운터와 일별 집계를 미리 쌓아 둔다. 순위는 배치가 채운다."
+      },
+      {
+        "id": "media-auth",
+        "label": "첨부와 인증",
+        "focus": [
+          "users",
+          "item_container",
+          "item_resource",
+          "user_refresh_token",
+          "apple_provider_token"
+        ],
+        "note": "사진은 묶음 단위로 올리고, 세션과 애플 연동 토큰은 회원에 하나씩 붙는다."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "security",
+      "label": "회원",
+      "sublabel": "users",
+      "tag": "소셜 로그인 · 탈퇴 시 비활성",
+      "pos": [
+        40,
+        330
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "post",
+      "type": "backend",
+      "label": "게시글",
+      "sublabel": "post",
+      "tag": "GENERAL · AGREE · A_B",
+      "pos": [
+        360,
+        330
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "post_option",
+      "type": "backend",
+      "label": "선택지",
+      "sublabel": "post_option",
+      "tag": "게시글당 둘이거나 없음",
+      "pos": [
+        360,
+        120
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "post_product",
+      "type": "backend",
+      "label": "상품",
+      "sublabel": "post_product",
+      "tag": "찬반 1점 · A/B 2점",
+      "pos": [
+        360,
+        540
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "vote",
+      "type": "frontend",
+      "label": "투표",
+      "sublabel": "vote",
+      "tag": "1인 1표",
+      "pos": [
+        680,
+        120
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "comment",
+      "type": "frontend",
+      "label": "댓글",
+      "sublabel": "comment",
+      "tag": "300자 · 소프트 삭제",
+      "pos": [
+        680,
+        330
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "post_commenter",
+      "type": "frontend",
+      "label": "게시글 참여자",
+      "sublabel": "post_commenter",
+      "tag": "중복 없는 참여자 집계",
+      "pos": [
+        680,
+        540
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "comment_pick",
+      "type": "frontend",
+      "label": "원픽",
+      "sublabel": "comment_pick",
+      "tag": "게시글당 한 번",
+      "pos": [
+        1000,
+        330
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "point_history",
+      "type": "database",
+      "label": "포인트 내역",
+      "sublabel": "point_history",
+      "tag": "원장 · 원픽이 멱등키",
+      "pos": [
+        1320,
+        330
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "badge",
+      "type": "database",
+      "label": "뱃지",
+      "sublabel": "badge",
+      "tag": "달성 조건 정의",
+      "pos": [
+        1640,
+        120
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "user_badge",
+      "type": "database",
+      "label": "보유 뱃지",
+      "sublabel": "user_badge",
+      "tag": "회원이 획득한 것",
+      "pos": [
+        1320,
+        120
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "user_daily_activity",
+      "type": "database",
+      "label": "일별 활동",
+      "sublabel": "user_daily_activity",
+      "tag": "날짜별 투표 수",
+      "pos": [
+        1000,
+        120
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "item_container",
+      "type": "database",
+      "label": "첨부 묶음",
+      "sublabel": "item_container",
+      "tag": "용도: 상품 · 댓글",
+      "pos": [
+        1000,
+        750
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "item_resource",
+      "type": "database",
+      "label": "첨부 파일",
+      "sublabel": "item_resource",
+      "tag": "S3 키 · CloudFront URL",
+      "pos": [
+        1320,
+        750
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "user_refresh_token",
+      "type": "database",
+      "label": "리프레시 토큰",
+      "sublabel": "user_refresh_token",
+      "tag": "SHA-256 해시 보관",
+      "pos": [
+        40,
+        120
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "apple_provider_token",
+      "type": "database",
+      "label": "애플 연동 토큰",
+      "sublabel": "apple_provider_token",
+      "tag": "암호화 보관 · 탈퇴 시 해제",
+      "pos": [
+        40,
+        540
+      ],
+      "size": [
+        168,
+        74
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "회원 애그리거트",
+      "wraps": [
+        "users",
+        "user_refresh_token",
+        "apple_provider_token"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "region",
+      "label": "게시글 애그리거트",
+      "wraps": [
+        "post",
+        "post_option",
+        "post_product"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "region",
+      "label": "참여 — 투표 · 댓글 · 원픽",
+      "wraps": [
+        "vote",
+        "comment",
+        "post_commenter",
+        "comment_pick"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "region",
+      "label": "보상과 집계",
+      "wraps": [
+        "point_history",
+        "user_badge",
+        "badge",
+        "user_daily_activity"
+      ],
+      "pad": 22
+    }
+  ],
+  "connections": [
+    {
+      "from": "users",
+      "to": "post",
+      "label": "작성"
+    },
+    {
+      "from": "users",
+      "to": "user_refresh_token",
+      "label": "세션",
+      "variant": "dashed"
+    },
+    {
+      "from": "users",
+      "to": "apple_provider_token",
+      "label": "연동",
+      "variant": "dashed",
+      "labelAt": [
+        124,
+        418
+      ]
+    },
+    {
+      "from": "post",
+      "to": "post_option",
+      "label": "선택지"
+    },
+    {
+      "from": "post",
+      "to": "post_product",
+      "label": "대상",
+      "labelAt": [
+        444,
+        418
+      ]
+    },
+    {
+      "from": "post",
+      "to": "comment",
+      "label": "댓글"
+    },
+    {
+      "from": "post_option",
+      "to": "vote",
+      "label": "선택됨"
+    },
+    {
+      "from": "post",
+      "to": "post_commenter",
+      "label": "참여자"
+    },
+    {
+      "from": "comment",
+      "to": "comment_pick",
+      "label": "원픽 받음",
+      "variant": "emphasis"
+    },
+    {
+      "from": "comment_pick",
+      "to": "point_history",
+      "label": "지급 근거",
+      "variant": "emphasis"
+    },
+    {
+      "from": "point_history",
+      "to": "user_badge",
+      "label": "누적 달성"
+    },
+    {
+      "from": "badge",
+      "to": "user_badge",
+      "label": "부여"
+    },
+    {
+      "from": "vote",
+      "to": "user_daily_activity",
+      "label": "일별 집계"
+    },
+    {
+      "from": "post_product",
+      "to": "item_container",
+      "label": "사진"
+    },
+    {
+      "from": "comment",
+      "to": "item_container",
+      "label": "사진",
+      "variant": "dashed"
+    },
+    {
+      "from": "item_container",
+      "to": "item_resource",
+      "label": "파일"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "애그리거트 경계",
+      "items": [
+        "경계를 넘는 참조는 ID 로만 들고 FK 를 걸지 않는다 (ADR-0008).",
+        "관계선은 FK 제약이 아니라 참조 관계다.",
+        "색 넷 = 경계 넷. 회원 · 게시글 · 참여 · 지원."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "원픽이 포인트가 되는 길",
+      "items": [
+        "원픽은 게시글 작성자가 댓글 하나에만 준다.",
+        "포인트 내역이 원장이고, 회원의 포인트는 그 합계다.",
+        "원픽 식별자가 멱등키라 같은 적립이 두 번 들어가지 않는다."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "미리 세어 두는 값",
+      "items": [
+        "투표수 · 댓글수 · 참여자수는 카운터로 원자 증가시킨다.",
+        "순위와 인기 점수는 배치가 채운다 — 조회 때 정렬하지 않는다.",
+        "자료형과 인덱스는 물리 ERD(docs/erd/erd.mmd)에 있다."
+      ]
+    }
+  ]
+}

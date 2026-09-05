@@ -41,6 +41,11 @@ erDiagram
         varchar state
         varchar nickname "5자 이내, 가입 직후 null"
         varchar profile_image_url
+        varchar active_nickname "활성 회원만, 탈퇴 시 해제 — 유니크"
+        int point "point_history 합계, 랭킹 정렬 기준"
+        int ranking "배치 사전 계산, null 이면 미산정"
+        int vote_count "vote 건수"
+        tinyint highest_grade "도달한 최고 등급"
         datetime created_at
         datetime updated_at
     }
@@ -55,6 +60,7 @@ erDiagram
         int vote_count "카운터, 원자 증가"
         int commenter_count "카운터"
         int comment_count "카운터"
+        int popularity_score "인기 점수, 배치 갱신"
         datetime deleted_at "소프트 삭제"
         datetime created_at
         datetime updated_at
@@ -74,6 +80,7 @@ erDiagram
         bigint id PK
         bigint post_id FK
         bigint item_container_id
+        varchar container_type "생성 컬럼, 복합 FK 로 용도 강제"
         varchar name
         int price
         varchar link_url
@@ -95,6 +102,7 @@ erDiagram
         bigint post_id FK
         bigint user_id FK
         bigint item_container_id "사진 없으면 null"
+        varchar container_type "생성 컬럼, 복합 FK 로 용도 강제"
         varchar content "300자 이내"
         datetime deleted_at "소프트 삭제"
         datetime created_at
@@ -157,6 +165,7 @@ erDiagram
         bigint id PK
         bigint user_id FK
         varchar attach_type "부착 용도"
+        text access_urls "CloudFront URL 목록"
         datetime created_at
         datetime updated_at
     }
