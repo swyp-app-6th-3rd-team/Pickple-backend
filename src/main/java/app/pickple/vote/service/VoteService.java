@@ -119,7 +119,8 @@ public class VoteService {
 
     private Post loadVotablePost(Long postId) {
         Post post = postStore.findById(postId)
-                .orElseThrow(() -> new IllegalStateException("게시글을 찾을 수 없습니다: id=" + postId));
+                .orElseThrow(() -> new VoteConsistencyException(
+                        "활성 게시글 검증 뒤 게시글을 찾을 수 없습니다: id=" + postId));
         if (!post.type().hasVoting()) {
             throw new IllegalArgumentException("투표할 수 없는 게시글입니다: id=" + postId);
         }
@@ -149,7 +150,9 @@ public class VoteService {
      * 정본이라, 메모리의 스냅샷으로 계산하면 같은 순간의 다른 투표를 빠뜨린다.
      */
     private VoteResult tally(Long postId, Long selectedOptionId) {
-        Post reloaded = postStore.findById(postId).orElseThrow();
+        Post reloaded = postStore.findById(postId)
+                .orElseThrow(() -> new VoteConsistencyException(
+                        "투표 반영 뒤 게시글을 찾을 수 없습니다: id=" + postId));
         long voterCount = voteStore.countByPost(postId);
         List<OptionTally> options = reloaded.options().stream()
                 .map(option -> OptionTally.of(option, voterCount))

@@ -25,7 +25,7 @@ public class JpaItemContainerStore implements ItemContainerStore {
             return repository.save(ItemContainerEntity.from(container, now)).toDomain();
         }
         ItemContainerEntity entity = repository.findById(container.id())
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new ItemContainerPersistenceException(
                         "컨테이너를 찾을 수 없습니다: id=" + container.id()));
         entity.applyResources(container, now);
         return entity.toDomain();
