@@ -39,6 +39,16 @@ class UserTest {
                     .isThrownBy(() -> new User(null, "id", null, null))
                     .withMessageContaining("provider");
         }
+
+        @Test
+        @DisplayName("활성 Apple 사용자는 providerId 없이 복원할 수 없다")
+        void activeAppleUserRequiresProviderId() {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> User.restore(
+                            1L, SocialProvider.APPLE, null, null, null,
+                            Role.ROLE_USER, User.State.ACTIVE, null, null))
+                    .withMessageContaining("providerId");
+        }
     }
 
     @Nested
@@ -75,14 +85,27 @@ class UserTest {
     class Withdrawal {
 
         @Test
-        @DisplayName("탈퇴하면 비활성이 된다")
-        void withdraws() {
+        @DisplayName("비 Apple 사용자는 탈퇴해도 소셜 식별자를 유지한다")
+        void nonAppleWithdrawalKeepsProviderId() {
             User user = new User(SocialProvider.GOOGLE, "g-1", null, null);
 
             user.withdraw();
 
             assertThat(user.isActive()).isFalse();
             assertThat(user.state()).isEqualTo(User.State.INACTIVE);
+            assertThat(user.providerId()).isEqualTo("g-1");
+        }
+
+        @Test
+        @DisplayName("Apple 사용자는 탈퇴하면 소셜 식별자를 놓는다")
+        void appleWithdrawalReleasesProviderId() {
+            User user = new User(SocialProvider.APPLE, "apple-sub", null, null);
+
+            user.withdraw();
+
+            assertThat(user.isActive()).isFalse();
+            assertThat(user.state()).isEqualTo(User.State.INACTIVE);
+            assertThat(user.providerId()).isNull();
         }
 
         @Test

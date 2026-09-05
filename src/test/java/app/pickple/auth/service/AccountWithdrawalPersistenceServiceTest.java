@@ -28,7 +28,7 @@ class AccountWithdrawalPersistenceServiceTest {
     private AppleProviderTokenStore appleProviderTokenStore;
 
     @Test
-    void marksUserInactiveAndDeletesBothTokenTypes() {
+    void marksUserInactiveDetachesAppleIdentityAndDeletesBothTokenTypes() {
         User user = User.restore(7L, SocialProvider.APPLE, "apple-sub", "user@example.com", "사용자",
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
         given(userStore.findById(7L)).willReturn(Optional.of(user));
@@ -39,6 +39,7 @@ class AccountWithdrawalPersistenceServiceTest {
         service.complete(7L);
 
         assertThat(user.state()).isEqualTo(User.State.INACTIVE);
+        assertThat(user.providerId()).isNull();
         verify(userStore).save(user);
         verify(refreshTokenStore).deleteByUserId(7L);
         verify(appleProviderTokenStore).deleteByUserId(7L);

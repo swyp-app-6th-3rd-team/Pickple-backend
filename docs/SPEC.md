@@ -86,7 +86,7 @@ app/pickple/
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple은 로컬 탈퇴 완료 시 identity를 분리하고, token 누락 시 수동 해제 코드 반환 |
 | GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
 | GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
 | POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
@@ -114,6 +114,7 @@ app/pickple/
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
 | GET | `/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
+| GET | `/posts/popular` | 선택 (게스트 허용) | 인기 게시글 Top 10 (홈 화면) |
 
 - `category` 는 없으면 **전체**다. `sort` 는 `LATEST`(기본) · `POPULAR` 둘이며,
   **모르는 값은 400 이 아니라 기본값으로 되돌린다** — 진입 화면이 오타 하나로 비지 않게.
@@ -139,6 +140,23 @@ app/pickple/
     지금 이 순간의 정확한 등수가 아니다.
   - 아직 산정되지 않은 회원과 탈퇴 회원은 **`null`** 이다. 0 이나 꼴찌 순위를 지어내지 않는다 —
     지어낸 값은 실제 꼴찌와 구분되지 않는다.
+
+**`GET /posts/popular` — 인기 Top 10 (홈 화면, §2.4)**
+
+- **목록 조회와 같은 쿼리를 탄다.** "커서 없는 인기순 첫 조각" 이 곧 상위 10건이라
+  `GET /posts?sort=POPULAR&size=10` 과 실행되는 SQL 이 같다. 전용 쿼리를 새로 짜지 않는다 —
+  짜면 위의 실측(454ms → 0.28ms)과 `idx_post_popular_all` 검증을 처음부터 다시 세워야 한다.
+- **파라미터가 없다.** 카테고리 필터도 커서도 크기 조절도 받지 않는다. 홈 화면의 계약은
+  "전체에서 인기 상위 열 건" 하나뿐이고, 조절 손잡이를 열면 목록 API 와 구별되지 않는다.
+- **응답은 커서 봉투 없이 배열이다.** 항목 스키마는 목록과 **같은 것을 공유**한다
+  (`PostListItem`). `nextCursor`·`hasNext` 는 싣지 않는다 — Top 10 은 그 열 건이 전부인데
+  `hasNext: true` 를 주면 11번째 글이 있을 때 클라이언트가 이어받을 수 있다고 읽고,
+  그 커서로 다시 부르면 이 엔드포인트가 정의하지 않은 동작이 된다. 더 보기는 목록 API 로 간다.
+- 10건보다 적으면 **있는 만큼만** 준다. 상한이지 정원이 아니다.
+- **0건이면 빈 배열이다.** 기능명세서 §2.4 의 "더미 데이터 2개" 는 화면의 빈 상태이지
+  서버 응답이 아니다 — 서버가 지어내면 그 카드를 탭했을 때 갈 곳이 없다(위 목록과 같은 판단).
+- 실행 계획으로 확인한 정렬 경로: `idx_post_popular_all` / `Using where; Using index`.
+  `Using filesort` 가 없다 — 조회 시점에 집계하지 않는다는 증거다.
 
 ### 3.4 댓글
 
@@ -343,13 +361,71 @@ app/pickple/
 - 날짜는 애플리케이션이 `Asia/Seoul` `Clock` 으로 계산해 넘긴다. SQL 의 `CURRENT_DATE` 를 쓰면
   DB 세션 타임존이 하루를 정해, 자정 근처에서 사용자가 보는 하루와 갈린다.
 
+---
+
+### 3.10 내 활동 (마이페이지)
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/users/me/activities/summary` | 필요 | 활동 갯수 요약 |
+| GET | `/users/me/activities?type=&sort=&cursor=&size=` | 필요 | 활동 목록 (무한 스크롤) |
+| GET | `/users/me/posts/recent` | 필요 | 7일 이내 올린 투표 |
+
+- **셋 다 인증이 필요하다.** 명세는 게스트에게 "모든 갯수 표시가 0개로 고정" 이라 적었지만,
+  같은 문단이 게스트에게 **"클릭 제한"** 도 함께 걸고 프로필 자리를 "로그인해주세요" 로 바꾼다(§7.2).
+  게스트는 활동 영역을 눌러 목록 화면에 도달하지 못하므로 **0 은 로그인하지 않은 화면의
+  플레이스홀더이지 서버 응답 규약이 아니다.** 서버가 0 을 주면 "활동 없는 회원" 과
+  "비로그인" 이 같은 응답이 되어 화면이 둘을 구분하지 못한다.
+- **목록의 항목은 활동이 아니라 게시글이다**([ADR-0036](adr/0036-my-activity-list-reads-posts-through-activity-index.md)).
+  §9.2 의 조회 데이터가 세 유형 모두 게시글 카드이고 탭하면 게시글 상세로 간다.
+  그래서 `type` 은 결과의 모양이 아니라 **게시글을 좁히는 조건**만 바꾼다 —
+  세 테이블 UNION 이 필요 없고 커서가 언제나 `(정렬키, post.id)` 다.
+- `type` 은 `VOTE`(기본) · `COMMENT` · `POST`. **"전체" 가 없다** — §9.1 상
+  "메인화면에서 어떤 유형을 탭해서 들어왔는지에 따라 기본 칩이 변경" 이라 칩은 항상 하나가 활성이다.
+- `sort` 는 `LATEST`(기본) · `OLDEST` · `POPULAR`. **모르는 값은 400 이 아니라 기본값으로
+  되돌린다** — `type` 도 같다(§5.2 와 §3.3 이 세운 규칙). `size` 는 기본 10, 상한 50.
+- **최신순의 정렬 키는 내가 활동한 시각이다.** 게시글 작성 시각이 아니다 —
+  어제 올라온 글에 방금 단 댓글이 맨 위에 와야 다시 찾을 수 있다. 응답의 `activityAt` 이 그 값이고,
+  내가 올린 글은 활동이 곧 작성이라 `createdAt` 과 같다.
+- **인기순 = 투표 인원 + 댓글 인원**(R-24·R-25). `GET /posts` 와 **같은 컬럼 하나**
+  (`post.popularity_score` 생성 컬럼)를 읽는다 — 양쪽이 각자 집계하면 같은 화면에서 다른 값이 나온다.
+- **댓글 활동은 `comment` 가 아니라 `post_commenter` 를 읽는다.** 그 테이블은
+  `UNIQUE(post_id, user_id)` 라 게시글당 한 행이어서 한 글에 댓글을 여러 개 달아도
+  목록에 한 번만 나온다(R-25). `comment` 로 읽고 `DISTINCT` 를 걸면 커서가 가리키는 행이 사라진다.
+- **요약의 세 값에 `DISTINCT` 가 없다.** 스키마가 이미 인원으로 세고 있다 —
+  `vote` 는 `UNIQUE(post_id, user_id)` 라 재투표가 UPDATE 이고(R-22),
+  `post_commenter` 도 같은 키다. 등급 판정(`JpaGradeStore`)이 같은 셈법을 쓰므로
+  여기서 다시 세면 마이페이지의 두 숫자가 어긋난다.
+- **투표·댓글의 정렬은 활동 인덱스가 통째로 맡는다.** 조각을 활동 테이블에서 확정한 뒤 대표 사진을 붙이며,
+  정렬 튜플의 두 번째 자리를 `p.id` 가 아니라 `v.post_id` 로 읽는다 —
+  값은 같지만 어느 테이블에서 읽느냐가 실행계획을 가른다(활동 500건 실측 4.29ms → 0.070ms,
+  읽는 행 500 → 11). V11 이 `(user_id, created_at DESC, post_id DESC)` 를 두 테이블에 추가한다.
+- **`type=POST` 최신순과 인기순에는 정렬이 남는다.** 전자는 `idx_post_user` 뒤에 붙는 PK 가
+  오름차순이라 `created_at DESC, id DESC` 와 어긋나기 때문이다(내 글 500건 0.168ms).
+  `id ASC` 로 바꾸면 인덱스로 끝나지만(0.011ms) 커서 튜플의 두 키 방향이 갈려
+  행 값 비교가 성립하지 않는다 — 한 유형의 0.16ms 보다 규약의 일관성을 택했다(ADR-0036).
+- **인기순은 Θ(내 활동 수)로 남는다.** 정렬 키가 활동 테이블에 없어 조인해야 알 수 있다.
+  활동 5,000건에서 5,011행·10.5ms 이며, 활동 수는 사람이 손으로 만드는 값이라 상한이 낮아 받아들였다.
+  비정규화는 게시글 갱신마다 활동 행 전체를 고치게 되어 기각했다(ADR-0036).
+- **§7.4 의 기준 시각은 요청 시각이고 경계는 반열린 구간** `(now - 7일, now]` 다.
+  정확히 7일이 지난 글은 빠진다. 날짜로 끊으면 같은 글이 자정을 지나며 사라져
+  "방금 봤는데 없어졌다" 가 된다. 가로 스크롤 캐러셀이라 커서가 없고 최대 10건이며,
+  투표가 없는 일반 게시글은 대상이 아니다.
+- **활동이 0건이면 빈 배열이다.** "아직 참여한 활동이 없어요" 는 화면의 빈 상태이므로
+  서버가 존재하지 않는 활동을 지어내지 않는다.
+- **삭제된 게시글은 목록에서 빠진다** — 탭했을 때 갈 곳이 없기 때문이다.
+  요약은 `vote` 행을 세므로 삭제된 글의 투표도 포함되어 **요약과 목록 길이가 어긋날 수 있다.**
+  요약은 "내가 한 활동", 목록은 "지금 볼 수 있는 글" 이라 세는 대상이 다르다.
+
 ## 4. 스키마
 
 ### 4.1 인증 3개
 
 ```sql
-users(id, provider, provider_id, email, name, role, state, created_at, updated_at,
-      UNIQUE KEY uk_users_provider (provider, provider_id))
+users(id, provider, provider_id NULL, email, name, role, state, created_at, updated_at,
+      UNIQUE KEY uk_users_provider (provider, provider_id),
+      CONSTRAINT ck_users_active_provider_id
+        CHECK (state <> 'ACTIVE' OR provider_id IS NOT NULL))
 
 user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
       UNIQUE KEY uk_refresh_user (user_id),
@@ -360,6 +436,11 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
       encryption_iv, encryption_key_id, created_at, updated_at,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
 ```
+
+도메인에서 `provider_id = NULL`은 **Apple 비활성 회원**에만 허용한다. DB의
+`ck_users_active_provider_id`는 활성 회원의 누락만 막는 최소 보장이며, Apple 이외 provider까지
+구분하는 더 좁은 규칙은 애플리케이션이 지킨다. MySQL unique key는 여러 `NULL`을 허용하므로
+identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성을 막지 않는다.
 
 ### 4.2 마이그레이션
 
@@ -372,6 +453,9 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V7__users_ranking_precompute.sql` | `db/migration` | 항상 |
 | `V8__grade.sql` | `db/migration` | 항상 |
 | `V9__badge.sql` | `db/migration` | 항상 |
+| `V10__users_ranking_order_index.sql` | `db/migration` | 항상 |
+| `V11__activity_list_indexes.sql` | `db/migration` | 항상 |
+| `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -444,20 +528,26 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - 동시 회전의 패자나 옛 토큰은 401로 거부하되 현재 저장된 승자 token은 삭제하지 않는다
 - `typ` 클레임으로 액세스/리프레시를 구분해 혼용을 막는다
 - 리다이렉트 URI 는 호스트 화이트리스트 검증 (오픈 리다이렉트 방지)
-- Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
+- 활성 Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
 - Apple client secret은 `.p8`로 ES256 서명하고, Apple ID token은 JWKS의 RS256 서명을 검증한다
 - Apple provider refresh token은 별도 AES-256-GCM keyring으로 암호화해 저장한다. 랜덤 12-byte IV와
   사용자 ID·키 ID를 묶은 AAD를 사용하며 DB에는 평문을 저장하지 않는다
 - Apple code 교환 뒤 ID token 불일치나 로컬 로그인 완료가 실패하면, 새로 발급된 provider refresh token을
   보상 revoke해 로컬에서 소유하지 않는 Apple 세션이 남지 않게 한다
 - Apple 회원 탈퇴는 provider refresh token으로 `/auth/revoke`에 성공한 뒤 로컬 계정을 비활성화하고
-  서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다. Apple 일시 장애 시 503으로 재시도한다.
-  token이 없는 기존 계정은 로컬 탈퇴 후 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+  `provider_id`를 분리하며 서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다.
+  Apple 일시 장애 시 503으로 재시도하고 로컬 상태를 바꾸지 않는다. token이 없는 기존 계정은
+  로컬 탈퇴와 identity 분리를 완료한 뒤 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+- 탈퇴 뒤 같은 Apple `sub`로 로그인하면 과거 비활성 행을 되살리지 않고 새 `userId`를 만든다.
+  과거 행과 콘텐츠는 보존하지만 프로필·포인트·뱃지·투표·댓글 등 이력은 새 회원에게 승계하지 않는다
+- V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다. 다른 provider의 재가입과
+  개인정보 익명화·삭제, 재가입 초기화 악용 정책은 이 변경 범위가 아니며 Issue #45에 남긴다
 - 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
 - 회원 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 같은 트랜잭션에서 기록한다
 - authorization code·identity token·`.p8`·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
-  [ADR-0016](adr/0016-refresh-token-rotation-cas.md)
+  [ADR-0016](adr/0016-refresh-token-rotation-cas.md),
+  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md)
 - 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md)
 
 ### 5.5 로깅
@@ -527,6 +617,8 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
+| 2026-09-04 | `GET /posts/popular` 추가. 목록 조회 경로를 재사용하고 커서 봉투만 벗긴다 | Issue #29. 홈 화면이 커서 없는 고정 10건을 요구. 전용 쿼리를 새로 만들면 `idx_post_popular_all` 검증이 두 벌이 된다 |
 | 2026-09-04 | 등급 도메인 신설. 승급 판정 입력값을 캐시가 아니라 원장에서 읽고, 도달 등급만 `users.highest_grade` 에 저장(ADR-0030) | Issue #25. `users.vote_count` 는 선언만 있고 **쓰는 코드가 0건**이라 읽으면 전원 0 — 아무도 승급하지 못하는데 테스트는 초록인 상태가 됐을 것 |
 | 2026-09-03 | `/api` prefix 제거를 결정(ADR-0029)하고 컨트롤러 매핑 규칙을 ArchUnit 으로 강제. **경로 자체는 아직 안 바뀜** — 프론트 합의 대기 | Issue #75. `api.` 서브도메인과 의미 중복. 계약 변경이라 백엔드 단독으로 못 민다 |
 | 2026-09-03 | 이미지 저장소 추상화를 `File*` 계열로 개명, 설정 접두어 `app.image` → `app.file` | 이미지 외 파일도 담을 수 있는 이름으로(#63). 환경변수도 `FILE_*` 로 |
@@ -554,4 +646,5 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 2026-09-04 | 피커 랭킹 조회 계약 추가(§3.8). 정렬·커서 키를 `users.ranking` 으로 확정하고 인덱스 추가 | Issue #26. 인덱스 없이는 조각마다 회원 전체를 정렬해(200k 43.5ms) 사전 계산의 이득이 사라짐(ADR-0032) |
 | 2026-09-04 | 랭킹 배치에 `users.vote_count` 동기화 단계 추가 | Issue #26. 이 컬럼을 채우는 코드 경로가 없어 등급 판정 입력이 영원히 0이었음 |
 | 2026-09-04 | 뱃지 현황·미션 계약 추가. 판정을 `user_daily_activity` 집계로 (V9) | Issue #27. `vote` 직접 조회는 연속 판정이 회원의 투표 전체를 훑고 그 판정이 투표마다 일어난다(ADR-0031). 뱃지 이름은 정책이 변경을 예고해 데이터로 뒀다 |
+| 2026-09-04 | 내 활동 조회 계약 추가(§3.10). 목록 항목을 활동이 아니라 게시글로 확정하고 활동 인덱스 추가(V11) | Issue #30. 정렬 튜플의 두 번째 자리를 `p.id` 로 두면 인덱스가 정렬을 못 맡아 내 활동 전체를 읽는다(500건 4.29ms). 활동 테이블 쪽 `post_id` 로 맞추고 인덱스를 넓혀 11행 고정(ADR-0036) |
 | 2026-09-04 | `/api` prefix 를 실제로 제거하고 문서 노출을 `paths-to-exclude` 로 전환 | Issue #91. 프론트 합의가 닫혀 착수. 브릿지는 불필요로 확인돼 두지 않았다(ADR-0033 이 ADR-0029 대체) |

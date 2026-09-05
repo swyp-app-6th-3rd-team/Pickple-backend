@@ -33,7 +33,7 @@ public class UserEntity {
     @Column(name = "provider", nullable = false, length = 20)
     private SocialProvider provider;
 
-    @Column(name = "provider_id", nullable = false, length = 255)
+    @Column(name = "provider_id", length = 255)
     private String providerId;
 
     @Column(name = "email", length = 255)
@@ -81,6 +81,7 @@ public class UserEntity {
     }
 
     public void applyState(User user, LocalDateTime now) {
+        this.providerId = user.providerId();
         this.email = user.email();
         this.name = user.name();
         this.state = user.state();

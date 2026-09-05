@@ -43,3 +43,5 @@
 | [0033](0033-drop-api-prefix-implemented.md) | `/api` prefix 를 걷어내고, 문서 노출은 제외 목록으로 가른다 | Accepted |
 | [0034](0034-security-requirement-on-authenticated-endpoints.md) | 인증 표시는 인증을 요구하는 엔드포인트에 직접 붙인다 | Accepted |
 | [0035](0035-withdrawn-user-central-authorization.md) | 탈퇴 회원 차단을 인가 계층 한 곳으로 모은다 | **Proposed** |
+| [0036](0036-my-activity-list-reads-posts-through-activity-index.md) | 내 활동 목록은 활동 인덱스로 게시글을 읽고, 커서는 활동 시각과 게시글 ID를 쓴다 | Accepted |
+| [0037](0037-apple-withdrawal-detaches-provider-identity.md) | Apple 탈퇴는 provider identity를 분리하고 재로그인은 새 회원으로 만든다 | Accepted |
