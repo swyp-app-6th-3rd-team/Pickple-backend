@@ -1,0 +1,787 @@
+# 인증 수명주기 E2E 실측 검증 (회원 탈퇴 #28)
+
+통합테스트가 아니라 **실제로 기동한 서버에 실제 HTTP 요청**을 보내 확인한 기록이다.
+아래 "통과" 는 전부 실제 응답 코드를 근거로 한다. 근거가 없는 항목은 미검증으로 적었다.
+
+## 무엇을 검증했나
+
+### 실행 환경
+
+| 항목 | 값 |
+|---|---|
+| 기동 방법 | IntelliJ `idea` MCP → `execute_run_configuration("PickpleApplication")` (폴백 없음) |
+| 기동한 체크아웃 | `/Users/kimhabin/harness/projects/6th-buy-or-pass-backend` (워크트리가 아님) |
+| 그 체크아웃의 SHA | `4f8ddbe` (브랜치 `chore/#96-pull-rebase-guard`) |
+| 검증 대상 워크트리 SHA | `3b020f1` (브랜치 `chore/wt-auth-e2e-live-verify`) |
+| 두 SHA 의 관계 | `git diff HEAD 3b020f1 -- src/` 가 **비어 있다.** 제품 소스는 동일하고 차이는 도구·문서뿐이다 |
+| 프로파일 | `local` |
+| **서비스 포트** | **8080** (8081 이 아니다 — 아래 "발견한 결함" D-2 참조) |
+| management 포트 | 9090 |
+| MySQL | 기존 컨테이너 `pickple-mysql` 재사용, 포트 13307, schema version 10 |
+| JVM | OpenJDK 25.0.4.1 |
+| `OAUTH_APPLE_ENABLED` | `false` (기본값) |
+| 기동 판정 | `GET :9090/actuator/health` → `{"status":"UP"}` **및** `GET :8080/posts` → 200 |
+| 2차 검증 추가 | Kakao 프로바이더 URI 를 로컬 스텁(`127.0.0.1:9500`)으로 env override 후 재기동. **제품 코드·설정 파일 수정 없음** |
+| 3차 확인 추가 | 게스트(비회원) 관점 — 토큰 없이 같은 엔드포인트 호출, 기능명세서 v0.3 게스트 규칙 대조 |
+
+기동 확인을 health 하나로 끝내지 않은 이유는 아래 D-2 에 적었다. 실제로 이번에 health 가
+UP 인 동안 서비스 포트가 열려 있지 않은 구간이 있었다.
+
+### 시나리오
+
+회원 1명(`id=1`, APPLE, 닉네임 `테스터`)을 시드한 뒤 발급 → 인증 → 회전 → 로그아웃 →
+재로그인 → 탈퇴 → 탈퇴 후 접근까지 15단계를 순서대로 실행했다. 게시글 1건을 시드해
+탈퇴 후 보존을 확인했다.
+
+## 결과 표 — 이슈 #28 완료 판정
+
+**6/6 검증, 미검증 0개. 5개 통과, 1개 실패(D-1).**
+
+2차 검증에서 **가입 구간을 실제 HTTP 로 실행**했다(로컬 스텁 프로바이더 + Kakao OAuth2 흐름).
+1차의 최대 공백이던 "가입 미검증" 이 해소됐고, 그 결과 D-1 의 범위도 확대 확인됐다.
+
+| # | 판정 | 결과 | 근거 (실제 응답) |
+|---|---|---|---|
+| 1 | 탈퇴 후에도 작성한 게시글이 조회됨 | **통과** | 12번: `GET /posts` → **200**, 탈퇴 회원의 글 `id=1` 이 `authorNickname:"테스터"` 로 그대로 내려옴 |
+| 2 | 탈퇴 후 닉네임을 다른 사용자가 등록 가능 | **통과** | 13번: 같은 닉네임 `테스터` 로 새 회원 INSERT **성공**. `uk_users_active_nickname` 위반 없음 |
+| 3 | 탈퇴 계정의 리프레시 토큰이 폐기됨 | **통과** | 11번: `POST /auth/refresh` → **401** `INVALID_TOKEN`. DB `user_refresh_token` 행 수 **0** |
+| 4 | 탈퇴 계정으로 인증 필요 API 접근 불가 | **실패 — 아래 D-1** | `GET /auth/me`·`POST /users/profile` 은 **401**. 그러나 **댓글 201, 투표 200, 원픽 201** 로 뚫림 (2차 검증에서 확대 확인) |
+| 5 | 로그아웃 후 해당 RT 로 재발급 불가 | **통과** | 6번: `POST /auth/refresh` → **401** `INVALID_TOKEN` |
+| 6 | 로그아웃은 계정을 비활성화하지 않는다 | **통과** | 7번: 로그아웃 직후 `users.state` 가 `ACTIVE` 로 유지. 재발급 후 `GET /auth/me` → **200**, `POST /auth/refresh` → **200** |
+
+판정 4는 **실패**다. 1차 검증에서는 댓글 1건만 확인해 "부분 통과" 로 적었으나, 2차 검증에서
+**투표와 원픽까지 뚫리는 것**을 확인해 판정을 내렸다. 막힌 것은 `isActive()` 를 직접 확인하는
+두 엔드포인트뿐이고, 쓰기 경로 3개가 모두 통과한다.
+
+## 단계별 실행 기록 (원문)
+
+### 0. 가입 불가 확인 — 제약의 증거
+```
+POST /auth/apple  {"authorizationCode":"dummy-code","identityToken":"eyJhbGciOiJSUzI1NiIsImtpZCI6ImZha2UifQ...","rawNonce":"0123456789abcdef0123","name":"E2E"}
+→ HTTP 503
+{"code":"APPLE_LOGIN_UNAVAILABLE","message":"Apple 로그인을 현재 사용할 수 없습니다.","returnObject":null}
+```
+
+### 1. 회원 시드 (SQL)
+```
+id  provider  provider_id   nickname  active_nickname  state   role
+1   APPLE     e2e-sub-001   테스터     테스터            ACTIVE  ROLE_USER
+```
+
+### 2~3. 토큰 발급과 인증 확인
+독립 스크립트로 HS256 서명(제품 코드 수정 없음). `GET /auth/me` 로 서버가 받아들이는지 확인:
+```
+GET /auth/me   Authorization: Bearer <access>
+→ HTTP 200
+{"code":"OK","returnObject":{"userId":1,"email":"e2e@example.com","name":"E2E User","provider":"APPLE","role":"ROLE_USER"}}
+```
+
+### 4. 리프레시 — 회전 확인 (ADR-0016)
+```
+POST /auth/refresh   Cookie: refresh_token=<RT1>
+→ HTTP 200  {"code":"OK","returnObject":{"accessToken":"eyJhbGciOiJIUzUxMiJ9..."}}
+Set-Cookie: refresh_token=...; Max-Age=1209600; Path=/; HttpOnly; SameSite=Lax
+
+DB token_hash  before: e70d3c7fc2d38f7930aa13a08f06cbb180b6b222ce3e8aa5aaeb3520456e4ad5
+DB token_hash  after : 06705502c4ac5f75714ba20007769f467069e01e44dd47280835914c7a1ac13f
+```
+200 만으로는 회전을 판정하지 않았다. **저장된 해시가 실제로 바뀐 것**을 근거로 삼았다.
+
+### 5. 로그아웃
+```
+POST /auth/logout   Authorization: Bearer <access>
+→ HTTP 200  {"code":"OK","message":"정상 처리되었습니다.","returnObject":null}
+
+user_refresh_token 행 수: 0
+users.state: ACTIVE   (계정은 살아 있다)
+```
+
+### 6. 로그아웃 후 폐기된 RT 로 재발급
+```
+POST /auth/refresh   Cookie: refresh_token=<RT2>
+→ HTTP 401  {"code":"INVALID_TOKEN","message":"유효하지 않은 토큰입니다.","returnObject":null}
+```
+
+### 7. 재로그인 — 로그아웃이 계정을 죽이지 않았음
+```
+GET  /auth/me       → HTTP 200  {"userId":1,...}
+POST /auth/refresh  → HTTP 200  {"code":"OK","returnObject":{"accessToken":"..."}}
+```
+
+### 8. 게시글 시드와 조회
+```
+GET /posts → HTTP 200
+{"content":[{"id":1,"type":"GENERAL","category":"ETC","title":"탈퇴 후 보존 확인용 글",
+  "authorId":1,"authorNickname":"테스터","authorRanking":1}],"hasNext":false}
+```
+
+### 9. 탈퇴
+```
+DELETE /auth/me   Authorization: Bearer <access>
+→ HTTP 200
+{"code":"APPLE_MANUAL_REVOCATION_REQUIRED","message":"회원 탈퇴는 완료되었습니다. Apple 계정 설정에서 Pickple 연결을 직접 해제해 주세요.","returnObject":null}
+```
+저장된 Apple provider token 을 시드하지 않았으므로 이 코드가 정상이다
+(`AccountWithdrawalService` 의 `COMPLETED_REQUIRES_MANUAL_APPLE_REVOCATION` 경로).
+
+### 10. 탈퇴 후 기존 access token 으로 접근
+```
+GET /auth/me   Authorization: Bearer <탈퇴 전 발급 토큰, 아직 만료 전>
+→ HTTP 401  {"code":"UNAUTHORIZED","message":"인증이 필요합니다.","returnObject":null}
+```
+
+### 11. 탈퇴 후 리프레시
+```
+POST /auth/refresh   Cookie: refresh_token=<탈퇴 전 RT>
+→ HTTP 401  {"code":"INVALID_TOKEN","message":"유효하지 않은 토큰입니다.","returnObject":null}
+```
+
+### 12. 글 보존 (R-20)
+```
+GET /posts → HTTP 200
+{"content":[{"id":1,"title":"탈퇴 후 보존 확인용 글","authorId":1,"authorNickname":"테스터",...}]}
+```
+
+### 13. 닉네임 반납 (R-21)
+```
+INSERT INTO users (... nickname) VALUES ('APPLE','e2e-sub-002',...,'테스터');  → 성공
+
+id  provider_id   nickname  active_nickname  state
+1   e2e-sub-001   테스터     NULL             INACTIVE
+2   e2e-sub-002   테스터     테스터            ACTIVE
+```
+
+### 14. DB 상태 (R-23, 물리 삭제 아님)
+```
+id=1 행이 남아 있다.  state=INACTIVE,  nickname='테스터' 보존,  active_nickname=NULL
+user_refresh_token 행 수: 0
+```
+`active_nickname` 은 `CASE WHEN state='ACTIVE' THEN nickname END` 생성 컬럼이므로
+상태만 뒤집으면 유니크 인덱스에서 빠진다. 닉네임 원문은 지우지 않는다.
+
+## 2차 검증 — 가입 구간을 실제 HTTP 로 실행했다
+
+1차에서 "가입은 HTTP 로 검증 불가" 로 남긴 부분을 다시 시도해 **해소했다.**
+
+### 일반(ID/비밀번호) 회원가입은 이 저장소에 없다
+
+먼저 확인한 사실이다. 찾지 못한 게 아니라 **존재하지 않는다**:
+
+- `users` 테이블에 **password 컬럼이 없다** (V1~V10 전 마이그레이션)
+- `PasswordEncoder`·`BCrypt`·`UserDetailsService` 빈이 없다
+- 가입/로그인 엔드포인트는 `POST /auth/apple` 하나뿐이다
+- `grep` 의 `UsernamePassword*` 히트 2건은 Spring Security **필터 순서 지정용**
+  (`addFilterBefore(jwt, UsernamePasswordAuthenticationFilter.class)`)이지 비밀번호 로그인이 아니다
+
+이 서비스는 설계상 소셜 로그인 전용이다(ADR-0006).
+
+### 대신 Google/Kakao/Naver OAuth2 경로를 실제로 실행했다
+
+Apple 이 막힌 이유는 **RS256 서명**(개인키가 Apple 에 있음)이지만, Kakao/Naver 가 막히는 이유는
+`DefaultOAuth2UserService` 가 `user-info-uri` 로 **실제 HTTPS 호출**을 한다는 것이다. 그런데
+그 URI 는 **하드코딩이 아니라 설정값**이다. 그래서 제품 코드를 고치지 않고 **환경변수만으로**
+프로바이더를 로컬 스텁으로 돌렸다:
+
+```
+SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KAKAO_AUTHORIZATIONURI=http://127.0.0.1:9500/oauth/authorize
+SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KAKAO_TOKENURI=http://127.0.0.1:9500/oauth/token
+SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KAKAO_USERINFOURI=http://127.0.0.1:9500/v2/user/me
+```
+
+스텁은 `KakaoUserInfo` 가 읽는 모양(`{id, kakao_account:{email, profile:{nickname}}}`)만 돌려주는
+70줄짜리 파이썬 HTTP 서버다. **`CustomOAuth2UserService` → `AuthService.loginOrRegister` →
+`OAuth2SuccessHandler` 는 전부 진짜 제품 코드가 실행된다.**
+
+```
+GET /oauth2/authorization/kakao
+→ 302  Location: http://127.0.0.1:9500/oauth/authorize?...&state=...&code_challenge=...
+
+GET /login/oauth2/code/kakao?code=stub-auth-code&state=<state>
+→ 302
+Set-Cookie: refresh_token=eyJhbGciOiJIUzUxMiJ9...; Max-Age=1209600; HttpOnly; SameSite=Lax
+Location: http://localhost:3000/oauth/callback?accessToken=eyJhbGciOiJIUzUxMiJ9...
+```
+
+**애플리케이션이 스스로 만든 회원** (SQL 시드가 아니다):
+
+```
+id  provider  provider_id        email              name    state
+3   KAKAO     stub-kakao-9001    stub@example.com   스텁유저  ACTIVE
+
+user_refresh_token: id=3  user_id=3   ← 진짜 issueTokens() 가 쓴 행
+```
+
+서버가 발급한 그 토큰으로 이어서:
+
+```
+GET  /auth/me        → 200  {"userId":3,"provider":"KAKAO","name":"스텁유저"}
+POST /users/profile  → 201  {"userId":3,"nickname":"스텁","profileImageUrl":".../profile-2.png"}
+DELETE /auth/me      → 200  {"code":"OK"}          ← Apple 이 아니므로 수동 해제 문구가 없다
+POST /auth/refresh   → 401  {"code":"INVALID_TOKEN"}
+users.id=3           → state=INACTIVE, active_nickname=NULL
+```
+
+이로써 **가입 → 프로필 등록 → 탈퇴 → 탈퇴 후 차단**이 전부 실제 HTTP 로 이어졌고,
+D-1 은 SQL 로 시드한 계정이 아니라 **애플리케이션이 직접 만든 계정**에서도 재현됐다.
+
+### 탈퇴 계정 재로그인 차단 — 403 이 아니라 `login_failed` 리다이렉트다
+
+같은 스텁 신원(`KAKAO / stub-kakao-9001`, 현재 INACTIVE)으로 로그인을 한 번 더 돌렸다:
+
+```
+GET /login/oauth2/code/kakao?code=stub-auth-code&state=<state>
+→ 302  Location: http://localhost:3000/oauth/callback?error=login_failed
+
+users: 중복 생성 없음 (id=3 그대로, 신규 행 없음)
+```
+
+**차단은 된다.** 다만 `AuthService:41` 의 `ApiException(FORBIDDEN, "탈퇴한 계정입니다.")` 이
+그대로 403 으로 나가지 않는다. `CustomOAuth2UserService` 가 그것을
+`OAuth2AuthenticationException` 으로 감싸고, `OAuth2FailureHandler` 가 **원인을 감춘 채**
+`?error=login_failed` 리다이렉트로 통일한다("실패 원인을 그대로 노출하지 않는다. 내부 구조가
+드러날 수 있다" — 핸들러 주석).
+
+**코드만 읽고 "403" 이라고 적었으면 틀렸을 자리다.** 실제 관측값은 `302 + error=login_failed`
+이고, 탈퇴 계정이 되살아나지 않는다는 결론은 같지만 클라이언트가 보는 신호는 다르다.
+
+### 그래도 남는 한계
+
+스텁은 **프로바이더의 응답을 흉내낼 뿐** 진짜 Kakao 서버가 아니다. 따라서 실제 Kakao 의
+토큰 검증·스코프 동의·에러 응답은 여전히 검증되지 않았다. 검증된 것은 **우리 쪽 가입 경로**
+(`loginOrRegister`, 신규 생성, 토큰 발급, 프로필 등록)이지 프로바이더 연동의 정확성이 아니다.
+Apple 경로(`AppleIdTokenVerifier`, provider token revoke)는 여전히 미검증이다.
+
+## 발견한 결함
+
+### D-1. 탈퇴한 회원이 댓글·투표·원픽을 계속 할 수 있다 (기능 결함)
+
+탈퇴 직후, **탈퇴 전에 발급받아 아직 만료되지 않은 access token** 으로:
+
+```
+POST /posts/1/comments   Authorization: Bearer <탈퇴 전 토큰>
+{"content":"withdrawn user comment"}
+→ HTTP 201
+{"code":"CREATED","message":"생성되었습니다.","returnObject":{"id":1,"content":"withdrawn user comment"}}
+```
+
+DB 에도 실제로 남았다 (검증 후 삭제함):
+```
+id  user_id  content                    author_state
+1   1        withdrawn user comment     INACTIVE
+```
+
+**독립 재현됨.** 이 리포트를 쓴 뒤 별도 컨텍스트의 검증자가 같은 서버에 새로 서명한
+토큰으로 다시 시도해 **201 CREATED 와 `user_id=1` 댓글 행 생성을 재현**했다. 같은 토큰의
+`GET /auth/me` 는 401 이었다. 즉 "토큰이 아직 유효한 것" 과 "탈퇴한 계정을 막는 것" 이
+엔드포인트마다 갈린다는 것이 두 번 확인되었다. (재현 중 만든 행과 카운터는 정리했다.)
+
+**원인 (구조).** `JwtAuthenticationFilter` 는 의도적으로 무상태다 — 요청마다 DB 를 조회하지
+않으려고 access token 클레임만으로 `SecurityContext` 를 채운다(`JwtService` 주석에 근거가 적혀
+있다). 따라서 탈퇴 여부는 필터가 아니라 **각 서비스가 `isActive()` 를 직접 확인해야** 걸러진다.
+그런데 `grep -rn "isActive()" src/main/java` 결과 확인 지점은 `AuthService`(3곳),
+`UserProfileService`(1곳), `User.registerProfile`, `AccountWithdrawalPersistenceService` 뿐이고
+**`comment` 패키지에는 상태 확인이 한 곳도 없다.**
+
+즉 10번이 401 인 것은 Spring Security 가 막아서가 아니라 `AuthService.getById` 가
+`!user.isActive()` 일 때 `UNAUTHORIZED` 를 던지기 때문이다. 같은 확인을 하지 않는 엔드포인트는
+**access token 이 만료될 때까지 최대 30분**(`access-token-validity: PT30M`) 동안 열려 있다.
+
+같은 토큰으로 확인한 다른 엔드포인트. **2차 검증에서 1차의 미검증 3건을 전부 판정했다** —
+1차의 400/404 는 인증 거부가 아니라 요청 자체가 성립하지 않아 난 것이었으므로, 선택지를 갖춘
+찬반 게시글과 타인 댓글을 만들어 **정상 요청으로 다시** 확인했다.
+
+| 엔드포인트 | 활성 회원(대조군) | **탈퇴 회원** | 판정 |
+|---|---|---|---|
+| `GET /auth/me` | 200 | **401** `UNAUTHORIZED` | 막힘 |
+| `POST /users/profile` | 201 | **401** `UNAUTHORIZED` | 막힘 (`UserProfileService` 가 확인함) |
+| `POST /posts/{id}/comments` | 201 | **201 CREATED** | **뚫림 — 댓글 행 생성됨** |
+| `POST /posts/{id}/votes` | 200 | **200 OK** | **뚫림 — 투표 행 생성, 득표수 변동** |
+| `POST /comments/{id}/pick` | — | **201 CREATED** | **뚫림 — 원픽 행 + 포인트 지급** |
+| `GET /badges/me` | 404 | 404 | **판정 불가.** 활성 회원도 404 다(뱃지 데이터 없음). 인증 차이가 아니다 |
+
+**두 번 재현했다.** 위 표는 서버를 재기동한 뒤 **다른 게시글·다른 토큰으로 다시 실행해**
+같은 결과를 얻었다(`GET /auth/me` 401 / 투표 200 / 댓글 201 / 원픽 201, 포인트는 다시
+INACTIVE 계정에 적립). 일회성 상태 오염이 아니다.
+
+**대조군을 함께 둔 이유:** 1차에서 투표가 400 이었던 것은 GENERAL 게시글에 선택지가 없어서였고,
+원픽이 400 이었던 것은 **R-07(자기 댓글 원픽 금지)** 때문이었다. 둘 다 인증과 무관한 거절이라
+"막혔다" 로 읽으면 오판이다. 같은 요청이 활성 회원에게 성공하는 것을 먼저 확인한 뒤 탈퇴
+회원으로 반복해야 **차이의 원인이 탈퇴 여부**임이 확정된다.
+
+실제로 남은 데이터 (검증 후 삭제함):
+
+```
+vote          : id=1  user_id=3  post_option_id=2   voter_state=INACTIVE
+comment       : id=4  user_id=3  "withdrawn kakao comment"  author_state=INACTIVE
+post_option   : id=1 '사자' vote_count=0  /  id=2 '말자' vote_count=1   ← 득표가 실제로 옮겨감
+point_history : id=1 user_id=2 PICKED  +10  (state=ACTIVE)
+                id=2 user_id=3 PICKING  +5  (state=INACTIVE)   ← 탈퇴 계정에 포인트 적립
+```
+
+**포인트·랭킹 오염이 따라온다.** 원픽은 포인트를 지급하므로 탈퇴 회원이 **자신에게 +5, 상대에게
++10** 을 적립시켰다. 포인트는 TOP 피커 랭킹의 입력이다. `users.point` 집계 컬럼은 배치가 나중에
+채우므로(ADR-0028) **즉시 눈에 띄지 않고 다음 재계산 때 드러난다.**
+
+**게스트와 비교하면 심각도가 분명해진다.** 같은 엔드포인트를 토큰 없이 부르면:
+
+| 요청 | 게스트(토큰 없음) | **탈퇴 회원(토큰 있음)** |
+|---|---|---|
+| `POST /posts/{id}/votes` | **401** | **200** |
+| `POST /posts/{id}/comments` | **401** | **201** |
+
+**탈퇴 회원이 게스트보다 권한이 많다.** 계정을 지운 사람이 한 번도 가입한 적 없는 사람보다
+더 많은 것을 할 수 있다는 뜻이다. 게다가 게스트는 익명이라 남길 수 있는 것이 없지만,
+탈퇴 회원의 토큰은 **실재하는 `userId` 로 해석되어** 귀속된 행과 포인트 원장을 만든다.
+두 위협 모델은 다르고, 후자가 더 나쁘다.
+
+**공개 경로에서도 탈퇴자 신원이 살아 있다.** `permitAll` 은 필터를 우회하지 않는다 —
+`JwtAuthenticationFilter` 에 `shouldNotFilter` 가 없어 **토큰이 붙은 모든 요청**이 파싱된다.
+`GET /posts/{id}/comments`(공개 + 선택적 인증)에 탈퇴자 토큰을 붙여 확인했다:
+
+```
+게스트(토큰 없음)  → comments[0].mine = false
+탈퇴자 토큰 첨부   → comments[0].mine = true
+```
+
+쓰기는 아니지만 **탈퇴한 사람이 여전히 "본인" 으로 식별된다.** 중앙 차단을 설계할 때
+보호 경로뿐 아니라 이 "선택적 인증 공개 경로" 정책도 함께 정해야 한다(권고 절 2번).
+
+**왜 세 곳이 한꺼번에 뚫렸나.** 이 저장소에는 이미 "세 서비스가 같은 관문을 지나게 한다" 는
+패턴이 있다 — `ActivePostGuard` 다. 그런데 그 관문이 보는 것은 **게시글의 생사이지 사용자의
+생사가 아니다.** 주석도 "삭제된 게시글에는 새 상호작용을 만들지 않는다" 로 게시글만 말한다.
+`grep -rniE "isActive|INACTIVE" src/main/java/app/pickple/{vote,comment,point}/` 결과
+**사용자 상태를 보는 코드가 한 줄도 없다.** 즉 결함은 세 개가 아니라 **하나** 다 —
+탈퇴 사용자를 거르는 관문이 애초에 없고, 인증 계층은 무상태라 알 수 없다.
+
+제안(이 워크트리에서는 고치지 않았다 — 검증 전용 슬롯): 서비스마다 확인을 반복하는 대신
+필터·인터셉터 한 곳에서 탈퇴 여부를 판정하거나, 탈퇴 시 해당 사용자의 access token 을
+무효화할 수 있는 수단(jti 블랙리스트 등)을 둔다. 어느 쪽이든 되돌리기 비싼 설계 결정이라
+별도 논의가 필요하다.
+
+### D-2. `APP_PORT` 가 IntelliJ·`bootRun` 기동에 반영되지 않는다 (설정 함정)
+
+`.env` 와 `.env.example` 은 `APP_PORT=8081` 을 선언하지만 **서버는 8080 에 떴다.**
+
+```
+o.s.boot.tomcat.TomcatWebServer - Tomcat started on port 8080 (http) with context path '/'
+o.s.boot.tomcat.TomcatWebServer - Tomcat started on port 9090 (http) with context path '/'
+```
+
+`application.yml` 은 `management.server.port: ${MANAGEMENT_PORT:9090}` 은 두었지만
+`server.port` 를 `APP_PORT` 로 묶는 줄이 없다. `grep -rn "APP_PORT" src/main/resources/` 결과도
+없다. `APP_PORT` 는 Docker Compose 의 포트 매핑(`${APP_PORT}:8080`) 전용이므로 Compose 를
+거치지 않는 기동(IntelliJ, `./gradlew bootRun`)에서는 Tomcat 기본값 8080 이 쓰인다.
+
+동작상 버그는 아니지만 **`.env` 를 읽고 8081 로 붙는 사람은 연결 실패를 겪는다.** 이번 검증도
+그랬다. 문서 한 줄이나 `server.port: ${APP_PORT:8080}` 한 줄 중 하나가 필요하다.
+
+부수 효과로 **`/actuator/health` 가 UP 인데 서비스 포트가 아직 닫혀 있는 구간이 실측되었다.**
+management 커넥터(9090)가 먼저 뜨고 서비스 커넥터가 뒤에 뜨기 때문이다. 기동 판정을 health
+하나로 하면 이 구간을 "준비 완료" 로 오판한다.
+
+### D-3. (결함 아님, 기록) 리프레시 쿠키 이름은 `refresh_token` 이다
+
+`refreshToken` 으로 보내면 401 `INVALID_TOKEN` 이 난다. 정본은
+`OAuth2SuccessHandler.REFRESH_TOKEN_COOKIE = "refresh_token"`. 다음 사람이 같은 데서 막히지
+않도록 적어 둔다.
+
+### D-4. 게스트가 댓글 목록을 볼 수 있다 — v0.3 §6.4 가 코드에 반영되지 않았다
+
+**3차 확인(게스트 관점) 에서 나온 항목이다.** 인증 없이(토큰 헤더 없이) 호출:
+
+```
+GET /posts/4/comments        (Authorization 헤더 없음)
+→ HTTP 200
+{"code":"OK","returnObject":{"commentCount":1,"comments":[
+  {"id":8,"authorId":2,"nickname":"테스터","content":"회원이 쓴 댓글","mine":false}]}}
+```
+
+닉네임과 본문이 그대로 내려간다.
+
+**기대값은 "주지 않는다" 다.** 저장소가 스스로 그렇게 판정해 두었다 —
+`docs/requirement/README.md` 의 "v0.2 → v0.3 실질 변경" 표 1행:
+
+| # | 변경 | 백엔드 영향 |
+|---|---|---|
+| 1 | §6.4 게스트 진입 시 "로그인 후 열람할 수 있어요" | **있음 — 게스트에게 댓글 목록을 주지 않는다** |
+
+그런데 `SecurityConfig` 는 여전히 `GET /posts/{postId}/comments` 를 `permitAll` 에 둔다.
+같은 블록의 주석은 이 변경을 **알고 있다**:
+
+```java
+// ⚠️ 기능명세서 v0.3 §6.4 가 "게스트에게 댓글 목록을 주지 않는다" 로
+// 바뀌었지만 그것은 댓글 한정이다. 랭킹의 게스트 허용은 유효하다 —
+// 공개 여부는 엔드포인트마다 판단한다.
+```
+
+주석이 방어하는 것은 **랭킹**(`/rankings`)의 게스트 허용이고, 그 논지는 타당하다.
+다만 **정작 "댓글 한정" 이라고 지목한 그 댓글 매처가 두 줄 위에 그대로 남아 있다.**
+`SPEC.md:147` 도 `GET /posts/{postId}/comments` 를 "선택 (게스트 허용)" 으로 유지한다.
+
+**원인은 코딩 실수가 아니라 계약 갱신 누락이다.** `SPEC.md` 변경 이력
+2026-09-03 행이 "댓글 CRUD·**게스트 목록**·원픽 수 조회 계약 추가 | Issue #23" 인데,
+그 계약은 **v0.2 기준**으로 쓰였다. 이후 `requirement/README.md` 가 v0.3 §6.4 를
+"백엔드 영향 있음" 으로 기록했지만 **`SPEC.md` 는 고쳐지지 않았고 이를 뒤집는 ADR 도 없다**
+(`grep -rln "6.4\|게스트에게 댓글" docs/adr/ docs/prd/` 의 두 히트는 `$16.4`, `26.4 ms` 로
+버전 번호가 아니라 숫자 오탐이다).
+
+즉 **문서끼리 어긋나 있고 코드는 옛 문서를 따르고 있다.** 어느 쪽이 정본인지는
+`requirement/README.md` 의 위계(화면설계서 > 정책 요약표 > 기능명세서)로 판정할 문제라
+이 검증 슬롯이 결정하지 않는다 — **판정이 필요하다는 사실까지만 보고한다.**
+
+### (참고) 게스트 투표 3회는 결함이 아니다
+
+기능명세서 §6.3 에는 "게스트 투표 3번까지 허용 → 이후 로그인 유도 모달" 이 있고
+실측은 **401** 이다. 그러나 이것은 **이미 판정된 사항이라 결함이 아니다**:
+
+- `SPEC.md:195` — "**게스트는 투표할 수 없다(R-11).** 별도 매처 없이
+  `anyRequest().authenticated()` 로 401 이다."
+- `PRD-012-투표참여API.md` 완료 판정 7 — "게스트는 투표할 수 없다 (R-11) …
+  ✅ `401 UNAUTHORIZED`, 표 0건"
+
+기능명세서는 정본 위계 3위이고, 이 건은 상위 문서 대조를 거쳐 R-11 로 확정된 뒤
+PRD 의 완료 판정으로 검증까지 끝난 항목이다. **명세서 문장만 보고 "미구현" 으로
+읽으면 오판이다.** 게스트 관련 판정은 반드시 `SPEC.md`·PRD 를 함께 본다.
+
+### D-5. 탈퇴 재호출이 Apple 사용자에게 잘못된 안내를 준다 (경미)
+
+이미 탈퇴한 계정(`state=INACTIVE`)으로 `DELETE /auth/me` 를 다시 부르면 **200** 이다.
+
+```
+DELETE /auth/me  (user 3, 이미 INACTIVE)
+→ HTTP 200  {"code":"OK","message":"정상 처리되었습니다."}
+```
+
+**이것 자체는 결함이 아니다.** `AccountWithdrawalPersistenceService:27` 이
+`if (user.isActive())` 로 감싸 **의도적으로 멱등**하게 만들었다. 도메인(`User.withdraw()`)은
+`IllegalStateException` 으로 막고 있고, 서비스가 그 앞에서 흡수한다. `DELETE` 는 HTTP 규약상
+멱등이고, 토큰 정리 두 줄은 조건 **밖**에 있어 부분 실패 후 재시도가 정리를 마저 끝낸다.
+
+**문제는 Apple 경로의 응답이다.** 첫 탈퇴가 provider token 을 지우므로,
+Apple 사용자의 2회차 호출은 `AccountWithdrawalService` 의
+`providerToken.isEmpty()` 분기로 **항상** 떨어진다:
+
+- 1회차 → `OK` (revoke 성공)
+- 2회차 → `APPLE_MANUAL_REVOCATION_REQUIRED` — "Apple 설정에서 직접 해제해 주세요"
+
+**이미 revoke 가 끝났는데 사용자에게 불필요한 수동 작업을 시킨다.** 매번 `WARN` 로그도 남는다.
+재호출을 막을 것이 아니라 이 응답이 틀렸다 — 이미 INACTIVE 면 provider 분기를 건너뛰면 된다.
+
+단 위 권고의 중앙 차단이 도입되면 이 재호출은 **401 이 된다**(계약 변경). 그때 이 항목은
+자연히 사라지지만, 멱등성을 잃는 것을 의식적으로 수용할지 판단이 필요하다.
+
+## 검증하지 못한 것
+
+2차 검증에서 해소된 항목은 아래 "해소됨" 으로 옮겼다. 남은 것만 미검증이다.
+
+### 여전히 미검증
+
+1. **Apple 가입 경로 (`POST /auth/apple`).**
+   `AppleIdTokenVerifier` 가 Apple JWKS 로 RS256 서명을 검증한다. 개인키가 Apple 에 있어
+   위조할 수 없다(서명 검증의 존재 이유다). 0번에서 503 `APPLE_LOGIN_UNAVAILABLE` 로
+   **가입이 막혀 있다는 사실까지만** 확인했다. Kakao 스텁으로 `loginOrRegister` 는 실행했지만
+   `AppleAuthService`·nonce 검증·authorization code 교환은 실행되지 않았다.
+
+2. **탈퇴 시 Apple 연결 해제(revoke) 호출.**
+   provider token 을 시드하지 않아 `AppleTokenGateway.revokeRefreshToken` 이 호출되지 않았다
+   (9번이 `APPLE_MANUAL_REVOCATION_REQUIRED` 로 끝난 이유다). Apple 일시 장애 시 503 을 주고
+   로컬 상태를 바꾸지 않는 재시도 경로도 실행하지 못했다.
+
+3. **실제 프로바이더 연동의 정확성.**
+   스텁은 응답 모양만 흉내낸다. 진짜 Kakao 의 토큰 검증·스코프 동의·에러 응답은 검증되지 않았다.
+
+4. **게시글 상세·작성 API 는 존재하지 않는다.**
+   `PostController` 에 `GET /posts` 목록만 있다. 12번의 "게시글 상세 조회" 를 **목록 조회로
+   대체**했고, 8번의 게시글 작성은 SQL 시드로 대체했다. 엔드포인트가 없어 확인할 수 없다.
+
+5. **`GET /badges/me` 의 탈퇴 회원 차단 여부.**
+   활성 회원도 404 라(뱃지 데이터 없음) 인증 차이를 판정할 수 없다. 뱃지를 시드해야 한다.
+
+6. **동시성(ADR-0016 CAS 경합).**
+   회전 자체는 해시 변화로 확인했지만, 두 요청이 동시에 같은 RT 를 내밀었을 때의 승자/패자
+   동작은 단일 순차 호출로는 확인할 수 없다.
+
+7. **게스트 규칙 전반.** 3차 확인은 D-1 과 맞닿는 엔드포인트(투표·댓글·댓글목록·랭킹)만
+   봤다. 기능명세서의 나머지 게스트 분기(마이페이지 §7, 전체보기 §9 등)와 "로그인 유도
+   모달" 계열은 대부분 클라이언트 UI 범위라 서버 응답만으로는 판정하지 않았다.
+
+### 2차 검증에서 해소됨
+
+- ~~가입 구간 전체~~ → Kakao OAuth2 스텁으로 **실제 HTTP 가입 실행**. 회원 id=3 을
+  애플리케이션이 직접 생성. 프로필 등록(201)·탈퇴(200)까지 이어서 확인.
+- ~~D-1 의 투표·원픽 경로~~ → 대조군을 두고 **투표 200, 원픽 201 로 뚫림 확정.**
+  1차의 400 은 각각 "선택지 없는 게시글" 과 "R-07 자기 댓글 원픽 금지" 때문이었다.
+- ~~"탈퇴 계정 재로그인 차단"~~ → 스텁 로그인을 같은 신원으로 다시 돌려 **차단 확인.**
+  단 관측되는 형태는 403 이 아니라 `302 + ?error=login_failed` 다("2차 검증" 절 참조).
+
+## 권고 — 탈퇴 회원 차단을 한 관문으로 모은다
+
+D-1 의 원인은 "각 서비스가 알아서 확인" 이고, 그 방식이 이미 세 곳에서 동시에 실패했다.
+새 엔드포인트가 생길 때마다 같은 구멍이 재생산되므로 **중앙 관문**이 필요하다.
+
+이 절은 **제안이지 구현이 아니다.** 이 슬롯은 검증 전용이라 소스를 고치지 않았다.
+
+### 측정 — ADR-0006 재검토의 근거
+
+ADR-0006 은 "액세스 토큰도 DB 조회로 검증" 을 **명시적으로 기각**했다
+(`docs/adr/0006-auth-hardening.md:81` — "매 요청 DB 를 때린다. 인증이 부하의 주범이 된다").
+그 ADR 이 세운 원칙이 "측정 없이 미들웨어를 들이지 않는다" 이므로, 재론도 측정으로 한다.
+
+| 항목 | 실측 |
+|---|---|
+| `SELECT state FROM users WHERE id=?` | **0.03ms** (warm, 최초 0.51ms) |
+| 실행계획 | `type=const`, `key=PRIMARY`, `rows=1` |
+| `GET /auth/me` (조회 포함) | p50 **6.2ms** / p95 7.8ms (n=30, 순차) |
+| `GET /posts` (대조군) | p50 **5.9ms** / p95 8.6ms (n=30) |
+| 동시 40요청 (풀 10) | 40건 전부 200, p50 6.0ms / p95 12.0ms |
+| 설정 | `open-in-view: false`, hikari `maximum-pool-size: 10`, `connection-timeout: 3000` |
+
+**단, 이 측정으로 "부하 문제 없음" 을 주장하지 않는다.** 아래 한계가 있다(이종 리뷰 지적).
+
+- 빈 테이블 + 워밍된 버퍼 풀 + localhost 도커. 운영 RTT·행 수·경합이 없다.
+- `n=30` 순차로는 p95 를 신뢰할 수 없고, 40요청 1회는 지속 부하가 아니다.
+- **대조군이 틀렸다.** `/posts` 는 다른 컨트롤러·다른 쿼리다. 같은 엔드포인트의
+  A/B(조회 있음 / 없음)가 아니면 한계비용을 분리하지 못한다.
+- `/auth/me` 는 이미 `AuthService:128` 에서 조회하므로, 필터를 넣으면 **조회가 2회**가 된다.
+- ADR-0028 의 102~154ms 는 비교 기준으로 부적절하다. **매 요청 도는 0.1ms 는
+  건당은 싸도 총 DB 용량을 지배할 수 있다.**
+
+즉 측정이 보여주는 것은 **"쿼리 모양이 건전하다"** 까지다. ADR 을 뒤집는 진짜 근거는
+성능이 아니라 **D-1 의 데이터 오염 증거**다. 부하 판정에는 아래 측정이 더 필요하다 —
+같은 엔드포인트 A/B, 단계적 지속 부하, Hikari active/pending·획득 시간, p99,
+DB 장애 시 5xx 확인.
+
+### 설계 — 필터가 아니라 `AuthorizationManager` 를 권한다
+
+이종 리뷰(Codex)와 대조한 결과, **"필터에서 검증" 의 취지는 맞되 위치를 한 칸 옮기는 것**이
+낫다. JWT 는 *누가* 토큰을 냈는지(인증), 계정 상태는 *지금 행동해도 되는지*(인가)다.
+
+| 대안 | 판정 |
+|---|---|
+| **JWT 필터(신원) + `AuthorizationManager`(ACTIVE 판정)** | **권고.** 401/403/503 분리가 자연스럽고, 보호 경로에만 붙일 수 있다 |
+| 필터 안에서 직접 조회 | 동작하지만 인증과 인가가 섞이고, 공개·정적 경로에 실수로 적용되기 쉽다 |
+| 서비스별 확인 + ArchUnit 강제 | 회귀 방지로는 유용. 그러나 누락 증명 불가라 **주 방어선이 될 수 없다** |
+| 액세스 TTL 단축 | 노출 창만 줄인다. 즉시 차단이 아니고 그 사이 오염은 그대로 |
+| jti/사용자 블랙리스트 | 결국 요청마다 조회가 필요하고 수명주기·배포 복잡도가 는다. Redis 는 ADR 이 기각한 그 미들웨어다 |
+| 토큰에 state 버전 클레임 | 클레임은 낡는다. 증분을 알려면 결국 조회해야 한다 |
+
+**즉시 차단을 원하면 어떤 형태로든 서버 상태를 매 요청 확인해야 한다.** 더 싼 무상태 설계는
+없다. 다만 조회는 `User` 엔티티 전체 로딩이 아니라 **`(id, ACTIVE)` 존재 확인** 같은
+좁은 쿼리여야 한다.
+
+### 착수 전 반드시 처리할 것 (이종 리뷰 지적)
+
+1. **DB 장애를 401 로 바꾸지 마라 (High).** 현재 필터는 `ApiException` 을 삼키고
+   컨텍스트를 비운다(`JwtAuthenticationFilter:44`). 상태 조회 실패가 이 경로를 타면
+   **DB 장애가 "토큰이 유효하지 않다" 로 나간다.** 전 클라이언트 재로그인 폭주를 부르고
+   장애를 모니터링에서 감춘다. 토큰 무효 → 401, 비활성 → 401/403, **DB 불가 → 503** 으로
+   분리해야 한다.
+
+2. **`permitAll` 은 필터를 우회하지 않는다 (High).** 이 리포트의 이전 판이 반대로 적었으나
+   **실측으로 반증됐다.** 필터에 `shouldNotFilter` 가 없어 토큰이 붙은 모든 요청이 파싱된다.
+   `GET /posts/{id}/comments` 에 **탈퇴자 토큰**을 붙여 확인한 결과:
+
+   ```
+   게스트(토큰 없음)   → comments[0].mine = false
+   탈퇴자 토큰 첨부     → comments[0].mine = true    ← 탈퇴자 신원이 그대로 반영된다
+   ```
+
+   따라서 (a) 공개·정적 경로에서 불필요한 DB 조회가 돌고, (b) **선택적 인증 경로에서
+   탈퇴자가 여전히 "본인" 으로 취급된다.** 보호 경로와 "선택적 인증 공개 경로" 의 정책을
+   각각 명시해야 한다 — 후자는 거부할지 익명으로 강등할지 정해야 한다.
+   R-20(탈퇴자의 글은 계속 보인다)은 **글의 가시성**을 말하는 것이지 탈퇴자가 공개 조회에서
+   개인화된 신원을 유지해도 된다는 뜻이 아니다.
+
+3. **TOCTOU 경합은 남는다 (High).** 필터/인가 시점 조회는 서비스 트랜잭션 **밖**이다
+   (`open-in-view: false`). "조회 시점엔 ACTIVE" 는 보장해도 "커밋 시점에도 ACTIVE" 는
+   보장하지 못한다 — 탈퇴 커밋과 쓰기가 겹치면 통과한다. 이 저장소는 이미 같은 한계를
+   `ActivePostGuard` 주석에 적어 두었다. **중앙 관문은 진입 장벽이지 트랜잭션 불변식이
+   아니다.** 포인트 원장처럼 치명적인 쓰기는 별도 방어가 필요하다.
+
+4. **서비스별 확인을 일괄 제거하지 마라 (Medium).** 중앙 관문은 이 시큐리티 체인을
+   지나는 HTTP 요청만 보호한다. 배치·내부 호출·테스트·향후 두 번째 필터체인은 못 막는다.
+   특히 **`/auth/refresh` 는 `permitAll` 이고 액세스 토큰 없이도 호출된다** — 자체
+   `isActive()` 확인(`AuthService:103`)을 반드시 유지해야 한다.
+
+5. **계약 변경을 의식적으로 수용하라 (Medium).** `POST /auth/logout` 은 지금 익명·탈퇴자도
+   부를 수 있고, 쿠키를 지우는 것이 목적이므로 그대로 두는 편이 낫다.
+   `DELETE /auth/me` 재호출은 현재 멱등하게 200 인데(§D-5), 중앙 차단이 들어가면 **401 로
+   바뀐다.** 외부에 보이는 계약 변경이므로 수용하거나 예외를 두어야 한다.
+
+### 이 권고의 후속
+
+이 절의 내용은 **[ADR-0035 초안](../adr/0035-withdrawn-user-central-authorization.md)**
+(상태 `Proposed`)으로 옮겨 적었다. ADR-0006 의 해당 항목에도 상호 참조를 달았다.
+구현 착수 전 팀 합의가 필요하다.
+
+### 결론
+
+- **방향은 맞다** — 탈퇴자는 게스트보다 권한이 많아서는 안 되고, 그 판정은 한 곳에 모아야 한다.
+- **위치는 `AuthorizationManager`** 를 권한다(필터는 신원 확립까지).
+- **ADR-0006 을 부분 대체하는 새 ADR** 이 필요하다. 뒤집는 근거는 성능이 아니라
+  D-1 의 오염 증거이고, "즉시 무효화 불가" 라는 기존 한계 기술도 함께 고쳐야 한다.
+- 착수 전 위 5개(특히 **503 분리**와 **`permitAll` 경계**)를 설계에 반영한다.
+
+## 재현 방법
+
+```bash
+# 0. MySQL 은 이미 떠 있다고 가정한다 (컨테이너 pickple-mysql, 포트 13307)
+docker ps --filter name=pickple-mysql
+
+# 1. 환경
+cp .env.example .env
+sed -i '' "s|^JWT_SECRET_KEY=$|JWT_SECRET_KEY=$(openssl rand -base64 48)|" .env
+SECRET=$(grep '^JWT_SECRET_KEY=' .env | cut -d= -f2-)
+
+# 2. 기동 (IntelliJ 실행 구성 PickpleApplication, 또는 ./gradlew bootRun)
+#    ⚠️ 서비스 포트는 8080 이다. APP_PORT=8081 은 Compose 전용이라 반영되지 않는다(D-2).
+until curl -sf http://localhost:9090/actuator/health | grep -q '"status":"UP"'; do sleep 2; done
+until curl -sf -o /dev/null http://localhost:8080/posts; do sleep 2; done   # 서비스 포트도 함께 본다
+
+MYSQL() { docker exec pickple-mysql mysql --default-character-set=utf8mb4 -upickple -pchange-me-app pickple -e "$1"; }
+
+# 3. 가입이 막혀 있음을 확인 (503 APPLE_LOGIN_UNAVAILABLE)
+curl -s -w '\n%{http_code}\n' -X POST http://localhost:8080/auth/apple \
+  -H 'Content-Type: application/json' \
+  -d '{"authorizationCode":"dummy-code","identityToken":"eyJhbGciOiJSUzI1NiJ9.e30.sig","rawNonce":"0123456789abcdef0123","name":"E2E"}'
+
+# 4. 회원 시드
+MYSQL "INSERT INTO users (provider,provider_id,email,name,role,state,created_at,updated_at,nickname)
+       VALUES ('APPLE','e2e-sub-001','e2e@example.com','E2E User','ROLE_USER','ACTIVE',NOW(),NOW(),'테스터');"
+
+# 5. 토큰 발급 — 제품 코드를 고치지 않는 독립 서명기
+#    JwtService 와 동일: HS256, iss=pickple, sub=userId, typ=access|refresh, jti=UUID
+#    ⚠️ 키는 Base64 디코드하지 않는다. secretKey.getBytes(UTF_8) 원문 바이트가 그대로 키다.
+mint() {  # mint <secret> <userId> <access|refresh>
+  b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+  local now exp jti hdr pl si
+  now=$(date +%s); [ "$3" = access ] && exp=$((now+1800)) || exp=$((now+1209600))
+  jti=$(uuidgen | tr 'A-Z' 'a-z')
+  hdr=$(printf '{"alg":"HS256"}' | b64url)
+  if [ "$3" = access ]; then
+    pl=$(printf '{"sub":"%s","iss":"pickple","role":"ROLE_USER","typ":"access","jti":"%s","iat":%s,"exp":%s}' "$2" "$jti" "$now" "$exp" | b64url)
+  else
+    pl=$(printf '{"sub":"%s","iss":"pickple","typ":"refresh","jti":"%s","iat":%s,"exp":%s}' "$2" "$jti" "$now" "$exp" | b64url)
+  fi
+  si="$hdr.$pl"
+  printf '%s.%s' "$si" "$(printf '%s' "$si" | openssl dgst -sha256 -mac HMAC -macopt "key:$1" -binary | b64url)"
+}
+
+AT=$(mint "$SECRET" 1 access)
+RT=$(mint "$SECRET" 1 refresh)
+# 리프레시는 원문이 아니라 SHA-256 해시로 저장된다
+MYSQL "INSERT INTO user_refresh_token (user_id,token_hash,expires_at,created_at)
+       VALUES (1,'$(printf '%s' "$RT" | openssl dgst -sha256 -hex | awk '{print $NF}')',DATE_ADD(NOW(),INTERVAL 14 DAY),NOW())
+       ON DUPLICATE KEY UPDATE token_hash=VALUES(token_hash);"
+
+# 6. 시나리오 — ⚠️ 쿠키 이름은 refresh_token 이다 (refreshToken 아님, D-3)
+curl -s http://localhost:8080/auth/me -H "Authorization: Bearer $AT"                          # 200
+curl -s -D- -X POST http://localhost:8080/auth/refresh -H "Cookie: refresh_token=$RT"         # 200 + 회전
+MYSQL "SELECT token_hash FROM user_refresh_token WHERE user_id=1;"                            # 해시가 바뀐다
+curl -s -X POST http://localhost:8080/auth/logout -H "Authorization: Bearer $AT"              # 200
+curl -s -X POST http://localhost:8080/auth/refresh -H "Cookie: refresh_token=$RT"             # 401
+MYSQL "SELECT state FROM users WHERE id=1;"                                                   # ACTIVE 유지
+
+# 7. 게시글 시드 후 탈퇴
+MYSQL "INSERT INTO post (user_id,type,category,title,description,created_at,updated_at)
+       VALUES (1,'GENERAL','ETC','탈퇴 후 보존 확인용 글','R-20 검증용 게시글',NOW(),NOW());"
+AT2=$(mint "$SECRET" 1 access)
+curl -s -X DELETE http://localhost:8080/auth/me -H "Authorization: Bearer $AT2"                # 200
+curl -s http://localhost:8080/auth/me -H "Authorization: Bearer $AT2"                          # 401
+curl -s http://localhost:8080/posts                                                            # 200, 글 보존
+MYSQL "SELECT id,nickname,active_nickname,state FROM users;"                                   # INACTIVE, active_nickname NULL
+MYSQL "INSERT INTO users (provider,provider_id,email,name,role,state,created_at,updated_at,nickname)
+       VALUES ('APPLE','e2e-sub-002','e2e2@example.com','E2E User2','ROLE_USER','ACTIVE',NOW(),NOW(),'테스터');"  # 성공
+
+# 8. D-1 재현 — 탈퇴한 회원이 댓글을 쓴다
+curl -s -w '\n%{http_code}\n' -X POST http://localhost:8080/posts/1/comments \
+  -H "Authorization: Bearer $AT2" -H 'Content-Type: application/json' \
+  -d '{"content":"withdrawn user comment"}'                                                    # 201 CREATED
+
+# 9. 정리
+MYSQL "DELETE FROM comment_pick; DELETE FROM comment; DELETE FROM post_commenter;
+       DELETE FROM post; DELETE FROM user_refresh_token; DELETE FROM users;"
+```
+
+## 재현 방법 — 2차 검증 (실제 가입 + D-1 전체)
+
+제품 코드를 고치지 않는다. 프로바이더 URI 를 **환경변수로만** 로컬 스텁에 돌린다.
+
+```bash
+# 1. 스텁 프로바이더 (Kakao 응답 모양만 흉내낸다)
+cat > /tmp/stub_idp.py <<'PY'
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse
+class H(BaseHTTPRequestHandler):
+    def _s(self, c, b):
+        r = json.dumps(b).encode()
+        self.send_response(c); self.send_header("Content-Type","application/json")
+        self.send_header("Content-Length", str(len(r))); self.end_headers(); self.wfile.write(r)
+    def do_POST(self):
+        if urlparse(self.path).path == "/oauth/token":
+            self._s(200, {"access_token":"stub-access-token","token_type":"bearer","expires_in":3600})
+        else: self._s(404, {"error":"not_found"})
+    def do_GET(self):
+        if urlparse(self.path).path == "/v2/user/me":
+            self._s(200, {"id":"stub-kakao-9001",
+                          "kakao_account":{"email":"stub@example.com","profile":{"nickname":"스텁유저"}}})
+        else: self._s(404, {"error":"not_found"})
+    def log_message(self,*a): pass
+HTTPServer(("127.0.0.1",9500), H).serve_forever()
+PY
+python3 /tmp/stub_idp.py &
+
+# 2. 서버를 스텁으로 향하게 기동 (IntelliJ 실행 구성의 env override 또는 아래 값을 export)
+#    OAUTH_KAKAO_CLIENT_ID=stub-client-id
+#    OAUTH_KAKAO_CLIENT_SECRET=stub-client-secret
+#    SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KAKAO_AUTHORIZATIONURI=http://127.0.0.1:9500/oauth/authorize
+#    SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KAKAO_TOKENURI=http://127.0.0.1:9500/oauth/token
+#    SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KAKAO_USERINFOURI=http://127.0.0.1:9500/v2/user/me
+until curl -sf -o /dev/null http://localhost:8080/posts; do sleep 2; done
+
+# 3. 실제 가입 — state 와 authorization-request 쿠키를 이어받아야 한다
+LOC=$(curl -s -o /dev/null -c /tmp/jar -D- http://localhost:8080/oauth2/authorization/kakao \
+      | sed -n 's/^[Ll]ocation: //p' | tr -d '\r')
+STATE=$(echo "$LOC" | sed -n 's/.*[?&]state=\([^&]*\).*/\1/p')
+curl -s -o /dev/null -b /tmp/jar -D /tmp/cb.txt \
+  "http://localhost:8080/login/oauth2/code/kakao?code=stub-auth-code&state=$STATE"
+
+AT=$(sed -n 's/.*accessToken=\([^&[:space:]]*\).*/\1/p' /tmp/cb.txt | tr -d '\r')
+curl -s http://localhost:8080/auth/me -H "Authorization: Bearer $AT"          # 200, provider=KAKAO
+curl -s -X POST http://localhost:8080/users/profile -H "Authorization: Bearer $AT" \
+     -H 'Content-Type: application/json' -d '{"nickname":"스텁"}'             # 201
+
+MYSQL() { docker exec pickple-mysql mysql --default-character-set=utf8mb4 -upickple -pchange-me-app pickple -e "$1"; }
+
+# 4. D-1 을 판정하려면 대조군이 필요하다 — 정상 요청이 성립하는 글을 만든다
+MYSQL "INSERT INTO post (user_id,type,category,title,description,created_at,updated_at)
+       VALUES (3,'AGREE','ETC','D-1 검증용 찬반글','선택지 있는 글',NOW(),NOW());
+       SET @p := LAST_INSERT_ID();
+       INSERT INTO post_option (post_id,label,display_order,created_at)
+       VALUES (@p,'사자',1,NOW()),(@p,'말자',2,NOW());"
+
+# 대조군: 아직 ACTIVE 일 때 — 투표 200, 댓글 201 이어야 한다
+curl -s -X POST http://localhost:8080/posts/2/votes    -H "Authorization: Bearer $AT" -H 'Content-Type: application/json' -d '{"optionId":1}'
+curl -s -X POST http://localhost:8080/posts/2/comments -H "Authorization: Bearer $AT" -H 'Content-Type: application/json' -d '{"content":"active"}'
+
+# 5. 탈퇴 후 같은 요청을 반복한다
+curl -s -X DELETE http://localhost:8080/auth/me -H "Authorization: Bearer $AT"   # 200
+curl -s http://localhost:8080/auth/me           -H "Authorization: Bearer $AT"   # 401  ← 막힘
+curl -s -X POST http://localhost:8080/posts/2/votes    -H "Authorization: Bearer $AT" -H 'Content-Type: application/json' -d '{"optionId":2}'   # 200 뚫림
+curl -s -X POST http://localhost:8080/posts/2/comments -H "Authorization: Bearer $AT" -H 'Content-Type: application/json' -d '{"content":"withdrawn"}'  # 201 뚫림
+
+# 원픽은 R-07(자기 댓글 금지)에 걸리므로 타인 댓글이어야 판정된다
+MYSQL "INSERT INTO comment (post_id,user_id,content,created_at,updated_at) VALUES (2,2,'다른 사람 댓글',NOW(),NOW());"
+CID=$(MYSQL "SELECT id FROM comment WHERE user_id=2 LIMIT 1;" | tail -1)
+curl -s -X POST "http://localhost:8080/comments/$CID/pick" -H "Authorization: Bearer $AT" -H 'Content-Type: application/json' -d '{}'  # 201 뚫림
+
+# 6. 피해 확인 — 탈퇴 계정에 포인트가 적립된다
+MYSQL "SELECT ph.user_id, ph.reason, ph.amount, u.state FROM point_history ph JOIN users u ON u.id=ph.user_id;"
+
+# 7. 정리
+MYSQL "DELETE FROM point_history; DELETE FROM comment_pick; DELETE FROM vote; DELETE FROM comment;
+       DELETE FROM post_commenter; DELETE FROM post_option; DELETE FROM post;
+       DELETE FROM user_refresh_token; DELETE FROM users; UPDATE users SET point=0, vote_count=0;"
+kill %1   # 스텁 종료
+```
