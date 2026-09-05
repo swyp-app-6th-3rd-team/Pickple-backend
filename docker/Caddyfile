@@ -26,6 +26,18 @@
 (routes) {
 	encode gzip
 
+	# 일반 요청은 2MiB로 제한하되 기존 이미지 업로드의 16MiB 상한은 유지한다.
+	@imageUpload path /images
+	@standardBody not path /images
+
+	request_body @imageUpload {
+		max_size 16MiB
+	}
+
+	request_body @standardBody {
+		max_size 2MiB
+	}
+
 	handle /actuator/health {
 		reverse_proxy app:9090
 	}

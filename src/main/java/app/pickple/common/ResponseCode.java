@@ -35,7 +35,17 @@ public enum ResponseCode {
             HttpStatus.SERVICE_UNAVAILABLE, "Apple 계정 연결 해제를 완료할 수 없습니다. 잠시 후 다시 시도해 주세요."),
 
     // 서버
-    SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "일시적인 오류가 발생했습니다.");
+    SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "일시적인 오류가 발생했습니다."),
+
+    /**
+     * 계정 상태를 확인하지 못했다 — 인증 실패가 아니다.
+     *
+     * <p>인가 관문의 상태 조회가 DB 장애·풀 타임아웃으로 실패했을 때 쓴다.
+     * 이걸 401 로 내보내면 DB 가 죽은 순간 전 클라이언트가 재로그인으로 몰리고,
+     * 장애가 "토큰이 유효하지 않다" 로 위장돼 모니터링에서 감춰진다 (ADR-0035 결정 3).
+     */
+    ACCOUNT_STATE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE, "일시적으로 요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

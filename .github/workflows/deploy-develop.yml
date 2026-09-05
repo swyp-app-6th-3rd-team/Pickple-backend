@@ -119,6 +119,7 @@ jobs:
               \"aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}\",
               \"docker compose -f docker-compose-ec2.yml pull\",
               \"docker compose -f docker-compose-ec2.yml up -d --remove-orphans\",
+              \"docker compose -f docker-compose-ec2.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile\",
               \"docker image prune -f\"
             ]" \
             --query 'Command.CommandId' --output text)"

@@ -86,7 +86,7 @@ app/pickple/
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple token 누락 시 수동 해제 코드 반환 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple은 로컬 탈퇴 완료 시 identity를 분리하고, token 누락 시 수동 해제 코드 반환 |
 | GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
 | GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
 | POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
@@ -228,7 +228,8 @@ app/pickple/
   투표 직후 화면이 다시 조회하지 않고 게이지로 전환할 수 있다(기능명세 §2.2).
   따로 조회하게 만들면 그 사이 들어온 다른 표까지 섞여 내 표의 결과가 아닌 값을 보여준다.
 - **게스트의 최대 3회 선택은 클라이언트 로컬에서만 처리하고 서버에는 기록하지 않는다(R-11).**
-  따라서 서버 투표 API는 별도 매처 없이 `anyRequest().authenticated()` 로 401 이다.
+  따라서 서버 투표 API는 별도 매처 없이 `anyRequest()` 의 인가 관문으로 401 이다.
+  그 관문은 인증 여부에 더해 **계정이 활성인지**까지 본다 — 탈퇴자도 여기서 401 이다(ADR-0035).
 - **한 게시글에 한 사람은 한 표다(R-09).** 인원은 선택지가 아니라 게시글 단위로 센다.
   이미 투표한 사람이 다시 보내면 새 행을 만들지 않고 선택지만 바꾼다 —
   `UNIQUE(post_id, user_id)` 가 막기도 하지만 의미상 "다시 투표"가 아니라 "선택 변경"이다.
@@ -440,8 +441,10 @@ app/pickple/
 ### 4.1 인증 3개
 
 ```sql
-users(id, provider, provider_id, email, name, role, state, created_at, updated_at,
-      UNIQUE KEY uk_users_provider (provider, provider_id))
+users(id, provider, provider_id NULL, email, name, role, state, created_at, updated_at,
+      UNIQUE KEY uk_users_provider (provider, provider_id),
+      CONSTRAINT ck_users_active_provider_id
+        CHECK (state <> 'ACTIVE' OR provider_id IS NOT NULL))
 
 user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
       UNIQUE KEY uk_refresh_user (user_id),
@@ -452,6 +455,11 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
       encryption_iv, encryption_key_id, created_at, updated_at,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
 ```
+
+도메인에서 `provider_id = NULL`은 **Apple 비활성 회원**에만 허용한다. DB의
+`ck_users_active_provider_id`는 활성 회원의 누락만 막는 최소 보장이며, Apple 이외 provider까지
+구분하는 더 좁은 규칙은 애플리케이션이 지킨다. MySQL unique key는 여러 `NULL`을 허용하므로
+identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성을 막지 않는다.
 
 ### 4.2 마이그레이션
 
@@ -466,7 +474,8 @@ apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token
 | `V9__badge.sql` | `db/migration` | 항상 |
 | `V10__users_ranking_order_index.sql` | `db/migration` | 항상 |
 | `V11__activity_list_indexes.sql` | `db/migration` | 항상 |
-| `V12__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
+| `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
+| `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -532,25 +541,44 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 ### 5.4 인증
 
-- 액세스 토큰은 클레임만으로 인가 판단. **요청마다 DB 를 조회하지 않는다**
+- 액세스 토큰은 클레임만으로 **신원**을 세운다(무상태 파싱). 다만 **계정이 살아 있는지는
+  요청마다 확인한다** — 신원이 붙은 요청에 한해 `users.id = ? AND state = 'ACTIVE'` 존재 확인
+  1회다(ADR-0035). 게스트·정적 경로는 조회가 0회다.
+  ADR-0006 의 "요청마다 DB 를 조회하지 않는다" 를 이 항목이 대체한다 —
+  뒤집은 근거는 성능이 아니라 탈퇴자가 댓글·투표·원픽을 만들 수 있던 데이터 오염 증거다
+- **비활성 계정은 어디서든 익명으로 강등된다.** 그 하나의 규칙이 경로에 따라 두 결과를 낸다:
+  보호 경로는 401, `permitAll` 경로는 200 이되 개인화가 사라진다(`mine=false`).
+  탈퇴자가 게스트보다 권한이 많은 상태가 이로써 닫힌다
+- **계정 상태를 확인하지 못하면 401 이 아니라 503** `ACCOUNT_STATE_UNAVAILABLE` 이다.
+  DB 장애를 인증 실패로 내보내면 전 클라이언트 재로그인 폭주를 부르고 장애가 모니터링에서 감춰진다
+- 관문은 **진입 장벽이지 트랜잭션 불변식이 아니다.** `open-in-view: false` 라 인가 시점 조회는
+  서비스 트랜잭션 밖에서 끝나므로 탈퇴 커밋과 쓰기가 겹치는 창은 남는다(ADR-0035 수용 한계).
+  또 이 시큐리티 체인을 지나는 HTTP 요청만 보호하므로 서비스별 `isActive()` 확인을 일괄 제거하지 않는다.
+  `/auth/refresh` 는 `permitAll` 이고 액세스 토큰 없이도 불리므로 자체 확인을 유지한다
 - 리프레시 토큰은 SHA-256 해시로 저장. 사용자당 한 행, 제출 해시를 조건으로 CAS 회전
 - 동시 회전의 패자나 옛 토큰은 401로 거부하되 현재 저장된 승자 token은 삭제하지 않는다
 - `typ` 클레임으로 액세스/리프레시를 구분해 혼용을 막는다
 - 리다이렉트 URI 는 호스트 화이트리스트 검증 (오픈 리다이렉트 방지)
-- Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
+- 활성 Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
 - Apple client secret은 `.p8`로 ES256 서명하고, Apple ID token은 JWKS의 RS256 서명을 검증한다
 - Apple provider refresh token은 별도 AES-256-GCM keyring으로 암호화해 저장한다. 랜덤 12-byte IV와
   사용자 ID·키 ID를 묶은 AAD를 사용하며 DB에는 평문을 저장하지 않는다
 - Apple code 교환 뒤 ID token 불일치나 로컬 로그인 완료가 실패하면, 새로 발급된 provider refresh token을
   보상 revoke해 로컬에서 소유하지 않는 Apple 세션이 남지 않게 한다
 - Apple 회원 탈퇴는 provider refresh token으로 `/auth/revoke`에 성공한 뒤 로컬 계정을 비활성화하고
-  서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다. Apple 일시 장애 시 503으로 재시도한다.
-  token이 없는 기존 계정은 로컬 탈퇴 후 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+  `provider_id`를 분리하며 서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다.
+  Apple 일시 장애 시 503으로 재시도하고 로컬 상태를 바꾸지 않는다. token이 없는 기존 계정은
+  로컬 탈퇴와 identity 분리를 완료한 뒤 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
+- 탈퇴 뒤 같은 Apple `sub`로 로그인하면 과거 비활성 행을 되살리지 않고 새 `userId`를 만든다.
+  과거 행과 콘텐츠는 보존하지만 프로필·포인트·뱃지·투표·댓글 등 이력은 새 회원에게 승계하지 않는다
+- V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다. 다른 provider의 재가입과
+  개인정보 익명화·삭제, 재가입 초기화 악용 정책은 이 변경 범위가 아니며 Issue #45에 남긴다
 - 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
 - 회원 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 같은 트랜잭션에서 기록한다
 - authorization code·identity token·`.p8`·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
-  [ADR-0016](adr/0016-refresh-token-rotation-cas.md)
+  [ADR-0016](adr/0016-refresh-token-rotation-cas.md),
+  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md)
 - 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md)
 
 ### 5.5 로깅
@@ -594,7 +622,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 ## 6. 아키텍처 규칙
 
-`ArchitectureTest` 22개(전부 활성). 규칙을 추가할 때는 **일부러 위반하는
+`ArchitectureTest` 24개(전부 활성). 규칙을 추가할 때는 **일부러 위반하는
 코드를 넣어 해당 규칙만 실패하는지 확인한 뒤** 커밋한다 — 통과만으로는 그 규칙이 무언가를
 지킨다는 증거가 되지 않는다([ADR-0008](adr/0008-domain-entity-separation.md)).
 
@@ -602,11 +630,17 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 |---|---|---|
 | 테스트 네이밍 | 1 | 통합 테스트 클래스 이름은 `IT` 로 끝난다 |
 | 도메인 순수성 | 6 | JPA·검증·Lombok·infra·web·부동소수점 의존 금지 |
-| 계층 경계 | 9 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / 기능별 config 패키지 금지 / infra→service 금지 |
+| 계층 경계 | 9 | Store 인터페이스는 domain / 구현은 infra / Entity 는 infra / 서비스·컨트롤러가 리포지토리 직접 의존 금지 / infra→service 금지 / 컨트롤러가 Entity 노출 금지 / 설정 클래스는 루트 config |
 | API 응답 계약 | 2 | 컨트롤러가 `Page`·`Window` 를 그대로 반환 금지 |
-| API 문서 계약 | 1 | 인증 필요 핸들러는 `@SecurityRequirement` 선언 |
+| API 문서 | 1 | permitAll 이 아닌 핸들러는 `@SecurityRequirement` 를 갖는다([ADR-0034](adr/0034-security-requirement-on-authenticated-endpoints.md)) |
 | 컨트롤러 매핑 | 2 | 핸들러 매핑 경로 비어있음 금지 / 클래스 레벨 `@RequestMapping` 금지([ADR-0033](adr/0033-drop-api-prefix-implemented.md) 적용과 함께 활성) |
+| 탈퇴 회원 차단 관문 | 2 | `SecurityConfig` 가 관문과 두 필터를 배선한다 / 상태 조회가 저장소 인터페이스를 지난다([ADR-0035](adr/0035-withdrawn-user-central-authorization.md)) |
 | DI | 1 | `@Autowired` 필드 주입 금지 |
+
+> **이 표는 합계가 규칙 수와 맞아야 한다.** 어긋나면 규칙을 추가하고 문서를 안 고친 것이다.
+> 실제로 그랬다 — `API 문서` 그룹이 통째로 빠지고 계층 경계가 8 로 적혀 있어,
+> 본문은 21 인데 표 합계는 20 이고 실제는 22 였다(#106 의 2개를 더해 지금 24).
+> 세는 방법: `ArchitectureTest` 의 `@Nested` 그룹별 `@Test` 개수.
 
 ---
 
@@ -624,6 +658,8 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |
+| 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
 | 2026-09-04 | 이미지 컨테이너 재사용을 입력 오류가 아닌 상태 충돌(409)로 통일 | Issue #17 리뷰. 사전 검사와 DB 경합이 같은 API 계약을 가져야 함 |
 | 2026-09-04 | 최신 게스트 정책에 맞춰 댓글 목록 조회를 인증 필수로 변경 | 게스트는 게시글 탐색은 가능하지만 댓글 열람은 제한 |
 | 2026-09-04 | `GET /posts/popular` 추가. 목록 조회 경로를 재사용하고 커서 봉투만 벗긴다 | Issue #29. 홈 화면이 커서 없는 고정 10건을 요구. 전용 쿼리를 새로 만들면 `idx_post_popular_all` 검증이 두 벌이 된다 |

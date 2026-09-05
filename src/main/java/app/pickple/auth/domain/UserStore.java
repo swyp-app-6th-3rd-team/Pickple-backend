@@ -8,6 +8,22 @@ public interface UserStore {
 
     Optional<User> findById(Long id);
 
+    /**
+     * 이 식별자의 회원이 <b>지금 활성인지</b>.
+     *
+     * <p>인가 관문이 요청마다 부른다. {@code findById} 로 {@code User} 를 통째 로딩하지
+     * 않는 이유는 관문이 필요로 하는 사실이 "살아 있는가" 하나뿐이기 때문이다 —
+     * 엔티티 로딩은 컬럼 전체를 읽고 영속성 컨텍스트에 올리므로 요청마다 도는 조회로는 비싸다.
+     *
+     * <p>반환값은 <b>사실</b>이다 — "활성이다 / 아니다". 그것이 401 인지 403 인지는
+     * 위층이 해석한다 (ADR-0019).
+     *
+     * <p>조회 자체가 실패하면(DB 장애·풀 타임아웃) 이 메서드는 <b>false 를 돌려주지 않고
+     * 예외를 전파한다.</b> 장애를 "비활성" 으로 바꾸면 DB 가 죽었을 때 전 사용자가
+     * 탈퇴자로 취급된다 (ADR-0035 결정 3).
+     */
+    boolean existsActiveById(Long id);
+
     /** 소셜 신원으로 조회. 조회 키는 반드시 (provider, providerId) 쌍이다. */
     Optional<User> findByProviderAndProviderId(SocialProvider provider, String providerId);
 

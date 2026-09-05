@@ -61,6 +61,52 @@ jobs:
           fi
           echo "classpath 중복 없음"
 
+  # ERD 정합 검사.
+  #
+  # Flyway 가 만든 실제 스키마와 docs/erd/erd.mmd 를 대조한다. 엔티티가 아니라 스키마를
+  # 기준으로 삼는 이유는 ddl-auto: validate 의 검사 방향이 한쪽뿐이기 때문이다 —
+  # 엔티티가 선언한 컬럼이 DB 에 있는지는 보지만, DB 에만 있는 컬럼은 보지 않는다.
+  # 실제로 users.ranking·point·highest_grade 등 9개가 그 사각지대에서 ERD 와 어긋나 있었다.
+  erd-drift:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root
+          MYSQL_DATABASE: pickple
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -pci-root"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply migrations
+        # Flyway Gradle 플러그인을 쓰지 않는다 — 스키마만 세우면 되는데 플러그인을 더하면
+        # 빌드에 의존성이 하나 늘고, 버전 정합을 따로 관리해야 한다.
+        #
+        # 다만 순서는 Flyway 와 같아야 한다. 셸 `sort` 로는 안 되므로(V1.10 을 V1.2 앞에
+        # 놓거나, V1.2 를 V1 앞에 놓는다) 정렬을 scripts/list-migrations.sh 에 두고
+        # CI 와 로컬이 같은 코드를 쓴다. 그 스크립트는 R__·U__ 를 발견하면 실패한다.
+        run: |
+          while IFS= read -r f; do
+            echo "applying $f"
+            mysql -h 127.0.0.1 -P 3306 -uroot -pci-root pickple < "$f"
+          done < <(scripts/list-migrations.sh)
+
+      - name: Check ERD drift
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_DATABASE: pickple
+          MYSQL_USER: root
+          MYSQL_PASSWORD: ci-root
+        run: scripts/check-erd-drift.sh
+
   # 비밀 스키마 정합 검사(ADR-0026).
   #
   # .env 도 AWS 자격 증명도 쓰지 않는다 — 커밋된 .env.example·compose·템플릿만 대조한다.

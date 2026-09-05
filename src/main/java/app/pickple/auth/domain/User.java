@@ -11,7 +11,7 @@ public class User {
 
     private final Long id;
     private final SocialProvider provider;
-    private final String providerId;
+    private String providerId;
     private String email;
     private String name;
     private final Role role;
@@ -35,7 +35,12 @@ public class User {
         if (provider == null) {
             throw new IllegalArgumentException("provider 는 필수입니다.");
         }
-        if (providerId == null || providerId.isBlank()) {
+        State resolvedState = state == null ? State.ACTIVE : state;
+        if (providerId == null) {
+            if (provider != SocialProvider.APPLE || resolvedState != State.INACTIVE) {
+                throw new IllegalArgumentException("providerId 는 필수입니다.");
+            }
+        } else if (providerId.isBlank()) {
             throw new IllegalArgumentException("providerId 는 필수입니다.");
         }
         this.id = id;
@@ -44,7 +49,7 @@ public class User {
         this.email = email;
         this.name = name;
         this.role = role == null ? Role.ROLE_USER : role;
-        this.state = state == null ? State.ACTIVE : state;
+        this.state = resolvedState;
         this.nickname = nickname;
         this.profileImageUrl = profileImageUrl;
     }
@@ -95,12 +100,17 @@ public class User {
      * <p>닉네임 값은 지우지 않는다. 스키마의 {@code active_nickname} 생성 컬럼이
      * {@code state = 'ACTIVE'} 일 때만 값을 갖도록 정의돼 있어, 여기서 상태만 바꾸면
      * 유니크 인덱스에서 빠지며 닉네임이 반납된다 (R-21).
+     * Apple 사용자는 연결 해제된 소셜 식별자도 함께 놓아, 같은 Apple 계정의 다음
+     * 로그인이 기존 탈퇴 행이 아니라 신규 가입 흐름으로 들어가게 한다.
      */
     public void withdraw() {
         if (state == State.INACTIVE) {
             throw new IllegalStateException("이미 탈퇴한 사용자입니다: userId=" + id);
         }
         this.state = State.INACTIVE;
+        if (provider == SocialProvider.APPLE) {
+            this.providerId = null;
+        }
     }
 
     public boolean isActive() {

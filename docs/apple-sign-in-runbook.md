@@ -96,7 +96,7 @@ Terraform은 `secret_string`을 `ignore_changes`하므로 `terraform apply`만�
 4. 다음 HTTPS 요청을 보낸다. `name`은 Apple이 최초 동의 때 준 경우만 보낸다.
 
 ```http
-POST /api/auth/apple
+POST /auth/apple
 Content-Type: application/json
 
 {
@@ -120,7 +120,7 @@ Content-Type: application/json
 ```
 
 액세스 토큰은 `Authorization: Bearer ...`로 사용한다. 만료 시 Keychain의 refresh token으로
-`POST /api/auth/mobile/refresh`를 호출하고, 응답의 access/refresh token **둘 다** 새 값으로 교체한다.
+`POST /auth/mobile/refresh`를 호출하고, 응답의 access/refresh token **둘 다** 새 값으로 교체한다.
 이전 refresh token은 회전 즉시 무효다. 서버는 제출된 해시를 조건으로 CAS 회전하므로 동시 요청 중
 하나만 성공한다. 늦은 요청은 401이지만 먼저 성공한 응답의 새 refresh token은 삭제되지 않는다.
 
@@ -133,10 +133,12 @@ Content-Type: application/json
 - 교환 응답의 ID token도 동일하게 검증
 - 두 ID token의 `sub` 일치 확인
 - code 교환 뒤 신원 불일치나 로컬 저장 실패 시 새 provider refresh token 보상 revoke
-- 이메일이 아닌 `(APPLE, sub)`로 사용자 조회·생성
+- 이메일이 아닌 `(APPLE, sub)`로 활성 사용자 조회·생성
 - 우리 서비스 access/refresh JWT 발급 및 refresh 원문 대신 해시 저장
 - Apple provider refresh token을 AES-256-GCM으로 암호화 저장
 - 회원 탈퇴 시 저장 token으로 Apple `/auth/revoke` 호출
+- 로컬 Apple 탈퇴 완료 시 과거 행을 `INACTIVE`로 보존하고 `provider_id`를 분리
+- 분리 뒤 같은 `sub`의 로그인은 과거 행을 되살리지 않고 새 `userId`로 생성하며 이력을 승계하지 않음
 
 Apple authorization code는 한 번만 쓸 수 있고 약 5분 동안 유효하다. 이 구현의 client secret은
 요청 시 생성하며 10분 동안 유효하다. 5분 제한과 client secret 수명을 혼동하지 않는다.
@@ -158,6 +160,8 @@ authorization code의 일회성 교환으로 막지만, 탈취자가 정상 앱�
 - `(APPLE, sub)` 가입/로그인, 자체 JWT 발급, 모바일 refresh 회전 확인
 - 동시 refresh 중 하나만 CAS 회전에 성공하고, 늦은 요청이 현재 token을 삭제하지 않는지 확인
 - provider token 누락 사용자의 로컬 탈퇴 완료와 수동 Apple 연결 해제 응답 확인
+- MySQL에서 V12가 기존 `APPLE + INACTIVE` 행만 `provider_id = NULL`로 백필하는지 확인
+- Apple 탈퇴 뒤 과거 행·콘텐츠는 보존되고, 같은 `sub` 로그인은 다른 `userId`를 만들며 이력을 승계하지 않는지 확인
 
 키 수령 뒤 반드시 할 종단간 테스트:
 
@@ -170,7 +174,8 @@ authorization code의 일회성 교환으로 막지만, 탈취자가 정상 앱�
 7. access token으로 보호 API 호출
 8. mobile refresh 회전 후 옛 refresh token 거부
 9. TestFlight 또는 실기기 배포 빌드에서 다시 확인
-10. `DELETE /api/auth/me`가 Apple 연결을 revoke하고 재로그인을 거부하는지 확인
+10. `DELETE /auth/me`가 Apple 연결을 revoke하고, 새 credential로 `/auth/apple` 재로그인하면
+    과거와 다른 `userId`의 신규 회원 흐름으로 성공하는지 확인
 11. provider token이 없는 기존 계정은 `APPLE_MANUAL_REVOCATION_REQUIRED`를 받고 iOS가 수동 해제를 안내하는지 확인
 
 iPhone 없이도 백엔드 구현 대부분은 검증 가능하지만, Apple credential 발급부터 서버 교환까지의
@@ -218,8 +223,11 @@ metrics 수집기와 암호화 compensation outbox/재시도 worker를 도입하
 
 - `user_refresh_token`은 사용자당 한 행이라 새 로그인은 기존 웹/다른 기기의 refresh token을 무효화한다.
   다중 기기 동시 로그인이 필요하면 세션/token-family 스키마가 필요하다.
-- 현재 회원 탈퇴는 계정을 `INACTIVE`로 만드는 소프트 탈퇴다. 이메일·이름 등 개인정보의 익명화/삭제,
-  게시물 보존, 재가입 허용 정책은 출시 전에 제품·법무 기준으로 확정해야 한다.
+- 현재 회원 탈퇴는 계정을 `INACTIVE`로 만드는 소프트 탈퇴다. Apple은 로컬 탈퇴 완료 시
+  `provider_id`를 분리하고, 같은 `sub`의 다음 로그인은 과거와 다른 `userId`의 신규 회원으로 처리한다.
+  과거 행과 콘텐츠는 보존하되 프로필·포인트·뱃지·활동 이력은 새 회원에게 승계하지 않는다(ADR-0037).
+- Apple 이외 provider의 재가입, 이메일·이름·닉네임·프로필 이미지의 익명화/삭제,
+  반복 재가입을 통한 초기화 악용과 대기 기간은 이번 결정 범위가 아니며 Issue #45에서 확정해야 한다.
 - 활성 여부의 정본은 `users.state`다. 향후 `deleted_at`은 탈퇴 시각 감사값으로 추가하고 탈퇴 트랜잭션에서
   `state=INACTIVE`와 함께 기록한다. 활성 닉네임 유일성은 `state=ACTIVE`를 기준으로 계산한다.
 - Apple 장애 시 동기 revoke가 실패하면 503으로 탈퇴를 완료하지 않는다. 장애와 무관하게 즉시 로컬 탈퇴를
