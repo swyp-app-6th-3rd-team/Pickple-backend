@@ -1,51 +1,138 @@
 #!/usr/bin/env bash
-# docs/erd/erd.mmd 를 PNG 로 렌더한다.
+# docs/erd/*.mmd 를 SVG 로 렌더한다.
 #
-# 결과물은 두 곳이다:
-#   docs/erd/erd.png                        리뷰용(diff 에서 보인다)
-#   src/main/resources/static/docs/erd.png  서빙용(/docs/erd.png 로 나간다)
+# 결과물:
+#   docs/erd/erd.svg                         물리 ERD, 리뷰용(diff 에서 보인다)
+#   docs/erd/erd-logical.svg                 논리 ERD, 리뷰용
+#   src/main/resources/static/docs/erd.svg   서빙용(/docs/erd.svg 로 나간다 — Scalar 가 싣는 그림)
+#
+# PNG 가 아니라 SVG 인 이유: PNG 는 래스터라 확대하면 뭉갠다. 실측으로 서빙 PNG 는
+# 1904x1058 이었는데 Mermaid 원본 레이아웃은 4600x2557 이다 — 41% 로 축소해 구운 셈이다.
 #
 # mermaid-cli(mmdc) 대신 mermaid.ink 를 쓴다 — mmdc 는 로컬 Chromium 을 요구한다.
-# User-Agent 를 반드시 보낸다. 없으면 403 이다.
+#
+# mermaid.ink 함정 넷. 전부 실제로 밟아봤다:
+#   1. User-Agent 를 안 보내면 403 이다.
+#   2. bgColor 파라미터를 붙이면 400 이다(값 형식과 무관하게). 배경은 themeVariables 로 정한다.
+#   3. 빈 `%%` 줄도 400 을 만든다 — 주석은 반드시 내용을 갖는다.
+#   4. 기본 SVG 는 텍스트를 <foreignObject> 로 낸다(<text> 0개). <img> 로 임베드된 SVG 는
+#      이미지 모드라 foreignObject 를 렌더하지 않아 글자가 전부 사라진다.
+#      최상위 htmlLabels:false 를 줘야 <text> 로 바뀐다. er.htmlLabels 는 먹지 않는다.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-SRC="docs/erd/erd.mmd"
-OUT_DOCS="docs/erd/erd.png"
-OUT_STATIC="src/main/resources/static/docs/erd.png"
+OUT_STATIC_DIR="src/main/resources/static/docs"
+mkdir -p "$OUT_STATIC_DIR"
 
-[ -f "$SRC" ] || { echo "없다: $SRC" >&2; exit 1; }
+python3 - <<'PY'
+import base64, json, pathlib, re, sys, urllib.request, zlib
 
-mkdir -p "$(dirname "$OUT_STATIC")"
+# 테마 중립 팔레트.
+#
+# Scalar 는 다크·라이트 토글을 갖는데, <img> 로 들어간 SVG 는 그 토글 상태를 알 수 없다.
+# (prefers-color-scheme 은 문서가 아니라 OS 설정을 따르므로 Scalar 토글과 어긋난다.)
+# 그래서 테마를 따라가려 하지 않고, 자기 배경을 가진 밝은 카드로 굳힌다 —
+# 어느 배경 위에 놓여도 대비가 보장되는 유일한 방법이다.
+#
+# 색은 넷을 넘기지 않는다. 애그리거트 경계를 나타내고, 그 이상은 의미를 잃는다.
+SURFACE = "#f7f8fa"   # 도면 배경 — 순백 대신 옅은 회색이라 다크 모드에서 덜 눈부시다
+INK     = "#1f2933"   # 글자·테두리
+ACCENT  = "#2f6f9f"   # 엔티티 머리글 (차분한 청색)
+MUTED   = "#e4e8ee"   # 속성 행 배경
 
-python3 - "$SRC" "$OUT_DOCS" <<'PY'
-import base64, json, sys, urllib.request, zlib
+THEME_VARIABLES = {
+    "background":        SURFACE,
+    "primaryColor":      MUTED,
+    "primaryTextColor":  INK,
+    "primaryBorderColor": ACCENT,
+    "lineColor":         INK,
+    "textColor":         INK,
+    "fontFamily": "Pretendard, Apple SD Gothic Neo, Noto Sans KR, sans-serif",
+    "fontSize": "16px",
+    # er 다이어그램 전용 — 머리글은 진하게, 속성 행은 옅게 번갈아 둔다.
+    "attributeBackgroundColorOdd":  SURFACE,
+    "attributeBackgroundColorEven": MUTED,
+}
 
-src, out = sys.argv[1], sys.argv[2]
-code = open(src, encoding="utf-8").read()
+TARGETS = [
+    ("docs/erd/erd.mmd",         "docs/erd/erd.svg",         None),
+    ("docs/erd/erd-logical.mmd", "docs/erd/erd-logical.svg", "src/main/resources/static/docs/erd.svg"),
+]
 
-payload = json.dumps({
-    "code": code,
-    "mermaid": {"theme": "dark"},
-}).encode()
+def render(src: str, out: str, serve: str | None) -> None:
+    code = pathlib.Path(src).read_text(encoding="utf-8")
+    payload = json.dumps({
+        "code": code,
+        "mermaid": {
+            "theme": "base",
+            "themeVariables": THEME_VARIABLES,
+            # 이걸 빼면 <img> 에서 글자가 통째로 사라진다. 위 주석 4번.
+            "htmlLabels": False,
+        },
+    }).encode()
+    pako = base64.urlsafe_b64encode(zlib.compress(payload, 9)).decode()
+    url = f"https://mermaid.ink/svg/pako:{pako}"
 
-pako = base64.urlsafe_b64encode(zlib.compress(payload, 9)).decode()
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (pickple-erd-render)"})
+    svg = urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
 
-# bgColor 를 붙이면 400 이다(값 형식과 무관하게). 배경은 theme 가 정한다.
-# 빈 `%%` 줄도 400 을 만든다 — 주석은 반드시 내용을 갖는다.
-url = f"https://mermaid.ink/img/pako:{pako}?type=png"
+    if "<svg" not in svg:
+        sys.exit(f"SVG 가 아니다: {svg[:200]!r}")
 
-# mermaid.ink 는 UA 없는 요청을 403 으로 막는다.
-req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (pickple-erd-render)"})
-data = urllib.request.urlopen(req, timeout=60).read()
+    # 렌더 결과가 진짜 벡터 텍스트인지 확인한다. foreignObject 로 돌아가면
+    # <img> 에서 글자가 사라지므로, 통과가 아니라 실패로 알린다.
+    if "<foreignObject" in svg or "<text" not in svg:
+        sys.exit(f"{src}: 텍스트가 <text> 가 아니다. htmlLabels 설정을 확인한다.")
 
-if not data.startswith(b"\x89PNG"):
-    sys.exit(f"PNG 가 아니다. 앞 80바이트: {data[:80]!r}")
+    # width="100%" 는 컨테이너에 따라 찌그러진다. viewBox 비율을 그대로 쓰도록 고정 폭을 준다.
+    m = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)
+    if not m:
+        sys.exit(f"{src}: viewBox 를 찾지 못했다.")
+    w, h = float(m.group(1)), float(m.group(2))
+    svg = svg.replace('width="100%"', f'width="{w:.0f}" height="{h:.0f}"', 1)
 
-open(out, "wb").write(data)
-print(f"{out}  {len(data):,} bytes")
+    # 배경을 명시적으로 깐다. themeVariables 의 background 는 도형 밖 여백까지
+    # 칠하지 않는 경우가 있어, 투명 배경이 남으면 다크 모드에서 글자가 묻힌다.
+    rect = f'<rect width="100%" height="100%" fill="{SURFACE}"/>'
+    svg = re.sub(r'(<svg[^>]*>)', r'\1' + rect, svg, count=1)
+
+    pathlib.Path(out).write_text(svg, encoding="utf-8")
+    print(f"{out}  {len(svg):,} bytes  ({w:.0f}x{h:.0f}, <text> {svg.count('<text')}개)")
+
+    if serve:
+        pathlib.Path(serve).write_text(svg, encoding="utf-8")
+        print(f"{serve}  (서빙용 복사)")
+
+for src, out, serve in TARGETS:
+    render(src, out, serve)
 PY
 
-cp "$OUT_DOCS" "$OUT_STATIC"
-echo "$OUT_STATIC  (복사됨)"
+# 확대·팬·테마 전환이 되는 상세 페이지. Scalar 본문에서 "전체 화면으로 보기" 로 연다.
+#
+# Mermaid 의 ER 레이아웃은 가로 폭을 못 줄인다 — 논리 ERD 도 4364px 라 Scalar 본문
+# (~820px)에 넣으면 여전히 작다. 그래서 상세 페이지는 archify 로 따로 만든다.
+# 색은 애그리거트 경계 넷(회원·게시글·참여·지원)에만 쓴다.
+ARCHIFY="$HOME/.claude/skills/archify/bin/archify.mjs"
+SPEC="docs/erd/erd-logical.architecture.json"
+HTML="src/main/resources/static/docs/erd.html"
+
+if [ ! -f "$ARCHIFY" ]; then
+  echo "건너뜀: archify 가 없다($ARCHIFY). SVG 만 갱신했다." >&2
+  exit 0
+fi
+
+# nvm 지연 로딩 스텁이 비대화형 셸에서 node 를 가린다. 실제 바이너리를 직접 찾는다.
+NODE_BIN="$(command -v node 2>/dev/null || true)"
+if [ -z "$NODE_BIN" ] || ! "$NODE_BIN" --version >/dev/null 2>&1; then
+  NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | tail -1)"
+fi
+if [ -z "$NODE_BIN" ]; then
+  echo "건너뜀: node 를 찾지 못했다. SVG 만 갱신했다." >&2
+  exit 0
+fi
+
+"$NODE_BIN" "$ARCHIFY" deliver architecture "$SPEC" "$HTML" --quality showcase
+# visual-check 가 산출물 옆에 스크린샷·접촉 시트를 떨군다. 서빙 디렉터리에 남기지 않는다.
+rm -f src/main/resources/static/docs/erd.visual-check.*
+echo "$HTML  (archify 상세 페이지)"
