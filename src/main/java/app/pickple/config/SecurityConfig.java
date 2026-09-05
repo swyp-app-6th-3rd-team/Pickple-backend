@@ -11,11 +11,13 @@ import app.pickple.auth.security.JwtAuthenticationFilter;
 import app.pickple.auth.security.RestAccessDeniedHandler;
 import app.pickple.auth.security.RestAuthenticationEntryPoint;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -71,6 +73,7 @@ public class SecurityConfig {
     private final RestAuthenticationEntryPoint authenticationEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
     private final AuthProperties properties;
+    private final ObjectProvider<DevLoginProperties> devLoginProperties;
 
     /**
      * 관리 포트(management.server.port) 전용 체인.
@@ -102,6 +105,7 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         PathPatternRequestMatcher.Builder mvc = PathPatternRequestMatcher.withDefaults();
+        boolean devLoginEnabled = devLoginProperties.getIfAvailable() != null;
 
         return http
                 .csrf(csrf -> csrf.disable())          // 토큰 기반이라 세션 CSRF 가 없다
@@ -111,6 +115,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
                 .authorizeHttpRequests(auth -> auth
+                        // 프로필·활성화 조건을 통과한 설정 빈이 있을 때만 JWT 없이 진입한다.
+                        // 진입 후에는 DevLoginService가 QA 키와 허용 계정을 검증한다.
+                        .requestMatchers(mvc.matcher(HttpMethod.POST, "/auth/dev/login"))
+                        .access((authentication, context) -> new AuthorizationDecision(devLoginEnabled))
+                        .requestMatchers(mvc.matcher("/auth/dev/**")).denyAll()
                         .requestMatchers(mvc.matcher(HttpMethod.GET, "/")).permitAll()
                         .requestMatchers(toMatchers(mvc, PUBLIC_GET)).permitAll()
                         .requestMatchers(
