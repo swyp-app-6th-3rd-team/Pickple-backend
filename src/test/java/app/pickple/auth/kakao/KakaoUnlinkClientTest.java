@@ -10,6 +10,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.support.RestClientAdapter;
+import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -33,7 +35,10 @@ class KakaoUnlinkClientTest {
     void setUp() {
         RestClient.Builder builder = RestClient.builder().baseUrl(KAKAO_BASE_URL);
         server = MockRestServiceServer.bindTo(builder).build();
-        client = KakaoUnlinkClientConfiguration.createClient(builder.build());
+        RestClientAdapter adapter = RestClientAdapter.create(builder.build());
+        client = HttpServiceProxyFactory.builderFor(adapter)
+                .build()
+                .createClient(KakaoUnlinkClient.class);
     }
 
     @Test

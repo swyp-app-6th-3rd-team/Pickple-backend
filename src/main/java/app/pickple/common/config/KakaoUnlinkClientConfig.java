@@ -1,5 +1,6 @@
-package app.pickple.auth.kakao;
+package app.pickple.common.config;
 
+import app.pickple.auth.kakao.KakaoUnlinkClient;
 import app.pickple.config.KakaoProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,7 +14,7 @@ import java.time.Duration;
 
 /** Kakao HTTP Interface 프록시와 네트워크 타임아웃을 구성한다. */
 @Configuration(proxyBeanMethods = false)
-public class KakaoUnlinkClientConfiguration {
+public class KakaoUnlinkClientConfig {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
@@ -33,7 +34,7 @@ public class KakaoUnlinkClientConfiguration {
         return createClient(restClient);
     }
 
-    static KakaoUnlinkClient createClient(RestClient restClient) {
+    private static KakaoUnlinkClient createClient(RestClient restClient) {
         RestClientAdapter adapter = RestClientAdapter.create(restClient);
         HttpServiceProxyFactory factory = HttpServiceProxyFactory.builderFor(adapter).build();
         return factory.createClient(KakaoUnlinkClient.class);

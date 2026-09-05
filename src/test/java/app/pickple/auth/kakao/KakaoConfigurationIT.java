@@ -1,5 +1,6 @@
 package app.pickple.auth.kakao;
 
+import app.pickple.common.config.KakaoUnlinkClientConfig;
 import app.pickple.config.KakaoProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -37,7 +38,7 @@ class KakaoConfigurationIT {
 
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(KakaoProperties.class)
-    @Import({KakaoUnlinkClientConfiguration.class, KakaoUnlinkGateway.class})
+    @Import({KakaoUnlinkClientConfig.class, KakaoUnlinkGateway.class})
     static class KakaoClientTestConfiguration {
     }
 }

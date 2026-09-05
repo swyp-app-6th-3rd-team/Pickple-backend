@@ -30,11 +30,12 @@
 app/pickple/
 ├── common/          ApiResponse · ResponseCode · PageResponse · ScrollResponse
 │                    CursorCodec · CorrelationIdFilter
+│   └── config/      KakaoUnlinkClientConfig
 ├── config/          ClockConfig · QuerydslConfig · ScalarConfig
 │                    SecurityConfig · AuthProperties · AppleProperties · KakaoProperties
 │                    FileStorageProperties · S3FileStorageConfig
-│                    ※ 설정은 여기 하나로 모은다. 도메인별 config 하위 패키지는
-│                      ArchitectureTest 가 막는다(#63)
+│                    ※ 앱 전역 설정은 여기, 공용 기술 설정은 common/config 에 모은다.
+│                      기능별 config 하위 패키지는 ArchitectureTest 가 막는다(#63)
 ├── docs/            LlmsTxtController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
@@ -640,6 +641,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-05 | 공용 기술 설정 위치로 `common/config`를 허용하고 Kakao unlink HTTP Interface 구성을 이동 | PR #105 리뷰. 기능별 `config` 패키지 금지는 유지 |
 | 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
 | 2026-09-04 | Kakao 네이티브 ID token 로그인·프로필 분기 응답·서버 주도 unlink 추가 | Issue #101. iOS Kakao SDK 로그인과 탈퇴를 브라우저 OAuth 및 앱의 별도 호출 조율 없이 지원 |
 | 2026-09-04 | `GET /posts/popular` 추가. 목록 조회 경로를 재사용하고 커서 봉투만 벗긴다 | Issue #29. 홈 화면이 커서 없는 고정 10건을 요구. 전용 쿼리를 새로 만들면 `idx_post_popular_all` 검증이 두 벌이 된다 |

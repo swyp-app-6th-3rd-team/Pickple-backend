@@ -254,10 +254,11 @@ class ArchitectureTest {
         }
 
         @Test
-        @DisplayName("설정 클래스는 도메인별 config 하위 패키지에 두지 않는다")
-        void configPackagesAreNotNestedUnderDomains() {
-            // 루트 app.pickple.config 하나로 모은다(#63). 도메인마다 config 를 파면
-            // 부트스트랩 설정이 흩어져 "이 앱의 설정 전체"를 한눈에 볼 수 없다.
+        @DisplayName("config 하위 패키지는 허용된 공용 위치에만 둔다")
+        void configPackagesUseApprovedLocations() {
+            // 앱 전역 설정은 app.pickple.config 에, 공용 기술 설정은
+            // app.pickple.common.config 에 모은다. 기능마다 config 를 파면 부트스트랩
+            // 설정이 흩어져 "이 앱의 설정 전체"를 한눈에 볼 수 없다.
             //
             // ⚠️ "모든 @Configuration 은 config 에 있어야 한다"로 쓰지 않는 이유:
             // AppleTokenClientConfiguration·DocsConfig 는 각자 기능 패키지에 두는 것이
@@ -265,10 +266,11 @@ class ArchitectureTest {
             //
             // ⚠️ 패턴 주의: `BASE + ".*.config.."` 는 `*` 가 한 세그먼트만 먹어서
             // app.pickple.auth.apple.config 같은 2단계 깊이를 놓친다(실제로 확인했다).
-            // `..config..` 로 써야 깊이와 무관하게 잡힌다. 루트 app.pickple.config 는
-            // 허용해야 하므로 그것만 예외로 뺀다.
+            // `..config..` 로 써야 깊이와 무관하게 잡힌다. 허용한 두 패키지만
+            // 예외로 뺀다.
             noClasses().that().resideInAPackage(BASE + "..")
                     .and().resideOutsideOfPackage(BASE + ".config")
+                    .and().resideOutsideOfPackage(BASE + ".common.config")
                     .should().resideInAnyPackage(BASE + "..config..")
                     .check(classesUnderTest);
         }
