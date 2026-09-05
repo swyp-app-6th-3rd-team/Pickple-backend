@@ -9,18 +9,14 @@ import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ImageUploadService {
@@ -37,8 +33,9 @@ public class ImageUploadService {
      * <p>용도({@link AttachType})는 호출자가 정한다. 기본값을 두지 않는 이유는,
      * 기본값이 있으면 용도를 넘기지 않은 호출이 조용히 상품으로 분류되기 때문이다.
      *
-     * <p>S3는 DB 트랜잭션에 참여하지 않으므로, 일부 업로드나 DB 저장이 실패하면
-     * 이번 요청에서 생성한 키를 best-effort로 보상 삭제한다.
+     * <p>DB 메타데이터를 먼저 기록한 뒤 S3에 저장한다. 정리 작업의 잠금 조회가
+     * 진행 중인 업로드의 최종 커밋/롤백을 기다릴 수 있게 하는 순서다.
+     * 롤백으로 남은 객체는 유예시간 뒤 주기 정리가 회수한다(ADR-0038).
      */
     @Transactional
     public ItemContainer upload(Long ownerId, AttachType attachType, List<UploadImage> images) {
@@ -52,31 +49,21 @@ public class ImageUploadService {
             throw new ApiException(ResponseCode.INVALID_REQUEST, "업로드할 이미지가 없습니다.");
         }
 
-        List<String> uploadedKeys = new ArrayList<>();
-        registerTransactionRollbackCompensation(uploadedKeys);
+        List<ValidatedImage> validatedImages = images.stream().map(this::validate).toList();
+        List<String> itemKeys = new ArrayList<>();
         ItemContainer container = new ItemContainer(ownerId, attachType);
-
-        try {
-            for (UploadImage image : images) {
-                ValidatedImage validated = validate(image);
-                String itemKey = createItemKey(ownerId, attachType, validated.type().extension());
-                // put 응답을 잃었어도 S3에 객체가 생겼을 수 있어 요청 전에 추적한다.
-                uploadedKeys.add(itemKey);
-                String accessUrl = objectStorage.put(
-                        itemKey, validated.content(), validated.type().contentType());
-                container.add(new ItemResource(
-                        validated.content().length,
-                        validated.originalFileName(),
-                        itemKey,
-                        accessUrl));
-            }
-            return containerStore.save(container);
-        } catch (RuntimeException e) {
-            compensateUploadedObjects(uploadedKeys);
-            // 트랜잭션 콜백이 같은 목록을 참조하므로 이미 보상한 키는 다시 삭제하지 않는다.
-            uploadedKeys.clear();
-            throw e;
+        for (ValidatedImage validated : validatedImages) {
+            String itemKey = createItemKey(ownerId, attachType, validated.type().extension());
+            itemKeys.add(itemKey);
+            container.add(new ItemResource(validated.content().length,
+                    validated.originalFileName(), itemKey, objectStorage.accessUrl(itemKey)));
         }
+        ItemContainer saved = containerStore.save(container);
+        for (int i = 0; i < validatedImages.size(); i++) {
+            ValidatedImage validated = validatedImages.get(i);
+            objectStorage.put(itemKeys.get(i), validated.content(), validated.type().contentType());
+        }
+        return saved;
     }
 
     private ValidatedImage validate(UploadImage image) {
@@ -108,35 +95,6 @@ public class ImageUploadService {
 
     private String createItemKey(Long ownerId, AttachType attachType, String extension) {
         return "%s/%d/%s.%s".formatted(attachType.keyPrefix(), ownerId, UUID.randomUUID(), extension);
-    }
-
-    /**
-     * 대상 메서드가 반환된 뒤 DB commit이 실패하는 경우까지 보상한다.
-     * S3는 DB 트랜잭션에 참여하지 않으므로 최종 결과가 rollback이면 업로드한 객체를 삭제한다.
-     */
-    private void registerTransactionRollbackCompensation(List<String> uploadedKeys) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCompletion(int status) {
-                // 결과 불명일 때 삭제하면 실제 commit된 DB 행이 없는 S3 객체를 가리킬 수 있다.
-                if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
-                    compensateUploadedObjects(uploadedKeys);
-                }
-            }
-        });
-    }
-
-    private void compensateUploadedObjects(List<String> itemKeys) {
-        for (String itemKey : itemKeys) {
-            try {
-                objectStorage.delete(itemKey);
-            } catch (RuntimeException cleanupFailure) {
-                log.warn("실패 보상 중 S3 객체를 삭제하지 못했습니다: key={}", itemKey, cleanupFailure);
-            }
-        }
     }
 
     public record UploadImage(String originalFileName, String contentType, byte[] content) {

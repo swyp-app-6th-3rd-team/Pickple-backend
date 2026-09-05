@@ -22,12 +22,13 @@ public class JpaItemContainerStore implements ItemContainerStore {
     public ItemContainer save(ItemContainer container) {
         LocalDateTime now = LocalDateTime.now(clock);
         if (container.id() == null) {
-            return repository.save(ItemContainerEntity.from(container, now)).toDomain();
+            return repository.saveAndFlush(ItemContainerEntity.from(container, now)).toDomain();
         }
         ItemContainerEntity entity = repository.findById(container.id())
                 .orElseThrow(() -> new ItemContainerPersistenceException(
                         "컨테이너를 찾을 수 없습니다: id=" + container.id()));
         entity.applyResources(container, now);
+        repository.flush();
         return entity.toDomain();
     }
 

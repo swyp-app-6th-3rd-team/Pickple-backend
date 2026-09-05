@@ -3,7 +3,6 @@ package app.pickple.point.service;
 import app.pickple.point.domain.RankingStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
@@ -43,7 +42,6 @@ public class RankingBatchService {
      * 다만 실행이 겹치지 않는다는 보장은 스케줄러의 단일 스레드 기본값에 기대고 있다 —
      * 배치가 주기보다 오래 걸리면 다음 실행이 밀린다(겹쳐 도는 것보다 낫다).
      */
-    @Scheduled(cron = "${app.ranking.cron}")
     public void refresh() {
         long startedAt = System.nanoTime();
         try {
