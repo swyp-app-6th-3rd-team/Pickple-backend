@@ -12,7 +12,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.MediaType;
+import jakarta.servlet.Filter;
 import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -114,6 +117,62 @@ class AccountStateUnavailableIT {
         // 신원이 없으면 조회하지 않으므로 장애의 영향권 밖이다.
         // 이것이 "매 요청 조회" 의 실제 범위를 보여준다 — 게스트 트래픽은 0회다.
         mockMvc.perform(get("/posts")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("DB 장애 중에도 로그아웃은 성공한다 — 자격증명을 버리는 데 DB 가 필요하지 않다")
+    void logoutSurvivesStateLookupFailure() throws Exception {
+        willThrow(new QueryTimeoutException("커넥션 풀 고갈"))
+                .given(userStore).existsActiveById(anyLong());
+
+        // PRD-021 결정 4: 로그아웃은 익명·탈퇴자도 부를 수 있어야 한다.
+        // 그 원칙은 "ACTIVE 를 요구하지 않는다" 에 그치지 않고
+        // <b>DB 가용성을 요구하지 않는다</b> 까지 가야 일관된다 —
+        // 로그인에서 빠져나오려는 사용자를 장애가 가둬서는 안 된다.
+        mockMvc.perform(post("/auth/logout").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("필터 순서가 실제 체인에서 확정돼 있다 — 503 필터가 강등 필터를 감싼다")
+    void filterOrderIsPinnedInTheRealChain() {
+        // 순서가 뒤집히면 강등 필터가 던진 DataAccessException 이 503 필터 바깥으로 새어
+        // 컨테이너 기본 500(HTML)이 된다. 위 두 테스트가 그 회귀를 잡아주긴 하지만,
+        // 원인이 "필터 순서" 라는 것까지 말해주지는 못한다. 여기서 그 전제를 직접 고정한다.
+        //
+        // 순서를 주석이 아니라 실행으로 확인하는 이유: 두 필터를 같은 기준점 앞에 걸면
+        // 상대 순서가 등록 순서에 기대게 되는데 그것은 프레임워크 계약이 아니다.
+        java.util.List<Filter> filters = serviceChainFilters();
+        int unavailable = indexOf(filters, AccountStateUnavailableFilter.class);
+        int demotion = indexOf(filters, AnonymousDemotionFilter.class);
+        int authorization = indexOf(filters, AuthorizationFilter.class);
+
+        org.assertj.core.api.Assertions.assertThat(unavailable)
+                .as("503 필터는 강등 필터보다 바깥이어야 예외를 잡는다")
+                .isLessThan(demotion);
+        org.assertj.core.api.Assertions.assertThat(demotion)
+                .as("강등은 인가 판정보다 먼저여야 401 이 된다")
+                .isLessThan(authorization);
+    }
+
+    /** 서비스 포트 체인(@Order(2)). 관리 포트 체인은 이 필터들을 달지 않는다. */
+    private java.util.List<Filter> serviceChainFilters() {
+        for (SecurityFilterChain chain : springSecurityFilterChain.getFilterChains()) {
+            java.util.List<Filter> filters = chain.getFilters();
+            if (filters.stream().anyMatch(AnonymousDemotionFilter.class::isInstance)) {
+                return filters;
+            }
+        }
+        throw new IllegalStateException("강등 필터가 어느 체인에도 없다 — 배선이 빠졌다");
+    }
+
+    private static int indexOf(java.util.List<Filter> filters, Class<?> type) {
+        for (int i = 0; i < filters.size(); i++) {
+            if (type.isInstance(filters.get(i))) {
+                return i;
+            }
+        }
+        throw new IllegalStateException("체인에 없다: " + type.getSimpleName());
     }
 
     @Test

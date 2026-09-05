@@ -1,6 +1,7 @@
 package app.pickple.auth.security;
 
 import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AccountWithdrawalPersistenceService;
@@ -75,6 +76,8 @@ class WithdrawnUserAuthorizationIT {
     private JwtService jwtService;
     @Autowired
     private AccountWithdrawalPersistenceService withdrawalPersistenceService;
+    @Autowired
+    private RefreshTokenStore refreshTokenStore;
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -256,13 +259,30 @@ class WithdrawnUserAuthorizationIT {
         }
 
         @Test
-        @DisplayName("C-8 탈퇴자의 리프레시는 여전히 거부된다")
+        @DisplayName("C-8 탈퇴 전에 받은 유효한 리프레시 토큰이 401 로 거부된다")
         void withdrawnUserCannotRefresh() throws Exception {
-            // permitAll 이고 액세스 토큰 없이도 불리므로 관문이 대신할 수 없다.
-            // AuthService 의 자체 확인이 유지되고 있는지를 본다.
+            // permitAll 이고 액세스 토큰 없이도 불리므로 중앙 관문이 대신할 수 없다.
+            // 없는 토큰을 넣어 "4xx 면 통과" 로 두면 이 판정은 아무것도 증명하지 못한다 —
+            // 토큰 조회 실패 경로만 타고 탈퇴자 분기에는 닿지도 않는다.
+            // 그래서 <b>탈퇴 전에 발급해 저장까지 된</b> 토큰으로 확인한다.
+            User target = saveUser("gate-refresh-" + System.nanoTime());
+            String refreshToken = jwtService.createRefreshToken(target);
+            refreshTokenStore.store(target.id(), JwtService.hash(refreshToken),
+                    jwtService.refreshTokenExpiresAt());
+            assertThat(refreshTokenStore.findByUserId(target.id())).isPresent();
+
+            withdraw(target);
+
+            // 탈퇴는 리프레시 토큰 행도 함께 지운다
+            // (AccountWithdrawalPersistenceService). 그래서 거부 사유는 "비활성 계정" 이
+            // 아니라 "그런 토큰이 없다" 이고, 코드는 401 INVALID_TOKEN 이다.
+            // 실서버 E2E 에서 관측된 것과 같은 값이다.
+            assertThat(refreshTokenStore.findByUserId(target.id())).isEmpty();
+
             mockMvc.perform(post("/auth/refresh")
-                            .cookie(new jakarta.servlet.http.Cookie("refresh_token", "없는토큰")))
-                    .andExpect(status().is4xxClientError());
+                            .cookie(new jakarta.servlet.http.Cookie("refresh_token", refreshToken)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
         }
     }
 
@@ -292,6 +312,42 @@ class WithdrawnUserAuthorizationIT {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"content\":\"   \"}"))
                     .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("강등을 건너뛰는 경로여도 보호 경로면 관문이 막는다 — 두 겹이다")
+        void gateStillBlocksEvenWhenDemotionIsSkipped() throws Exception {
+            // shouldNotFilter 목록이 잘못 넓어져 보호 경로가 거기 들어가면
+            // 강등 마커가 남지 않는다. 그때 관문은 마커가 없으므로 <b>직접 조회</b>해
+            // 여전히 막아야 한다 — 그것이 관문을 남겨둔 이유다.
+            //
+            // 여기서는 그 두 번째 겹이 실제로 도는지를 본다. 관문이 마커에만 의존한다면
+            // 목록이 넓어지는 순간 조용히 뚫린다.
+            var manager = context.getBean(ActiveAccountAuthorizationManager.class);
+            var request = new org.springframework.mock.web.MockHttpServletRequest();
+            var authentication = new org.springframework.security.authentication
+                    .UsernamePasswordAuthenticationToken(
+                    new AuthenticatedPrincipal(withdrawn.id(), app.pickple.auth.domain.Role.ROLE_USER),
+                    null, java.util.List.of());
+
+            // 마커 없이(= 강등을 건너뛴 상태) 관문에 물어본다.
+            var decision = manager.authorize(() -> authentication,
+                    new org.springframework.security.web.access.intercept.RequestAuthorizationContext(request));
+
+            assertThat(decision).isNotNull();
+            assertThat(decision.isGranted())
+                    .as("강등을 건너뛴 요청이라도 탈퇴자는 관문이 직접 조회해 막아야 한다")
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("정적·문서 경로는 토큰이 붙어도 막히지 않는다")
+        void staticAndDocPathsStayOpen() throws Exception {
+            // permitAll 이고 관문이 돌지 않으므로 강등되든 말든 통과해야 한다.
+            // 다만 강등 필터는 shouldNotFilter 를 두지 않아 이 경로에서도 조회가 돈다 —
+            // 정적 경로에 토큰을 붙이는 트래픽이 드물어 감수하는 비용이다(PRD-021 참조).
+            mockMvc.perform(get("/llms.txt").header("Authorization", bearer(withdrawnToken)))
+                    .andExpect(status().isOk());
         }
 
         @Test

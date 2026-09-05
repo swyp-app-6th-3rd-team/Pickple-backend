@@ -166,7 +166,13 @@ public class SecurityConfig {
                 // 관문이 익명 요청을 보게 되어야 보호 경로가 403 이 아니라 401 로 나가고,
                 // permitAll 경로는 관문이 돌지 않으므로 여기서만 강등된다.
                 // 규칙은 하나다: 비활성 신원은 어디서든 익명이 된다.
-                .addFilterBefore(anonymousDemotionFilter, AuthorizationFilter.class)
+                //
+                // 기준점을 AuthorizationFilter 가 아니라 위 필터로 잡는다. 둘 다 같은 지점
+                // 앞에 걸면 상대 순서가 등록 순서에 암묵적으로 기대게 되는데, 그 순서는
+                // 프레임워크 계약이 아니다. 뒤집히면 여기서 던진 DataAccessException 이
+                // 503 필터 바깥으로 새어 컨테이너 기본 500(HTML)이 된다 — C-9 가 조용히 무너진다.
+                // 서로에게 직접 순서를 명시해 그 가능성을 없앤다.
+                .addFilterAfter(anonymousDemotionFilter, AccountStateUnavailableFilter.class)
                 .build();
     }
 
