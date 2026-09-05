@@ -124,10 +124,6 @@ public class SecurityConfig {
                                 // 홈 화면의 인기 피커와 그 [더보기] 목록이라 로그인 전에 부른다 (§2.5·§3.1).
                                 // 게스트에게 감추는 것은 목록이 아니라 "본인 랭킹" 이고, 그건 아래
                                 // /users/me/points 가 인증을 요구하는 것으로 갈린다.
-                                //
-                                // ⚠️ 기능명세서 v0.3 §6.4 가 "게스트에게 댓글 목록을 주지 않는다" 로
-                                // 바뀌었지만 그것은 댓글 한정이다. 랭킹의 게스트 허용은 유효하다 —
-                                // 공개 여부는 엔드포인트마다 판단한다.
                                 mvc.matcher(HttpMethod.GET, "/rankings"),
                                 mvc.matcher(HttpMethod.GET, "/rankings/top"))
                         .permitAll()
@@ -141,6 +137,7 @@ public class SecurityConfig {
                         // authenticated() 가 아니라 관문이다 — "토큰이 유효한가" 에 더해
                         // "이 신원이 아직 살아 있는가" 까지 묻는다. 새 보호 엔드포인트는
                         // 여기 걸리므로 별도 조치 없이 자동으로 차단된다 (ADR-0035).
+                        // 댓글 목록도 인증이 필요하다(기능명세서 v0.3 §6.4, #100).
                         .anyRequest().access(activeAccountAuthorizationManager))
 
                 .oauth2Login(oauth -> oauth

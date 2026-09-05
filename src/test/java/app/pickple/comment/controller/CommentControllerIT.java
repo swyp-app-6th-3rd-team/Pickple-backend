@@ -19,6 +19,8 @@ import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -97,9 +99,13 @@ class CommentControllerIT {
 
     @Test
     void guestCannotReadOrWriteComments() throws Exception {
+        commentService.write(new Comment(postEntity.id(), commentAuthor.id(), "로그인 후 열람", null));
+
         mockMvc.perform(get("/posts/{postId}/comments", postEntity.id()))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("인증이 필요합니다."))
+                .andExpect(jsonPath("$.returnObject").isEmpty());
 
         mockMvc.perform(post("/posts/{postId}/comments", postEntity.id())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -116,6 +122,29 @@ class CommentControllerIT {
         mockMvc.perform(delete("/comments/{id}", 1L))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void authenticatedUserCanReadEmptyList() throws Exception {
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(commentAuthorToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.returnObject.commentCount").value(0))
+                .andExpect(jsonPath("$.returnObject.comments").isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "not.a.jwt"})
+    void invalidBearerCannotReadExistingComments(String token) throws Exception {
+        commentService.write(new Comment(postEntity.id(), commentAuthor.id(), "로그인 후 열람", null));
+
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("인증이 필요합니다."))
+                .andExpect(jsonPath("$.returnObject").isEmpty());
     }
 
     @Test
@@ -201,6 +230,8 @@ class CommentControllerIT {
                 .andExpect(jsonPath("$.returnObject.commentCount").value(3))
                 .andExpect(jsonPath("$.returnObject.comments[0].id").value(picked.id()))
                 .andExpect(jsonPath("$.returnObject.comments[0].onePickCount").value(2))
+                .andExpect(jsonPath("$.returnObject.comments[0].authorId").value(commentAuthor.id()))
+                .andExpect(jsonPath("$.returnObject.comments[0].createdAt").isString())
                 .andExpect(jsonPath("$.returnObject.comments[0].mine").value(false))
                 .andExpect(jsonPath("$.returnObject.comments[0].createdAgo").isString());
 

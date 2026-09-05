@@ -102,7 +102,7 @@ class AccountStateUnavailableIT {
 
         // "확인 못 했으니 일단 익명" 으로 처리하면 장애가 개인화 소실로만 나타나고
         // 아무 데도 기록되지 않는다. 같은 은폐의 다른 얼굴이다.
-        mockMvc.perform(get("/posts/{postId}/comments", 1L)
+        mockMvc.perform(get("/posts")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("ACCOUNT_STATE_UNAVAILABLE"));
