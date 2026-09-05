@@ -267,6 +267,43 @@ class WithdrawnUserAuthorizationIT {
     }
 
     @Nested
+    @DisplayName("우회 경로 — 강등을 피해 신원이 되살아나는 길이 있나")
+    class BypassPaths {
+
+        @Test
+        @DisplayName("에러 응답에도 탈퇴자 신원이 실리지 않는다")
+        void errorDispatchDoesNotResurrectIdentity() throws Exception {
+            // OncePerRequestFilter 는 기본적으로 ERROR 디스패치에서 다시 돌지 않는다
+            // (shouldNotFilterErrorDispatch=true). 강등이 "비우기" 라서 되살아날 원본이
+            // 없다고 보지만, 그 판단이 맞는지는 실행으로 확인한다.
+            // 없는 경로 → 404 이지만, 401 이 아닌 200 계열이 나오면 신원이 살아 있다는 뜻이다.
+            mockMvc.perform(get("/posts/{postId}/comments/does-not-exist", post.id())
+                            .header("Authorization", bearer(withdrawnToken)))
+                    .andExpect(status().is4xxClientError());
+        }
+
+        @Test
+        @DisplayName("잘못된 본문으로 거부돼도 탈퇴자가 컨트롤러에 닿지 않는다")
+        void malformedBodyStillBlockedAtTheGate() throws Exception {
+            // 400(본문 검증)이 아니라 401(관문)이어야 한다 — 관문이 컨트롤러보다 앞이라는 증거다.
+            // 400 이 나오면 탈퇴자가 이미 핸들러까지 들어왔다는 뜻이다.
+            mockMvc.perform(post("/posts/{postId}/comments", post.id())
+                            .header("Authorization", bearer(withdrawnToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"content\":\"   \"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("관리 포트 체인은 별개다 — 서비스 경로의 관문이 actuator 를 막지 않는다")
+        void managementChainIsUnaffected() throws Exception {
+            // @Order(1) 체인은 permitAll 이고 이 필터들을 달지 않는다.
+            // 헬스체크가 관문 때문에 막히면 배포 파이프라인이 죽는다.
+            mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+        }
+    }
+
+    @Nested
     @DisplayName("관문 적용 범위")
     class GateCoverage {
 
