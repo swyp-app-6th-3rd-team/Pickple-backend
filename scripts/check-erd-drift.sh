@@ -26,10 +26,19 @@ ERD_LOGICAL="docs/erd/erd-logical.mmd"
 
 if [[ "${1:-}" == "--local" ]]; then
   DB="${MYSQL_DATABASE:-pickple}"
+  if ! docker exec pickple-mysql true 2>/dev/null; then
+    echo "::error::pickple-mysql 컨테이너가 없거나 떠 있지 않다." >&2
+    echo "  docker compose -f docker/docker-compose-local.yml up -d mysql" >&2
+    exit 1
+  fi
   # 비밀번호를 여기 적지 않는다. 컨테이너가 들고 있는 값을 그대로 읽는다.
   LOCAL_PW="$(docker exec pickple-mysql printenv MYSQL_ROOT_PASSWORD)"
   runsql() { docker exec -i pickple-mysql mysql -uroot -p"$LOCAL_PW" -N -B -e "$1" 2>/dev/null; }
 else
+  if ! command -v mysql >/dev/null 2>&1; then
+    echo "::error::mysql 클라이언트가 없다. 로컬에서는 --local 로 실행한다." >&2
+    exit 1
+  fi
   DB="${MYSQL_DATABASE:-pickple}"
   runsql() { mysql -h "${MYSQL_HOST:-127.0.0.1}" -P "${MYSQL_PORT:-3306}" \
       -u"${MYSQL_USER:-root}" -p"${MYSQL_PASSWORD:-root}" -N -B -e "$1"; }
@@ -50,6 +59,13 @@ if [[ ! -s "$tmp/db.txt" ]]; then
 fi
 
 # ERD 선언: "    table {" 블록 안의 "    자료형 컬럼명 ..." 줄에서 컬럼명을 뽑는다.
+#
+# 파서가 기대하는 형태(erd.mmd 를 손으로 고칠 때 지킨다):
+#   - 테이블 여는 줄은 정확히 4칸 들여쓰기 + 소문자·언더스코어 이름 + " {"
+#   - 컬럼 줄은 8칸 들여쓰기, "자료형 컬럼명" 순서(자료형에 공백이 없어야 한다)
+#   - 닫는 줄은 4칸 들여쓰기 + "}"
+# 들여쓰기가 어긋나면 블록 판정이 풀려 컬럼이 이전 테이블에 붙는다. 그 경우
+# 아래 집합 비교에서 "없는 컬럼/남는 컬럼" 양쪽으로 튀므로 조용히 통과하지는 않는다.
 awk '
   /^    [a-z_]+ \{/ { t = $1; next }
   /^    \}/         { t = ""; next }
@@ -103,9 +119,12 @@ fi
 # 새로 클론한 CI 에서는 모든 파일이 같은 시각이 되어 검사가 **항상 통과**한다.
 # 실제로 확인했다(fresh clone 에서 4개 파일 mtime 이 전부 동일).
 # 대신 렌더 시점의 소스 해시를 산출물 안에 새겨 두고 그 값을 대조한다.
+# erd.html 은 검사하지 않는다. 그 렌더는 archify(개인 스킬 설치본)에 의존해서
+# 이 저장소만 클론한 사람은 다시 만들 수 없다 — CI 에서 실패시켜 봐야 고칠 방법이
+# 없는 막다른 검사가 된다. 대신 위에서 spec 의 테이블 집합을 대조한다.
+# 그건 텍스트라 누구나 고칠 수 있고, 스키마 정합이라는 실제 목적에도 그게 맞다.
 for pair in "docs/erd/erd.mmd:docs/erd/erd.svg" \
-            "docs/erd/erd-logical.mmd:src/main/resources/static/docs/erd.svg" \
-            "docs/erd/erd-logical.architecture.json:src/main/resources/static/docs/erd.html"; do
+            "docs/erd/erd-logical.mmd:src/main/resources/static/docs/erd.svg"; do
   src="${pair%%:*}"; out="${pair##*:}"
   if [[ ! -f "$out" ]]; then
     echo "::error::$out 이 없다. scripts/render-erd.sh 를 실행한다."

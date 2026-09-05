@@ -113,11 +113,22 @@ for src, out, serve in TARGETS:
     render(src, out, serve)
 PY
 
-# 확대·팬·테마 전환이 되는 상세 페이지. Scalar 본문에서 "전체 화면으로 보기" 로 연다.
+# ── 여기부터는 재현 조건이 다르다 ───────────────────────────────────────────
+# 위 SVG 렌더는 네트워크(mermaid.ink)만 있으면 누구나·CI 도 돌릴 수 있다.
+# 아래 archify 단계는 **개인 스킬 설치본**($HOME/.claude/skills)에 의존한다.
+# 저장소만 클론한 사람은 이 단계를 돌릴 수 없으므로, 없으면 조용히 건너뛰고
+# SVG 만 갱신한다(에러 아님). 그래서 CI 의 erd-drift 검사도 erd.html 은 보지 않는다 —
+# 고칠 방법이 없는 검사는 막다른 골목이 된다. 대신 spec 의 테이블 집합만 대조한다.
 #
-# Mermaid 의 ER 레이아웃은 가로 폭을 못 줄인다 — 논리 ERD 도 4364px 라 Scalar 본문
-# (~820px)에 넣으면 여전히 작다. 그래서 상세 페이지는 archify 로 따로 만든다.
+# erd.html 을 다시 만들어야 하는데 archify 가 없다면, spec(JSON)만 고쳐 커밋하고
+# archify 보유자에게 렌더를 요청한다. spec 은 텍스트라 누구나 고칠 수 있다.
+#
+# 확대·팬·테마 전환이 되는 상세 페이지. Scalar 본문에서 "전체 화면으로 열기" 로 연다.
+# Mermaid 의 ER 레이아웃은 가로 폭을 못 줄인다 — 논리 ERD 도 4364px 라 Scalar 소개
+# 칼럼(실측 470px)에 넣으면 글자를 읽을 수 없다. 그래서 상세 페이지를 따로 만든다.
 # 색은 애그리거트 경계 넷(회원·게시글·참여·지원)에만 쓴다.
+#
+# 출력 경로를 바꾸면 DocsConfig.DESCRIPTION 의 마크다운 링크도 함께 고친다.
 ARCHIFY="$HOME/.claude/skills/archify/bin/archify.mjs"
 SPEC="docs/erd/erd-logical.architecture.json"
 HTML="src/main/resources/static/docs/erd.html"
