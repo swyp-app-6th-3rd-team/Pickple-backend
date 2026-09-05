@@ -1,6 +1,8 @@
 package app.pickple.vote.service;
 
 import app.pickple.auth.domain.*;
+import app.pickple.common.ResponseCode;
+import app.pickple.error.ApiException;
 import app.pickple.post.domain.*;
 import app.pickple.support.IntegrationTest;
 import org.junit.jupiter.api.*;
@@ -25,6 +27,7 @@ class DeletedPostInteractionIT {
         postStore.save(loaded);
 
         assertThatThrownBy(() -> voteService.castOrChange(post.id(), 1L, voter))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
     }
 }

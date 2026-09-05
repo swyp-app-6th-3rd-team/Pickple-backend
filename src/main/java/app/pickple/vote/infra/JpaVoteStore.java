@@ -24,7 +24,7 @@ public class JpaVoteStore implements VoteStore {
             return repository.save(VoteEntity.from(vote, LocalDateTime.now(clock))).toDomain();
         }
         VoteEntity entity = repository.findById(vote.id())
-                .orElseThrow(() -> new IllegalStateException("투표를 찾을 수 없습니다: id=" + vote.id()));
+                .orElseThrow(() -> new VotePersistenceException("투표를 찾을 수 없습니다: id=" + vote.id()));
         entity.applyChoice(vote);
         return entity.toDomain();
     }

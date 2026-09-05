@@ -35,7 +35,7 @@ public class JpaUserStore implements UserStore {
             return repository.save(UserEntity.from(user, now)).toDomain();
         }
         UserEntity entity = repository.findById(user.id())
-                .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: userId=" + user.id()));
+                .orElseThrow(() -> new UserPersistenceException("사용자를 찾을 수 없습니다: userId=" + user.id()));
         entity.applyState(user, now);
         return entity.toDomain();
     }
@@ -97,7 +97,7 @@ public class JpaUserStore implements UserStore {
                 int updated = repository.updateProfile(
                         user.id(), nickname, user.profileImageUrl(), LocalDateTime.now(clock));
                 if (updated == 0) {
-                    throw new IllegalStateException("활성 사용자를 찾을 수 없습니다: userId=" + user.id());
+                    throw new UserPersistenceException("활성 사용자를 찾을 수 없습니다: userId=" + user.id());
                 }
             });
         } catch (DataIntegrityViolationException e) {
@@ -108,7 +108,11 @@ public class JpaUserStore implements UserStore {
             }
             throw e;
         }
-        return repository.findById(user.id()).map(UserEntity::toDomain);
+        User saved = repository.findById(user.id())
+                .map(UserEntity::toDomain)
+                .orElseThrow(() -> new UserPersistenceException(
+                        "프로필 저장 뒤 사용자를 찾을 수 없습니다: userId=" + user.id()));
+        return Optional.of(saved);
     }
 
     private boolean isTakenByAnotherUser(String nickname, Long userId) {

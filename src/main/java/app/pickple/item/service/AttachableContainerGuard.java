@@ -4,6 +4,7 @@ import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
+import app.pickple.item.domain.ItemContainerNotAttachableException;
 import app.pickple.item.domain.ItemContainerStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -50,7 +51,7 @@ public class AttachableContainerGuard {
                         ResponseCode.NOT_FOUND, "이미지 컨테이너를 찾을 수 없습니다."));
         try {
             container.verifyUsableAs(required);
-        } catch (IllegalStateException e) {
+        } catch (ItemContainerNotAttachableException e) {
             // 도메인은 자기 언어로 던진다. 경계에서 API 계약의 언어로 옮긴다.
             throw new ApiException(ResponseCode.INVALID_REQUEST, e.getMessage());
         }
