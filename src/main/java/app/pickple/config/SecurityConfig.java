@@ -4,6 +4,9 @@ import app.pickple.auth.oauth.CustomOAuth2UserService;
 import app.pickple.auth.oauth.HttpCookieOAuth2AuthorizationRequestRepository;
 import app.pickple.auth.oauth.OAuth2FailureHandler;
 import app.pickple.auth.oauth.OAuth2SuccessHandler;
+import app.pickple.auth.security.AccountStateUnavailableFilter;
+import app.pickple.auth.security.ActiveAccountAuthorizationManager;
+import app.pickple.auth.security.AnonymousDemotionFilter;
 import app.pickple.auth.security.JwtAuthenticationFilter;
 import app.pickple.auth.security.RestAccessDeniedHandler;
 import app.pickple.auth.security.RestAuthenticationEntryPoint;
@@ -20,6 +23,7 @@ import org.springframework.boot.security.autoconfigure.actuate.web.servlet.Endpo
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -61,6 +65,9 @@ public class SecurityConfig {
     private final OAuth2FailureHandler failureHandler;
     private final HttpCookieOAuth2AuthorizationRequestRepository authorizationRequestRepository;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ActiveAccountAuthorizationManager activeAccountAuthorizationManager;
+    private final AccountStateUnavailableFilter accountStateUnavailableFilter;
+    private final AnonymousDemotionFilter anonymousDemotionFilter;
     private final RestAuthenticationEntryPoint authenticationEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
     private final AuthProperties properties;
@@ -132,7 +139,10 @@ public class SecurityConfig {
                                 mvc.matcher(HttpMethod.POST, "/auth/refresh"),
                                 mvc.matcher(HttpMethod.POST, "/auth/mobile/refresh"),
                                 mvc.matcher(HttpMethod.POST, "/auth/logout")).permitAll()
-                        .anyRequest().authenticated())
+                        // authenticated() 가 아니라 관문이다 — "토큰이 유효한가" 에 더해
+                        // "이 신원이 아직 살아 있는가" 까지 묻는다. 새 보호 엔드포인트는
+                        // 여기 걸리므로 별도 조치 없이 자동으로 차단된다 (ADR-0035).
+                        .anyRequest().access(activeAccountAuthorizationManager))
 
                 .oauth2Login(oauth -> oauth
                         .authorizationEndpoint(endpoint ->
@@ -146,6 +156,25 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler))
 
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+
+                // 관문의 상태 조회가 DB 장애로 실패하면 503 으로 번역한다.
+                // ExceptionTranslationFilter 는 AccessDeniedException/AuthenticationException 만
+                // 잡고, @RestControllerAdvice 는 DispatcherServlet 안에서만 돈다 —
+                // 이 필터가 없으면 DB 장애가 컨테이너 기본 500(HTML)으로 새어 나간다.
+                // AuthorizationFilter 보다 바깥에 놓아야 관문의 예외가 여기를 지난다.
+                .addFilterBefore(accountStateUnavailableFilter, AuthorizationFilter.class)
+
+                // 비활성 신원을 익명으로 강등한다. AuthorizationFilter 보다 앞이어야 한다 —
+                // 관문이 익명 요청을 보게 되어야 보호 경로가 403 이 아니라 401 로 나가고,
+                // permitAll 경로는 관문이 돌지 않으므로 여기서만 강등된다.
+                // 규칙은 하나다: 비활성 신원은 어디서든 익명이 된다.
+                //
+                // 기준점을 AuthorizationFilter 가 아니라 위 필터로 잡는다. 둘 다 같은 지점
+                // 앞에 걸면 상대 순서가 등록 순서에 암묵적으로 기대게 되는데, 그 순서는
+                // 프레임워크 계약이 아니다. 뒤집히면 여기서 던진 DataAccessException 이
+                // 503 필터 바깥으로 새어 컨테이너 기본 500(HTML)이 된다 — C-9 가 조용히 무너진다.
+                // 서로에게 직접 순서를 명시해 그 가능성을 없앤다.
+                .addFilterAfter(anonymousDemotionFilter, AccountStateUnavailableFilter.class)
                 .build();
     }
 

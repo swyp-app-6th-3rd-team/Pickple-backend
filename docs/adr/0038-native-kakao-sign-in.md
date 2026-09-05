@@ -1,4 +1,4 @@
-# ADR-0035 — Kakao 네이티브 ID token을 서버에서 검증하고 탈퇴도 서버가 조율한다
+# ADR-0038 — Kakao 네이티브 ID token을 서버에서 검증하고 탈퇴도 서버가 조율한다
 
 **상태**: Accepted
 

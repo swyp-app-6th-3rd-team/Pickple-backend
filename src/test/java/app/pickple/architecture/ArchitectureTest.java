@@ -496,6 +496,55 @@ class ArchitectureTest {
         }
     }
 
+    /**
+     * 탈퇴 회원 차단 관문이 배선에서 빠지지 않게 한다 (#106, ADR-0035).
+     *
+     * <p><b>ArchUnit 은 이 결함을 못 잡았다.</b> 그게 뚫린 이유다 — 기존 규칙은 계층 경계와
+     * 명명만 보았고, "탈퇴자가 쓰기 경로를 지날 수 있다" 는 그 어느 것도 위반하지 않았다.
+     * 그래서 새 규칙의 조준점은 <b>관문이 배선에 남아 있는가</b> 하나다.
+     *
+     * <p><b>이 규칙이 잡지 못하는 것을 분명히 해 둔다.</b> ArchUnit 은 바이트코드를 읽으므로
+     * {@code SecurityConfig} 람다 안의 {@code .anyRequest().access(...)} 가
+     * {@code .authenticated()} 로 바뀌었는지는 <b>보지 못한다</b>. 여기서 보는 것은
+     * "의존 관계가 남아 있는가" 까지다. 실제 차단 동작은
+     * {@code WithdrawnUserAuthorizationIT} 가 HTTP 로 확인한다 — 두 개가 함께 있어야 보호가 된다.
+     */
+    @Nested
+    @DisplayName("탈퇴 회원 차단 관문 (#106)")
+    class WithdrawnUserGate {
+
+        private static final String GATE =
+                "app.pickple.auth.security.ActiveAccountAuthorizationManager";
+        private static final String DEMOTION =
+                "app.pickple.auth.security.AnonymousDemotionFilter";
+        private static final String UNAVAILABLE =
+                "app.pickple.auth.security.AccountStateUnavailableFilter";
+
+        @Test
+        @DisplayName("SecurityConfig 는 관문과 두 필터를 모두 배선한다")
+        void securityConfigWiresGateAndFilters() {
+            // 셋 중 하나만 빠져도 보호에 구멍이 난다:
+            //   관문 없음        → 새 보호 엔드포인트가 자동 차단되지 않는다
+            //   강등 필터 없음   → 공개 경로에서 탈퇴자가 본인으로 남고, 보호 경로는 403 이 된다
+            //   503 필터 없음    → DB 장애가 컨테이너 기본 500(HTML)으로 새어 나간다
+            classes().that().haveFullyQualifiedName("app.pickple.config.SecurityConfig")
+                    .should().dependOnClassesThat().haveFullyQualifiedName(GATE)
+                    .andShould().dependOnClassesThat().haveFullyQualifiedName(DEMOTION)
+                    .andShould().dependOnClassesThat().haveFullyQualifiedName(UNAVAILABLE)
+                    .check(classesUnderTest);
+        }
+
+        @Test
+        @DisplayName("상태 조회는 저장소 인터페이스를 지난다 — 필터가 리포지토리를 직접 부르지 않는다")
+        void stateLookupGoesThroughTheStore() {
+            // 관문·필터가 UserRepository 를 직접 잡으면 infra 가 auth.security 로 새고,
+            // 조회 모양(좁은 존재 확인)을 한 곳에서 지킬 수 없게 된다.
+            noClasses().that().resideInAPackage("..auth.security..")
+                    .should().dependOnClassesThat().resideInAPackage("..infra..")
+                    .check(classesUnderTest);
+        }
+    }
+
     @Nested
     @DisplayName("의존성 주입")
     class DependencyInjection {

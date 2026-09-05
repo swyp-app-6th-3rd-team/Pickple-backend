@@ -45,6 +45,15 @@ public class JpaUserStore implements UserStore {
         return repository.findById(id).map(UserEntity::toDomain);
     }
 
+    /**
+     * 활성 여부만 확인한다. 조회 실패는 삼키지 않고 그대로 올린다 —
+     * 관문이 "비활성" 과 "확인 불가" 를 구분해야 하기 때문이다 (ADR-0035 결정 3).
+     */
+    @Override
+    public boolean existsActiveById(Long id) {
+        return repository.findActiveMarkerById(id).isPresent();
+    }
+
     @Override
     public Optional<User> findByProviderAndProviderId(SocialProvider provider, String providerId) {
         return repository.findByProviderAndProviderId(provider, providerId).map(UserEntity::toDomain);
