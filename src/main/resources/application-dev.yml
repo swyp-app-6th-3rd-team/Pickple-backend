@@ -1,0 +1,7 @@
+# dev 프로필을 명시해도 기본은 비활성이다. prod/production 혼합 프로필은 코드에서도 차단한다.
+app:
+  auth:
+    dev-login:
+      enabled: ${DEV_LOGIN_ENABLED:false}
+      key: ${DEV_LOGIN_KEY:}
+      allowed-user-ids: ${DEV_LOGIN_ALLOWED_USER_IDS:}

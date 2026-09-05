@@ -394,6 +394,8 @@ class ArchitectureTest {
                 "GET /rankings/top",
                 "POST /auth/apple",
                 "POST /auth/kakao",
+                // dev에서 활성화된 경우에만 등록되며, Bearer 대신 QA 전용 키를 검증한다.
+                "POST /auth/dev/login",
                 "POST /auth/refresh",
                 "POST /auth/mobile/refresh",
                 "POST /auth/logout");
