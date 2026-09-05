@@ -192,8 +192,9 @@ app/pickple/
 
 **`GET /posts/random` — 랜덤 투표 카드 (홈 화면, §2.1 · §2.2)**
 
-- 조회 계약과 읽기 모델은 기존 `post.domain.PostQueryStore`, 조각 변환은
-  `post.infra.JpaPostQueryStore`에 둔다. SQL과 커서 검증은 기존 목록 조회처럼 infra에 분리한다.
+- 게시글 저장·조회 계약과 읽기 모델은 `post.domain.PostStore`, JPA 저장과 조각 변환은
+  `post.infra.JpaPostStore`에 둔다. `PostService`는 같은 Store로 작성·목록·인기·랜덤 조회를 제공한다.
+  조회는 화면용 읽기 모델을 사용하며, SQL과 커서 검증은 기존 목록 조회처럼 infra에 분리한다.
 
 - `type` 은 필수이며 `AGREE`(찬반) · `A_B`만 받는다. `GENERAL`, 누락, 모르는 값은
   `INVALID_REQUEST`(400)다. 유형 필터와 소프트 삭제 필터는 조각을 자르기 전 SQL `WHERE`에 둔다.

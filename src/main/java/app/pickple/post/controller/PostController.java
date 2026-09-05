@@ -6,7 +6,7 @@ import app.pickple.common.ResponseCode;
 import app.pickple.common.ScrollResponse;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
-import app.pickple.post.domain.PostQueryStore;
+import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.service.PostService;
 import app.pickple.vote.domain.VotePercentage;
@@ -143,7 +143,7 @@ public class PostController {
             @Schema(description = "작성자 TOP 피커 순위. 아직 산정되지 않았으면 null (최대 5분 지연)")
             Integer authorRanking) {
 
-        static PostListItem from(PostQueryStore.PostListView view) {
+        static PostListItem from(PostStore.PostListView view) {
             return new PostListItem(
                     view.id(),
                     view.type(),
@@ -175,7 +175,7 @@ public class PostController {
             @Schema(description = "표시 순서대로 정렬된 투표 선택지 2개")
             List<RandomVoteOption> options) {
 
-        static RandomVoteCard from(PostQueryStore.RandomPostView view) {
+        static RandomVoteCard from(PostStore.RandomPostView view) {
             boolean participated = view.selectedOptionId() != null;
             return new RandomVoteCard(
                     view.id(),
@@ -197,7 +197,7 @@ public class PostController {
             @Schema(description = "표시 순서. 찬반은 1, A/B는 1 또는 2") int displayOrder,
             @Schema(description = "이 상품에서 가장 먼저 등록한 사진 URL") String imageUrl) {
 
-        static RandomVoteProduct from(PostQueryStore.RandomProductView product) {
+        static RandomVoteProduct from(PostStore.RandomProductView product) {
             return new RandomVoteProduct(
                     product.id(), product.name(), product.displayOrder(), product.imageUrl());
         }
@@ -217,7 +217,7 @@ public class PostController {
             Integer percentage) {
 
         static RandomVoteOption from(
-                PostQueryStore.RandomOptionView option, long voterCount, boolean participated) {
+                PostStore.RandomOptionView option, long voterCount, boolean participated) {
             return new RandomVoteOption(
                     option.id(),
                     option.label(),

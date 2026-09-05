@@ -10,7 +10,6 @@ import app.pickple.item.domain.ItemResource;
 import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
-import app.pickple.post.domain.PostQueryStore;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
@@ -50,8 +49,6 @@ class PostServiceTest {
     @Mock
     private ItemContainerStore itemContainerStore;
     @Mock
-    private PostQueryStore postQueryStore;
-    @Mock
     private RandomGenerator randomGenerator;
     @InjectMocks
     private PostService service;
@@ -60,9 +57,9 @@ class PostServiceTest {
     @DisplayName("랜덤 카드 첫 요청은 새 시드와 유형·사용자·10건 크기를 전달한다")
     void startsRandomSliceWithNewSeed() {
         given(randomGenerator.nextLong()).willReturn(314L);
-        Window<PostQueryStore.RandomPostView> empty =
+        Window<PostStore.RandomPostView> empty =
                 Window.from(List.of(), index -> ScrollPosition.keyset(), false);
-        given(postQueryStore.findRandomSlice(PostType.AGREE, 7L, ScrollPosition.keyset(), 10, 314L))
+        given(postStore.findRandomSlice(PostType.AGREE, 7L, ScrollPosition.keyset(), 10, 314L))
                 .willReturn(empty);
 
         assertThat(service.findRandomSlice(PostType.AGREE, null, 7L)).isSameAs(empty);
@@ -77,7 +74,7 @@ class PostServiceTest {
 
         service.findRandomSlice(PostType.A_B, CursorCodec.encode(position), null);
 
-        verify(postQueryStore).findRandomSlice(PostType.A_B, null, position, 10, 0L);
+        verify(postStore).findRandomSlice(PostType.A_B, null, position, 10, 0L);
         verifyNoInteractions(randomGenerator);
     }
 
@@ -89,7 +86,7 @@ class PostServiceTest {
                     .isInstanceOfSatisfying(ApiException.class,
                             exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
         }
-        verifyNoInteractions(postQueryStore, randomGenerator);
+        verifyNoInteractions(postStore, randomGenerator);
     }
 
     @Test
@@ -98,7 +95,7 @@ class PostServiceTest {
         assertThatThrownBy(() -> service.findRandomSlice(PostType.AGREE, "not-a-cursor", null))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
-        verifyNoInteractions(postQueryStore, randomGenerator);
+        verifyNoInteractions(postStore, randomGenerator);
     }
 
     @Test
@@ -235,7 +232,7 @@ class PostServiceTest {
     void appliesQueryDefaults() {
         service.findSlice(null, null, null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), any(ScrollPosition.class), eq(PostService.DEFAULT_SIZE));
     }
 
@@ -244,7 +241,7 @@ class PostServiceTest {
     void passesQueryFiltersDown() {
         service.findSlice(PostCategory.BEAUTY, "POPULAR", null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 eq(PostCategory.BEAUTY), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
     }
 
@@ -256,11 +253,11 @@ class PostServiceTest {
         service.findSlice(null, null, null, 100_000);
         service.findSlice(null, null, null, 25);
 
-        verify(postQueryStore, times(2)).findSlice(
+        verify(postStore, times(2)).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(50));
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(25));
     }
 
@@ -269,27 +266,27 @@ class PostServiceTest {
     void decodesAbsentCursorAsFirstSlice() {
         service.findSlice(null, null, null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
     }
 
     @Test
     @DisplayName("인기 Top 10 은 전체·인기순·첫 조각·10건으로 조회한다")
     void popularTopFixesEveryParameter() {
-        given(postQueryStore.findSlice(
+        given(postStore.findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
                 .willReturn(emptyWindow());
 
         service.findPopularTop();
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10));
     }
 
     @Test
     @DisplayName("인기 Top 10 은 게시글이 없으면 빈 목록이다")
     void popularTopReturnsEmptyList() {
-        given(postQueryStore.findSlice(
+        given(postStore.findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
                 .willReturn(emptyWindow());
 
@@ -317,7 +314,7 @@ class PostServiceTest {
         return container;
     }
 
-    private Window<PostQueryStore.PostListView> emptyWindow() {
+    private Window<PostStore.PostListView> emptyWindow() {
         return Window.from(List.of(), index -> ScrollPosition.keyset(), false);
     }
 }
