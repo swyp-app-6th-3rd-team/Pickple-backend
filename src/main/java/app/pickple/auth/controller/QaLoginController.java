@@ -31,12 +31,12 @@ public class QaLoginController {
                     + "BCrypt 비밀번호 해시를 검증한 뒤 기존 계정의 서비스 JWT를 발급한다. "
                     + "prod 또는 production이 함께 활성화되면 제공하지 않는다.")
     @PostMapping("/auth/login")
-    public ApiResponse<AuthController.MobileTokenResponse> login(
+    public ApiResponse<MobileTokenResponse> login(
             @Valid @RequestBody QaLoginRequest request,
             HttpServletResponse response) {
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("Pragma", "no-cache");
-        return ApiResponse.success(AuthController.MobileTokenResponse.from(
+        return ApiResponse.success(MobileTokenResponse.from(
                 qaLoginService.login(request.loginId(), request.password())));
     }
 

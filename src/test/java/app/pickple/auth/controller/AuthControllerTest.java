@@ -131,6 +131,15 @@ class AuthControllerTest {
     }
 
     @Test
+    void sharedMobileTokenResponseStringRedactsTokens() {
+        var response = new MobileTokenResponse("secret-access", "secret-refresh");
+
+        assertThat(response.toString())
+                .isEqualTo("MobileTokenResponse[redacted]")
+                .doesNotContain("secret-access", "secret-refresh");
+    }
+
+    @Test
     void rejectsInvalidKakaoRequestWithoutCallingService() throws Exception {
         mockMvc.perform(post("/auth/kakao")
                         .contentType(MediaType.APPLICATION_JSON)

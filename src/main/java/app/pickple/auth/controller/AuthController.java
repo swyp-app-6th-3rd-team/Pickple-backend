@@ -182,21 +182,6 @@ public class AuthController {
         }
     }
 
-    /** 네이티브 앱은 두 토큰을 Keychain에 저장하므로 HTTPS JSON으로 함께 전달한다. */
-    public record MobileTokenResponse(
-            @Schema(description = "회전된 액세스 토큰") String accessToken,
-            @Schema(description = "회전된 리프레시 토큰. Keychain 에 보관한다") String refreshToken) {
-
-        static MobileTokenResponse from(AuthService.TokenPair tokens) {
-            return new MobileTokenResponse(tokens.accessToken(), tokens.refreshToken());
-        }
-
-        @Override
-        public String toString() {
-            return "MobileTokenResponse[redacted]";
-        }
-    }
-
     /** Kakao 로그인은 프로필 등록 화면 분기에 필요한 상태를 토큰과 함께 반환한다. */
     public record KakaoLoginResponse(
             @Schema(description = "서비스 액세스 토큰") String accessToken,
