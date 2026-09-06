@@ -193,6 +193,127 @@ class PostDetailIT {
                         .value(firstFromVoteApi));
     }
 
+    // --- QA 보강: A/B 투표 후 productId·percentage 동시 노출 ---------------
+
+    @Test
+    @DisplayName("A/B 게시글에 투표한 사용자는 재조회 시 productId 와 percentage 를 함께 받는다")
+    void votedUserSeesProductIdAndPercentageOnAbPost() throws Exception {
+        // 기존 votingPostHasExactlyTwoOptions 는 A/B 의 미투표 상태(productId 만 존재)만 봤다.
+        // A/B 는 선택지가 상품을 가리켜 경로가 다르므로, 투표 후에는 두 값이 "함께" 나오는지
+        // 별도로 확인해야 한다 — productId 매핑과 percentage 계산이 서로 다른 코드 경로다.
+        Post post = saveAbPost("A 살까 B 살까");
+        Long postId = post.id();
+        Long chosen = optionIdAt(postId, 1);
+        voteService.castOrChange(postId, chosen, voter.id());
+        flush();
+
+        mockMvc.perform(get("/posts/{id}", postId).header("Authorization", bearer(voterToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.type").value("A_B"))
+                .andExpect(jsonPath("$.returnObject.vote.voted").value(true))
+                .andExpect(jsonPath("$.returnObject.vote.selectedOptionId").value(chosen))
+                // 선택한 선택지 — productId 와 득표율이 함께 있어야 한다.
+                .andExpect(jsonPath("$.returnObject.vote.options[0].productId").exists())
+                .andExpect(jsonPath("$.returnObject.vote.options[0].voteCount").value(1))
+                .andExpect(jsonPath("$.returnObject.vote.options[0].percentage").value(100))
+                // 선택하지 않은 선택지도 productId 는 그대로, 득표율은 0.
+                .andExpect(jsonPath("$.returnObject.vote.options[1].productId").exists())
+                .andExpect(jsonPath("$.returnObject.vote.options[1].voteCount").value(0))
+                .andExpect(jsonPath("$.returnObject.vote.options[1].percentage").value(0));
+    }
+
+    // --- QA 보강: 재투표(R-22) 후 상세 조회 ---------------------------------
+
+    @Test
+    @DisplayName("재투표하면 상세 조회에서 selectedOptionId 는 바뀌고 voterCount 는 늘지 않는다 (R-22)")
+    void revoteChangesSelectionWithoutIncreasingVoterCount() throws Exception {
+        Post post = saveAgreePost("재투표 검증", 1);
+        Long postId = post.id();
+        Long first = optionIdAt(postId, 1);
+        Long second = optionIdAt(postId, 2);
+
+        voteService.castOrChange(postId, first, voter.id());
+        flush();
+        voteService.castOrChange(postId, second, voter.id());
+        flush();
+
+        mockMvc.perform(get("/posts/{id}", postId).header("Authorization", bearer(voterToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.vote.voted").value(true))
+                // 선택이 바뀐 뒤 값을 따라가야 한다 — 첫 투표 값이 남아 있으면 안 된다.
+                .andExpect(jsonPath("$.returnObject.vote.selectedOptionId").value(second))
+                // 사람 수는 여전히 1 — 재투표가 인원을 늘리지 않는다 (R-22).
+                .andExpect(jsonPath("$.returnObject.vote.voterCount").value(1))
+                .andExpect(jsonPath("$.returnObject.vote.options[0].voteCount").value(0))
+                .andExpect(jsonPath("$.returnObject.vote.options[1].voteCount").value(1))
+                .andExpect(jsonPath("$.returnObject.vote.options[1].percentage").value(100));
+    }
+
+    // --- QA 보강: 로그인했지만 남의 글인 경우의 mine ------------------------
+
+    @Test
+    @DisplayName("로그인 사용자가 남의 글을 조회하면 mine 이 false 다")
+    void mineIsFalseForOtherUsersPost() throws Exception {
+        // 기존 테스트는 작성자 본인(true, exposesAuthorInfo)과 게스트(false, guestSeesNoTally)
+        // 만 봤다. "로그인했지만 남의 글" 조합이 비어 있었다 — mine 판정이 uid 비교가 아니라
+        // 예를 들어 "토큰 존재 여부" 로 잘못 구현돼도 그 두 케이스만으로는 못 잡는다.
+        Long postId = saveGeneralPost("남의 글").id();
+        flush();
+
+        mockMvc.perform(get("/posts/{id}", postId).header("Authorization", bearer(voterToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.authorId").value(author.id()))
+                .andExpect(jsonPath("$.returnObject.mine").value(false));
+    }
+
+    // --- QA 보강: authorRanking 이 아직 산정되지 않았으면 null 그대로 -------
+
+    @Test
+    @DisplayName("배치가 아직 순위를 매기지 않은 작성자는 authorRanking 이 null 로 그대로 실린다 (ADR-0028)")
+    void authorRankingIsNullWhenNotYetComputed() throws Exception {
+        // ADR-0028·ADR-0040 열린 질문: 목록은 null 을 그대로 싣는다. 상세도 같아야 한다.
+        // 신규 유저는 배치가 돌기 전이라 users.ranking 이 null 이다 — 지어낸 0 이나
+        // 필드 부재가 아니라 "null 이 그대로 응답에 실리는지" 를 직접 확인한다.
+        Long rankingIsNull = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE id = ? AND ranking IS NULL", Long.class, author.id());
+        assertThat(rankingIsNull).as("픽스처 전제: 신규 유저는 랭킹 배치 전이라 ranking 이 null 이어야 한다").isEqualTo(1L);
+
+        Long postId = saveGeneralPost("랭킹 미산정 작성자").id();
+        flush();
+
+        mockMvc.perform(get("/posts/{id}", postId))
+                .andExpect(status().isOk())
+                // 필드가 빠지는 것이 아니라 키는 있고 값이 null 이어야 한다 (목록과 동일 표현).
+                .andExpect(jsonPath("$.returnObject").value(
+                        org.hamcrest.Matchers.hasKey("authorRanking")))
+                .andExpect(jsonPath("$.returnObject.authorRanking").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    // --- QA 보강: 삭제된 게시글에 투표 이력이 남아 있는 경우 ----------------
+
+    @Test
+    @DisplayName("투표 이력이 있는 게시글을 삭제해도 조회하면 여전히 404 다 (LEFT JOIN이 행을 되살리지 않는다)")
+    void deletedPostWithVoteHistoryStillReturns404() throws Exception {
+        // DETAIL 쿼리는 내 투표를 LEFT JOIN 한다. 삭제 필터(p.deleted_at IS NULL)가
+        // post 테이블 자체에 걸려 있어 이론상 안전하지만, 조인 조건이 잘못 바뀌어
+        // "투표 행이 있으면 부모 필터를 우회" 하는 식으로 회귀할 위험을 봉인해 둔다.
+        Post post = saveAgreePost("삭제 예정 + 투표 이력", 1);
+        Long postId = post.id();
+        voteService.castOrChange(postId, optionIdAt(postId, 1), voter.id());
+        flush();
+
+        mockMvc.perform(get("/posts/{id}", postId).header("Authorization", bearer(voterToken)))
+                .andExpect(status().isOk());
+
+        jdbcTemplate.update("UPDATE post SET deleted_at = NOW() WHERE id = ?", postId);
+        flush();
+
+        // 투표 이력을 남긴 본인 토큰으로 조회해도 투표 행이 게시글을 되살리지 않는다.
+        mockMvc.perform(get("/posts/{id}", postId).header("Authorization", bearer(voterToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
     // --- 완료 판정 3: 미투표자에게 득표율이 노출되지 않는다 -----------------
 
     @Test
