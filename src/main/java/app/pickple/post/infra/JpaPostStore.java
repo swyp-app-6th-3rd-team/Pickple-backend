@@ -1,5 +1,6 @@
 package app.pickple.post.infra;
 
+import app.pickple.grade.domain.Grade;
 import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
@@ -37,6 +38,7 @@ public class JpaPostStore implements PostStore {
     private final PostProductRepository productRepository;
     private final PostListRepository listRepository;
     private final RandomPostRepository randomRepository;
+    private final PostDetailRepository detailRepository;
     private final Clock clock;
 
     /**
@@ -266,6 +268,67 @@ public class JpaPostStore implements PostStore {
     }
 
     private record RandomCardEntry(long randomKey, RandomPostView view) {
+    }
+
+    /**
+     * 상세 한 건 (§6.2·§6.3).
+     *
+     * <p>본문이 없으면(없거나 삭제된 글) <b>상품·선택지를 조회하지 않고</b> 바로 빈 값이다 —
+     * 어차피 쓰지 않을 두 문장을 아끼고, 없는 게시글에 상품이 딸려 나오는 일도 막는다.
+     * 일반 게시글도 같은 이유로 두 문장을 건너뛴다 (R-02·R-04).
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<PostDetailView> findDetail(Long id, Long viewerId) {
+        List<Object[]> rows = detailRepository.findDetail(id, viewerId);
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Object[] row = rows.getFirst();
+        PostType type = PostType.valueOf((String) row[PostDetailRepository.Detail.TYPE]);
+        boolean hasVoting = type.hasVoting();
+
+        return Optional.of(new PostDetailView(
+                toLong(row[PostDetailRepository.Detail.ID]),
+                type,
+                PostCategory.valueOf((String) row[PostDetailRepository.Detail.CATEGORY]),
+                (String) row[PostDetailRepository.Detail.TITLE],
+                (String) row[PostDetailRepository.Detail.DESCRIPTION],
+                toLong(row[PostDetailRepository.Detail.VOTE_COUNT]),
+                toLong(row[PostDetailRepository.Detail.COMMENT_COUNT]),
+                PostListRepository.toLocalDateTime(row[PostDetailRepository.Detail.CREATED_AT]),
+                toLong(row[PostDetailRepository.Detail.AUTHOR_ID]),
+                (String) row[PostDetailRepository.Detail.AUTHOR_NICKNAME],
+                (String) row[PostDetailRepository.Detail.AUTHOR_PROFILE_IMAGE_URL],
+                toRanking(row[PostDetailRepository.Detail.AUTHOR_RANKING]),
+                Grade.ofLevel(toInt(row[PostDetailRepository.Detail.AUTHOR_GRADE])),
+                toNullableLong(row[PostDetailRepository.Detail.MY_OPTION_ID]),
+                hasVoting ? detailProducts(id) : List.of(),
+                hasVoting ? detailOptions(id) : List.of()));
+    }
+
+    private List<PostDetailProduct> detailProducts(Long id) {
+        return detailRepository.findProducts(id).stream()
+                .map(row -> new PostDetailProduct(
+                        toLong(row[PostDetailRepository.Product.ID]),
+                        (String) row[PostDetailRepository.Product.NAME],
+                        toNullableLong(row[PostDetailRepository.Product.PRICE]),
+                        (String) row[PostDetailRepository.Product.LINK_URL],
+                        (String) row[PostDetailRepository.Product.IMAGE_URL],
+                        toInt(row[PostDetailRepository.Product.DISPLAY_ORDER])))
+                .toList();
+    }
+
+    private List<PostDetailOption> detailOptions(Long id) {
+        return detailRepository.findOptions(id).stream()
+                .map(row -> new PostDetailOption(
+                        toLong(row[PostDetailRepository.Option.ID]),
+                        (String) row[PostDetailRepository.Option.LABEL],
+                        toNullableLong(row[PostDetailRepository.Option.PRODUCT_ID]),
+                        toInt(row[PostDetailRepository.Option.DISPLAY_ORDER]),
+                        toLong(row[PostDetailRepository.Option.VOTE_COUNT])))
+                .toList();
     }
 
     private static Long toNullableLong(Object raw) {
