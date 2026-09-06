@@ -3,6 +3,8 @@ package app.pickple.auth.domain;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -40,14 +42,33 @@ class UserTest {
                     .withMessageContaining("provider");
         }
 
-        @Test
-        @DisplayName("활성 Apple 사용자는 providerId 없이 복원할 수 없다")
-        void activeAppleUserRequiresProviderId() {
+        /** 활성 회원은 언제나 로그인 식별자를 가져야 한다 (R-28). provider 를 가리지 않는다. */
+        @ParameterizedTest
+        @EnumSource(SocialProvider.class)
+        @DisplayName("활성 사용자는 provider 와 무관하게 providerId 없이 복원할 수 없다")
+        void activeUserRequiresProviderId(SocialProvider provider) {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> User.restore(
-                            1L, SocialProvider.APPLE, null, null, null,
+                            1L, provider, null, null, null,
                             Role.ROLE_USER, User.State.ACTIVE, null, null))
                     .withMessageContaining("providerId");
+        }
+
+        /**
+         * 파기한 행을 다시 읽을 수 있어야 한다. 이 가드가 APPLE 한정이던 시절에는
+         * 마스킹한 카카오 행을 복원하는 순간 모든 조회가 여기서 터졌다 (ADR-0040).
+         */
+        @ParameterizedTest
+        @EnumSource(SocialProvider.class)
+        @DisplayName("탈퇴 사용자는 provider 와 무관하게 providerId 없이 복원할 수 있다")
+        void withdrawnUserRestoresWithoutProviderId(SocialProvider provider) {
+            User restored = User.restore(
+                    1L, provider, null, null, null,
+                    Role.ROLE_USER, User.State.INACTIVE, null, null);
+
+            assertThat(restored.provider()).isEqualTo(provider);
+            assertThat(restored.providerId()).isNull();
+            assertThat(restored.isActive()).isFalse();
         }
     }
 
@@ -84,28 +105,38 @@ class UserTest {
     @DisplayName("탈퇴")
     class Withdrawal {
 
-        @Test
-        @DisplayName("비 Apple 사용자는 탈퇴해도 소셜 식별자를 유지한다")
-        void nonAppleWithdrawalKeepsProviderId() {
-            User user = new User(SocialProvider.GOOGLE, "g-1", null, null);
-
-            user.withdraw();
-
-            assertThat(user.isActive()).isFalse();
-            assertThat(user.state()).isEqualTo(User.State.INACTIVE);
-            assertThat(user.providerId()).isEqualTo("g-1");
-        }
-
-        @Test
-        @DisplayName("Apple 사용자는 탈퇴하면 소셜 식별자를 놓는다")
-        void appleWithdrawalReleasesProviderId() {
-            User user = new User(SocialProvider.APPLE, "apple-sub", null, null);
+        /**
+         * 이전에는 "비 Apple 사용자는 탈퇴해도 소셜 식별자를 유지한다" 였다.
+         * 개인정보처리방침 제3조가 그 계약을 뒤집었다 — 파기 여부를 가르는 것은
+         * 소셜 제공자가 아니라 탈퇴 사실이다 (R-27, ADR-0040).
+         */
+        @ParameterizedTest
+        @EnumSource(SocialProvider.class)
+        @DisplayName("탈퇴하면 provider 와 무관하게 소셜 식별자를 파기한다")
+        void withdrawalErasesProviderIdForEveryProvider(SocialProvider provider) {
+            User user = new User(provider, "sub-1", null, null);
 
             user.withdraw();
 
             assertThat(user.isActive()).isFalse();
             assertThat(user.state()).isEqualTo(User.State.INACTIVE);
             assertThat(user.providerId()).isNull();
+        }
+
+        @ParameterizedTest
+        @EnumSource(SocialProvider.class)
+        @DisplayName("탈퇴하면 수집한 개인정보를 전부 파기한다")
+        void withdrawalErasesAllPersonalData(SocialProvider provider) {
+            User user = new User(provider, "sub-1", "user@example.com", "홍길동");
+            user.registerProfile(new Nickname("피클"), "https://cdn.example.com/p.png");
+
+            user.withdraw();
+
+            assertThat(user.providerId()).isNull();
+            assertThat(user.email()).isNull();
+            assertThat(user.name()).isNull();
+            assertThat(user.nickname()).isNull();
+            assertThat(user.profileImageUrl()).isNull();
         }
 
         @Test
@@ -200,17 +231,24 @@ class UserTest {
                     .withMessageContaining("탈퇴");
         }
 
+        /**
+         * 이전에는 "탈퇴해도 닉네임 값 자체는 남는다" 였고, 근거는 "도메인이 값을 지우면
+         * 누가 쓰던 닉네임인지를 잃는다" 였다. 개인정보처리방침 제3조가 그 근거를 뒤집었다 —
+         * 닉네임은 제1조의 수집 항목이라 파기 대상이다 (R-27, ADR-0040).
+         *
+         * <p>반납 장치(R-21)는 그대로다. 인덱스에서 빠지는 것은 여전히 생성 컬럼이 하고,
+         * 마스킹은 그 위에 더해진 것이지 대체가 아니다.
+         */
         @Test
-        @DisplayName("탈퇴해도 닉네임 값 자체는 남는다")
-        void withdrawKeepsNicknameValue() {
-            // 반납은 값을 지워서가 아니라 스키마의 생성 컬럼이 state 를 보기 때문에 일어난다.
-            // 도메인이 값을 지우면 "누가 쓰던 닉네임인지" 를 잃는다.
+        @DisplayName("탈퇴하면 닉네임 값도 파기한다")
+        void withdrawErasesNicknameValue() {
             User user = new User(SocialProvider.GOOGLE, "google-123", null, "홍길동");
             user.registerProfile(new Nickname("피클"), null);
 
             user.withdraw();
 
-            assertThat(user.nickname()).isEqualTo(new Nickname("피클"));
+            assertThat(user.nickname()).isNull();
+            assertThat(user.hasProfile()).isFalse();
             assertThat(user.isActive()).isFalse();
         }
     }
