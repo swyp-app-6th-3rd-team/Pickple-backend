@@ -14,7 +14,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 @Profile("dev & !prod & !production")
 @ConditionalOnProperty(prefix = "app.auth.qa-login", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(QaLoginProperties.class)
-public class QaLoginConfiguration {
+public class QaLoginConfig {
 
     @Bean
     public QaLoginService qaLoginService(QaLoginProperties properties,

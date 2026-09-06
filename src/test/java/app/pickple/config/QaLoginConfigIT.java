@@ -24,7 +24,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-class QaLoginConfigurationIT {
+class QaLoginConfigIT {
 
     private static String passwordHash;
 
@@ -35,7 +35,7 @@ class QaLoginConfigurationIT {
 
     private WebApplicationContextRunner runner() {
         return new WebApplicationContextRunner()
-                .withUserConfiguration(MvcConfiguration.class, QaLoginConfiguration.class, QaLoginController.class)
+                .withUserConfiguration(MvcConfiguration.class, QaLoginConfig.class, QaLoginController.class)
                 .withBean(UserStore.class, () -> mock(UserStore.class))
                 .withBean(AuthService.class, () -> mock(AuthService.class))
                 .withPropertyValues(
