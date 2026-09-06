@@ -1,13 +1,13 @@
 package app.pickple.comment.service;
 
 import app.pickple.comment.domain.CommentQueryStore;
+import app.pickple.common.RelativeTime;
 import app.pickple.post.service.ActivePostGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -46,27 +46,15 @@ public class CommentQueryService {
                 viewerId != null && viewerId.equals(comment.authorId()));
     }
 
+    /**
+     * 화면용 상대 시각.
+     *
+     * <p>계산은 {@link RelativeTime} 이 한다 — 게시글 상세(§6.2)가 같은 문구를 쓰는데
+     * 여기에 두면 정본이 둘이 되고 경계값에서 갈라진다. 이 메서드는 기존 호출과
+     * 경계값 테스트를 그대로 두기 위한 위임이다.
+     */
     static String relativeTime(LocalDateTime createdAt, LocalDateTime now) {
-        Duration elapsed = Duration.between(createdAt, now);
-        if (elapsed.isNegative()) {
-            elapsed = Duration.ZERO;
-        }
-
-        long minutes = elapsed.toMinutes();
-        if (minutes < 60) {
-            return minutes + "분 전";
-        }
-
-        long hours = elapsed.toHours();
-        if (hours < 24) {
-            return hours + "시간 전";
-        }
-
-        long days = elapsed.toDays();
-        if (days < 365) {
-            return days + "일 전";
-        }
-        return days / 365 + "년 전";
+        return RelativeTime.of(createdAt, now);
     }
 
     public record CommentListResult(long commentCount, List<CommentResult> comments) {

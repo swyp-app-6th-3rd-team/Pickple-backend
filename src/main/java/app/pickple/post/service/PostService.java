@@ -1,6 +1,7 @@
 package app.pickple.post.service;
 
 import app.pickple.common.CursorCodec;
+import app.pickple.common.RelativeTime;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
@@ -14,18 +15,21 @@ import app.pickple.post.domain.PostProduct;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
+import app.pickple.vote.domain.VotePercentage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 
-/** 게시글 작성과 목록 조회 유스케이스를 제공한다. */
+/** 게시글 작성과 목록·상세 조회 유스케이스를 제공한다. */
 @Service
 @RequiredArgsConstructor
 public class PostService {
@@ -43,6 +47,7 @@ public class PostService {
     private final PostStore postStore;
     private final ItemContainerStore itemContainerStore;
     private final RandomGenerator randomGenerator;
+    private final Clock clock;
 
     /** 업로드된 상품 사진 컨테이너를 검증하고 게시글 애그리거트를 한 트랜잭션으로 발행한다. */
     @Transactional
@@ -113,6 +118,95 @@ public class PostService {
         ScrollPosition position = CursorCodec.decode(cursor);
         long initialSeed = position.isInitial() ? randomGenerator.nextLong() : 0L;
         return postStore.findRandomSlice(type, viewerId, position, RANDOM_SLICE_SIZE, initialSeed);
+    }
+
+    /**
+     * 게시글 상세 (§6.2·§6.3). 응답 계약은 ADR-0040 이 정한다.
+     *
+     * <p>게스트도 부르는 화면이라 {@code viewerId} 가 {@code null} 일 수 있다.
+     * 그 값은 "이미 투표했는가" 를 가르는 데만 쓰이며, 게스트는 투표 이력을 가질 수
+     * 없으므로(R-11) 언제나 미투표로 답한다 — 기능 저하가 아니라 정확한 답이다.
+     *
+     * <p><b>없거나 삭제된 게시글은 404 다.</b> 소프트 삭제라 행은 남아 있지만
+     * 화면에는 없는 글이므로 "찾을 수 없다" 가 맞다. 삭제됐다는 사실 자체를 알리지 않아
+     * 지운 글의 존재가 새어 나가지도 않는다.
+     *
+     * <p><b>득표율은 투표한 사람에게만 준다.</b> 감춤을 여기서 하는 이유는 그것이
+     * 저장소의 관심사가 아니라 화면 계약이기 때문이다 — 저장소는 읽은 값을 그대로 올린다.
+     */
+    @Transactional(readOnly = true)
+    public PostDetail findDetail(Long id, Long viewerId) {
+        PostStore.PostDetailView view = postStore.findDetail(id, viewerId)
+                .orElseThrow(() -> new ApiException(
+                        ResponseCode.NOT_FOUND, "게시글을 찾을 수 없습니다: id=" + id));
+
+        return new PostDetail(view, LocalDateTime.now(clock), viewerId);
+    }
+
+    /**
+     * 상세 화면에 내려보낼 값 (§6.2·§6.3).
+     *
+     * <p>읽기 모델({@link PostStore.PostDetailView})을 그대로 쓰지 않고 한 겹 두는 이유는
+     * <b>감춤과 계산이 여기서 일어나기 때문</b>이다 — 미투표자에게 선택지별 집계를 지우고
+     * (ADR-0040), 상대 시각을 만들고, 내 글인지 판정한다. 저장소가 읽은 값과
+     * 화면이 볼 값이 다르므로 타입도 나눈다.
+     */
+    public record PostDetail(
+            PostStore.PostDetailView view,
+            LocalDateTime now,
+            Long viewerId) {
+
+        /** 화면용 상대 시각 (§6.2). 댓글과 같은 정본을 쓴다. */
+        public String createdAgo() {
+            return RelativeTime.of(view.createdAt(), now);
+        }
+
+        /** 내가 쓴 글인가. 게스트는 언제나 거짓이다. */
+        public boolean mine() {
+            return viewerId != null && viewerId.equals(view.authorId());
+        }
+
+        /** 투표 영역이 있는 게시글인가. 일반 게시글은 없다 (R-04). */
+        public boolean hasVoting() {
+            return view.type().hasVoting();
+        }
+
+        /**
+         * 선택지별 득표 현황. <b>투표한 사람에게만 값이 있다</b> (ADR-0040).
+         *
+         * <p>미투표자에게는 각 선택지의 {@code voteCount} 와 {@code percentage} 를
+         * <b>둘 다</b> 지운다. 하나만 지우면 선택지가 정확히 둘이고(R-04) 1인 1표라(R-09)
+         * {@code 나머지 = voterCount − 준 값} 으로 완전히 복원된다.
+         */
+        public List<OptionTally> options() {
+            boolean voted = view.voted();
+            return view.options().stream()
+                    .map(option -> new OptionTally(
+                            option.id(),
+                            option.label(),
+                            option.productId(),
+                            option.displayOrder(),
+                            voted ? option.voteCount() : null,
+                            voted ? VotePercentage.calculate(option.voteCount(), view.voterCount()) : null))
+                    .toList();
+        }
+
+    }
+
+    /**
+     * 선택지 하나의 득표 현황 (§6.3).
+     *
+     * @param voteCount  득표 수. <b>미투표자에게는 {@code null}</b> 이다 (ADR-0040)
+     * @param percentage 득표율. <b>미투표자에게는 {@code null}</b> 이다.
+     *                   0 으로 채우지 않는다 — "자격 없음" 과 "정말 0표" 가 구분되지 않는다
+     */
+    public record OptionTally(
+            Long optionId,
+            String label,
+            Long productId,
+            int displayOrder,
+            Long voteCount,
+            Integer percentage) {
     }
 
     private Post assemble(Long authorId, CreateCommand command, List<ProductCommand> products) {
