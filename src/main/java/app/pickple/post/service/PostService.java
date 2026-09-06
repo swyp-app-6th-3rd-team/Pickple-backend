@@ -121,7 +121,7 @@ public class PostService {
     }
 
     /**
-     * 게시글 상세 (§6.2·§6.3). 응답 계약은 ADR-0040 이 정한다.
+     * 게시글 상세 (§6.2·§6.3). 응답 계약은 ADR-0041 이 정한다.
      *
      * <p>게스트도 부르는 화면이라 {@code viewerId} 가 {@code null} 일 수 있다.
      * 그 값은 "이미 투표했는가" 를 가르는 데만 쓰이며, 게스트는 투표 이력을 가질 수
@@ -148,7 +148,7 @@ public class PostService {
      *
      * <p>읽기 모델({@link PostStore.PostDetailView})을 그대로 쓰지 않고 한 겹 두는 이유는
      * <b>감춤과 계산이 여기서 일어나기 때문</b>이다 — 미투표자에게 선택지별 집계를 지우고
-     * (ADR-0040), 상대 시각을 만들고, 내 글인지 판정한다. 저장소가 읽은 값과
+     * (ADR-0041), 상대 시각을 만들고, 내 글인지 판정한다. 저장소가 읽은 값과
      * 화면이 볼 값이 다르므로 타입도 나눈다.
      */
     public record PostDetail(
@@ -172,7 +172,7 @@ public class PostService {
         }
 
         /**
-         * 선택지별 득표 현황. <b>투표한 사람에게만 값이 있다</b> (ADR-0040).
+         * 선택지별 득표 현황. <b>투표한 사람에게만 값이 있다</b> (ADR-0041).
          *
          * <p>미투표자에게는 각 선택지의 {@code voteCount} 와 {@code percentage} 를
          * <b>둘 다</b> 지운다. 하나만 지우면 선택지가 정확히 둘이고(R-04) 1인 1표라(R-09)
@@ -196,7 +196,7 @@ public class PostService {
     /**
      * 선택지 하나의 득표 현황 (§6.3).
      *
-     * @param voteCount  득표 수. <b>미투표자에게는 {@code null}</b> 이다 (ADR-0040)
+     * @param voteCount  득표 수. <b>미투표자에게는 {@code null}</b> 이다 (ADR-0041)
      * @param percentage 득표율. <b>미투표자에게는 {@code null}</b> 이다.
      *                   0 으로 채우지 않는다 — "자격 없음" 과 "정말 0표" 가 구분되지 않는다
      */

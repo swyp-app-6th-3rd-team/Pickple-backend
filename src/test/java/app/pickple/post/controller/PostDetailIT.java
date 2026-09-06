@@ -97,7 +97,7 @@ class PostDetailIT {
     void generalPostHasNoVoteSection() throws Exception {
         // 완료 판정: "일반 게시글 응답에 투표 영역이 없음".
         // 일반 게시글은 선택지를 갖지 않고(R-04) 상품도 없다(R-02) — "빈 배열" 이 아니라
-        // 투표라는 기능 자체가 없으므로 섹션을 통째로 null 로 준다 (ADR-0040).
+        // 투표라는 기능 자체가 없으므로 섹션을 통째로 null 로 준다 (ADR-0041).
         Long postId = saveGeneralPost("그냥 잡담").id();
         flush();
 
@@ -168,7 +168,7 @@ class PostDetailIT {
     @Test
     @DisplayName("득표율은 투표 API 응답과 같은 값이다")
     void percentageMatchesVoteApi() throws Exception {
-        // 같은 게이지를 두 경로가 그린다 (ADR-0040). 반올림이 다르면 투표하자마자
+        // 같은 게이지를 두 경로가 그린다 (ADR-0041). 반올림이 다르면 투표하자마자
         // 게이지 폭이 미세하게 달라지므로 두 응답의 값을 직접 대조한다.
         Post post = saveAgreePost("반올림 대조", 1);
         Long postId = post.id();
@@ -271,7 +271,7 @@ class PostDetailIT {
     @Test
     @DisplayName("배치가 아직 순위를 매기지 않은 작성자는 authorRanking 이 null 로 그대로 실린다 (ADR-0028)")
     void authorRankingIsNullWhenNotYetComputed() throws Exception {
-        // ADR-0028·ADR-0040 열린 질문: 목록은 null 을 그대로 싣는다. 상세도 같아야 한다.
+        // ADR-0028·ADR-0041 열린 질문: 목록은 null 을 그대로 싣는다. 상세도 같아야 한다.
         // 신규 유저는 배치가 돌기 전이라 users.ranking 이 null 이다 — 지어낸 0 이나
         // 필드 부재가 아니라 "null 이 그대로 응답에 실리는지" 를 직접 확인한다.
         Long rankingIsNull = jdbcTemplate.queryForObject(
@@ -322,7 +322,7 @@ class PostDetailIT {
         // 완료 판정: "아직 투표하지 않은 사용자는 득표율이 노출되지 않음 → 해당 필드 부재".
         //
         // 득표 수와 득표율을 <b>둘 다</b> 본다. 하나만 빼면 선택지가 정확히 둘이고(R-04)
-        // 1인 1표라(R-09) `나머지 = voterCount − 준 값` 으로 완전히 복원된다 (ADR-0040).
+        // 1인 1표라(R-09) `나머지 = voterCount − 준 값` 으로 완전히 복원된다 (ADR-0041).
         Post post = saveAgreePost("미투표 조회", 1);
         Long postId = post.id();
         voteService.castOrChange(postId, optionIdAt(postId, 1), author.id());

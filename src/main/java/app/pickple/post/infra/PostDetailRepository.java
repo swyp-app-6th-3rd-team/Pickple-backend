@@ -47,7 +47,7 @@ class PostDetailRepository {
      *
      * <p>내 투표는 {@code LEFT JOIN} 이다. 게스트({@code :viewerId} 가 null)이거나
      * 아직 투표하지 않았으면 {@code my_option_id} 가 null 이고, 그 null 이 곧
-     * "득표율을 감춘다" 의 입력이 된다 (ADR-0040). 조인 조건에 {@code v.user_id = :viewerId}
+     * "득표율을 감춘다" 의 입력이 된다 (ADR-0041). 조인 조건에 {@code v.user_id = :viewerId}
      * 를 넣으므로 게스트여도 행이 사라지지 않는다.
      *
      * <p>작성자 닉네임의 {@code COALESCE} 는 목록과 같다 — 닉네임을 아직 정하지 않았으면

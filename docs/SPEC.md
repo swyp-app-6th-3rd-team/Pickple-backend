@@ -230,7 +230,7 @@ app/pickple/
 
 **`GET /posts/{id}` — 게시글 상세 (§6.2·§6.3)**
 
-응답 계약은 [ADR-0040](adr/0040-post-detail-single-type-with-nested-vote-section.md) 이 정한다.
+응답 계약은 [ADR-0041](adr/0041-post-detail-single-type-with-nested-vote-section.md) 이 정한다.
 
 - **게스트 허용.** 목록이 공개인데 상세가 막히면 카드를 눌러 갈 곳이 없다. 다만 인증을
   **선택적으로** 받아, 토큰이 있으면 "이미 투표했는가" 와 "내 글인가" 를 개인화한다.

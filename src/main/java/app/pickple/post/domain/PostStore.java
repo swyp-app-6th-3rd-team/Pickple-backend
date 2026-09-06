@@ -143,7 +143,7 @@ public interface PostStore {
     }
 
     /**
-     * 상세 화면 한 건 (§6.2·§6.3). 응답 계약은 ADR-0040 이 정한다.
+     * 상세 화면 한 건 (§6.2·§6.3). 응답 계약은 ADR-0041 이 정한다.
      *
      * <p><b>세 유형을 한 레코드로 받는다.</b> 유형별로 갈리는 것은 타입이 아니라
      * {@code products}·{@code options} 가 비어 있는지 여부다 — 일반 게시글은 둘 다 비고
@@ -161,7 +161,7 @@ public interface PostStore {
      *                      {@code null} 이다 — 0 을 지어내지 않는다 (ADR-0028)
      * @param authorGrade   작성자가 도달한 최고 등급 (R-16). 가입 시 LV.1 이 기본이라 비지 않는다
      * @param myOptionId    내가 고른 선택지. <b>{@code null} 이면 아직 투표하지 않았다</b>
-     *                      (게스트 포함). 이 값의 유무가 득표율 노출을 가른다 (ADR-0040)
+     *                      (게스트 포함). 이 값의 유무가 득표율 노출을 가른다 (ADR-0041)
      */
     record PostDetailView(
             Long id,
@@ -208,7 +208,7 @@ public interface PostStore {
      * 상세의 선택지 한 건 (§6.3). 투표 게시글은 정확히 둘, 일반은 없다 (R-04).
      *
      * <p><b>득표 수를 여기서 감추지 않는다.</b> 저장소는 읽은 값을 그대로 올리고,
-     * 미투표자에게 감추는 판단은 컨트롤러가 한다 (ADR-0040) — 감춤이 화면 계약이지
+     * 미투표자에게 감추는 판단은 컨트롤러가 한다 (ADR-0041) — 감춤이 화면 계약이지
      * 저장소의 관심사가 아니기 때문이다. {@link RandomOptionView} 와 같은 판단이다.
      *
      * @param label     찬반만 값이 있다. A/B 선택지는 상품이 이름을 대신하므로 {@code null}

@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 탈퇴 회원 토큰으로 게시글 상세를 조회하는 경로 (ADR-0035 강등 관문 · ADR-0040 응답 계약).
+ * 탈퇴 회원 토큰으로 게시글 상세를 조회하는 경로 (ADR-0035 강등 관문 · ADR-0041 응답 계약).
  *
  * <p>{@code GET /posts/{id}} 는 permitAll 이고 {@code AnonymousDemotionFilter} 의
  * 강등 대상 경로다(개인화하는 공개 경로라 {@code SKIP_DEMOTION} 에 없다). 탈퇴 <b>전</b>에
