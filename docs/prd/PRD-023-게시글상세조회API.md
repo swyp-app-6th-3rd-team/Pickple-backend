@@ -76,14 +76,39 @@ v0.3·v0.4 의 §6.2·§6.3 을 차례로 대조했고 **상세 조회 관련 �
 | 판정 | 검증 방법 | 검증 위치 |
 |---|---|---|
 | 일반 게시글 응답에 투표 영역이 없음 (R-04) | 일반 게시글 조회 후 `$.returnObject.vote` 가 `null` 이고 상품·선택지 키가 없음을 확인 | `PostDetailIT.generalPostHasNoVoteSection` |
-| 이미 투표한 사용자는 응답에 득표율이 포함됨 | 투표 API 호출 후 같은 토큰으로 재조회 → `vote.voted == true`, `vote.selectedOptionId` 일치, 두 선택지 모두 `percentage` 존재하고 합이 100±1 | `PostDetailIT.votedUserSeesPercentage` |
-| 아직 투표하지 않은 사용자는 득표율이 노출되지 않음 | 미투표 회원·게스트 각각 조회 → `voteCount`·`percentage` 키가 **둘 다** `doesNotExist()`. 역산 방지를 위해 둘 다 본다 | `PostDetailIT.unvotedUserSeesNoTally` · `PostDetailIT.guestSeesNoTally` |
-| 삭제된 게시글 조회 시 404 | 소프트 삭제 후 조회 → HTTP 404, `code == "NOT_FOUND"` | `PostDetailIT.deletedPostReturns404` |
-| 조회 시 N+1 쿼리가 발생하지 않음 | Hibernate `Statistics.getPrepareStatementCount()` 로 실행 문장 수를 세고, **상품 수(1↔2)와 사진 수(1↔3)를 바꿔도 값이 변하지 않음**을 확인. 절대값을 PR 에 병기 | `PostDetailIT.queryCountIsFlat` |
+| 이미 투표한 사용자는 응답에 득표율이 포함됨 | 투표 API 호출 후 같은 토큰으로 재조회 → `vote.voted == true`, `vote.selectedOptionId` 일치, 두 선택지 모두 `percentage` 존재하고 합이 100±1 | `PostDetailIT.votedUserSeesPercentage` · `PostDetailIT.votedUserSeesProductIdAndPercentageOnAbPost`(A/B) |
+| 아직 투표하지 않은 사용자는 득표율이 노출되지 않음 | 미투표 회원·게스트 각각 조회 → `voteCount`·`percentage` 키가 **둘 다** `doesNotExist()`. 역산 방지를 위해 둘 다 본다 | `PostDetailIT.unvotedUserSeesNoTally` · `PostDetailIT.guestSeesNoTally` · `PostDetailWithdrawnUserIT.withdrawnUserTokenIsDemotedToGuestResponse`(탈퇴자) |
+| 삭제된 게시글 조회 시 404 | 소프트 삭제 후 조회 → HTTP 404, `code == "NOT_FOUND"` | `PostDetailIT.deletedPostReturns404` · `PostDetailIT.missingPostReturns404` · `PostDetailIT.deletedPostWithVoteHistoryStillReturns404` |
+| 조회 시 N+1 쿼리가 발생하지 않음 | Hibernate `Statistics.getPrepareStatementCount()` 로 실행 문장 수를 세고, **상품 수(1↔2)와 사진 수(1↔3)를 바꿔도 값이 변하지 않음**을 확인. 절대값을 PR 에 병기 | `PostDetailIT.queryCountIsFlat` · `PostDetailIT.viewerVoteAddsNoQuery` · `PostDetailIT.queryCountIsFlatForAuthenticatedViewer` |
 
 > 쿼리 **횟수**만으로는 부족하다는 것을 이 저장소가 이미 실측했다
 > (`PostListRepository` javadoc: 조인 순서만 바꿔 454ms → 0.23ms, 둘 다 statement 1개).
 > 횟수를 고정하는 것은 팬아웃이 없다는 증거일 뿐이므로, 절대 실행 시간도 함께 기록한다.
+
+### 실측값
+
+| 항목 | 값 |
+|---|---|
+| 문장 수 (게스트) | **3** — 본문+작성자+내 투표 / 상품+사진 / 선택지 |
+| 문장 수 (일반 게시글) | **1** — 상품·선택지 조회를 건너뛴다 |
+| 문장 수 (인증) | **4** — 위 3 + 탈퇴 신원 강등 관문의 계정 상태 확인(ADR-0035). 요청당 상수 |
+| 사진 1장 → 3장 | 3 → **3** (불변) |
+| 상품 1개 → 2개 | 3 → **3** (불변) |
+| `EXPLAIN ANALYZE` 본문 | `Rows fetched before execution` (PK 상수 폴딩) |
+| `EXPLAIN ANALYZE` 상품 | `Index lookup on pp using uk_product_post_order` · 0.016ms |
+| `EXPLAIN ANALYZE` 사진 서브쿼리 | `Index lookup on ir using idx_resource_container` · 0.025ms |
+| `EXPLAIN ANALYZE` 선택지 | `Index lookup on po using uk_option_post_order` · 0.008ms |
+| filesort · 풀스캔 | **0건** |
+
+### 문서 표면 실측 (스펙 JSON 직접 계수)
+
+| 항목 | 결과 |
+|---|---|
+| `components.securitySchemes` | `bearerAuth` 존재 |
+| 인증 / 공개 개수 | 21 / 12 — `PUBLIC_ENDPOINTS` 와 1:1 일치 |
+| `/posts/{id}` 의 `security` | **부재** (게스트 허용이므로 정상) |
+| 태그 `*-controller` 잔재 | **0건** |
+| 응답 DTO 필드 설명 결손 | **0건** (4개 DTO 33필드) |
 
 ### 문서 표면 판정 (openapi-documentation 룰)
 
@@ -99,8 +124,8 @@ v0.3·v0.4 의 §6.2·§6.3 을 차례로 대조했고 **상세 조회 관련 �
 - **게스트 게이지.** §6.3 은 게스트에게 3표를 허용하지만 R-11 로 서버에 남지 않는다.
   기본값은 "게스트에게 집계를 주지 않는다" 로 두고, 기획이 게스트 게이지를 요구하면
   별도 사이클에서 다룬다 (ADR-0040).
-- **`authorRanking` 의 null 표현.** 목록은 `null` 을 싣고 `MyRankingResponse` 는 뺀다.
-  상세는 목록에 맞춘다 — 같은 필드명이 두 API 에서 다르게 동작하면 안 된다.
+- ~~**`authorRanking` 의 null 표현.**~~ **해소됨** — 목록에 맞춰 `null` 을 그대로 싣는다.
+  `PostDetailIT.authorRankingIsNullWhenNotYetComputed` 가 키는 있고 값이 null 임을 실측했다.
 - **작성자 등급 명칭.** `Grade.displayName()` 은 `"LV.2"` 형태의 레벨 표기라
   ADR-0031 이 뱃지 이름에서 경계한 "마케팅 명칭 변경 시 배포 동반" 위험이 없다.
   `authorGradeLevel` 과 함께 실어도 안전하다고 판단했다.
