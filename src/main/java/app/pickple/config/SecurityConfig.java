@@ -128,8 +128,12 @@ public class SecurityConfig {
                                 // 명세 §6.4 가 게스트에게 "로그인 후 열람할 수 있어요" 로 바뀌었다.
                                 // 공개 여부는 경로 접두사가 아니라 엔드포인트마다 판단한다.
                                 //
-                                // /posts/popular·/posts/random 과 세그먼트 수가 같지만 PathPattern 은
-                                // 리터럴을 변수보다 우선해 매칭하므로 서로를 가리지 않는다.
+                                // /posts/popular·/posts/random 과 세그먼트 수가 같아 이 변수 패턴이
+                                // 둘을 함께 삼킨다. 여기서는 셋 다 permitAll 이라 결과가 같지만,
+                                // <b>여기의 매칭 규칙은 선언 순서</b>다(먼저 걸리는 matcher 가 이긴다) —
+                                // 리터럴을 변수보다 우선하는 것은 Spring MVC 의 핸들러 매핑이지
+                                // 이 인가 체인이 아니다. 나중에 /posts/{id} 만 인증으로 돌리려면
+                                // 순서에 기대지 말고 리터럴 경로를 이 줄보다 <b>위</b>에 두어야 한다.
                                 mvc.matcher(HttpMethod.GET, "/posts/{id}"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
                                 mvc.matcher(HttpMethod.GET, "/users/nickname/availability"),
