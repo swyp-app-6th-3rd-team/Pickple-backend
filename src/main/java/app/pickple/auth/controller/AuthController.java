@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Auth", description = "Kakao·Apple OAuth2/OIDC 로그인 · 서비스 JWT")
+@Tag(name = "Auth", description = "소셜·QA 로그인 · 서비스 JWT")
 @RestController
 @RequiredArgsConstructor
 public class AuthController {

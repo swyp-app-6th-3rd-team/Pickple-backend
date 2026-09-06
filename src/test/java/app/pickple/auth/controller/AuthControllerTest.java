@@ -101,7 +101,7 @@ class AuthControllerTest {
     }
 
     @Test
-    void oauth2LoginUrisUseProviderNamesInsteadOfEnvironmentNames() throws Exception {
+    void loginUrisDoNotContainEnvironmentNames() throws Exception {
         var appleMapping = AuthController.class.getDeclaredMethod(
                         "appleLogin", AuthController.AppleLoginRequest.class,
                         jakarta.servlet.http.HttpServletResponse.class)
@@ -110,11 +110,24 @@ class AuthControllerTest {
                         "kakaoLogin", AuthController.KakaoLoginRequest.class,
                         jakarta.servlet.http.HttpServletResponse.class)
                 .getAnnotation(org.springframework.web.bind.annotation.PostMapping.class);
+        var qaMapping = QaLoginController.class.getDeclaredMethod(
+                        "login", QaLoginController.QaLoginRequest.class,
+                        jakarta.servlet.http.HttpServletResponse.class)
+                .getAnnotation(org.springframework.web.bind.annotation.PostMapping.class);
 
-        assertThat(List.of(appleMapping.value()[0], kakaoMapping.value()[0]))
-                .containsExactly("/auth/apple", "/auth/kakao")
+        assertThat(List.of(appleMapping.value()[0], kakaoMapping.value()[0], qaMapping.value()[0]))
+                .containsExactly("/auth/apple", "/auth/kakao", "/auth/login")
                 .allSatisfy(path -> assertThat(path)
                         .doesNotContain("/dev", "/local", "/stage", "/staging", "/prod", "/production"));
+    }
+
+    @Test
+    void qaLoginRequestStringRedactsPassword() {
+        var request = new QaLoginController.QaLoginRequest("qa-user", "secret-password");
+
+        assertThat(request.toString())
+                .isEqualTo("QaLoginRequest[redacted]")
+                .doesNotContain("qa-user", "secret-password");
     }
 
     @Test

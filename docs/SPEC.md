@@ -84,6 +84,7 @@ app/pickple/
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
 | POST | `/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
 | POST | `/auth/kakao` | — | iOS Kakao ID token·nonce 검증 + 서비스 JWT 발급 |
+| POST | `/auth/login` | QA ID·비밀번호 | dev에서 별도 활성화한 경우에만 기존 QA 계정의 서비스 JWT 발급 |
 | GET | `/auth/me` | 필요 | 내 정보 |
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
@@ -105,13 +106,18 @@ app/pickple/
 
 **로그인 경계**
 
-- 모바일 제품의 로그인 수단은 Kakao·Apple OAuth2/OIDC뿐이다. 서비스 자체 아이디·비밀번호나
-  내부 `userId`·공유 키로 JWT를 직접 발급하는 별도 로그인 엔드포인트를 제공하지 않는다.
+- 모바일 제품의 사용자 로그인은 Kakao·Apple OAuth2/OIDC를 사용한다. 이와 별도로 자동화·수동 QA가
+  소셜 로그인 화면을 거치지 않도록 dev에서만 QA 아이디·비밀번호 로그인을 명시적으로 활성화할 수 있다.
 - `/auth/kakao`는 Kakao ID token·nonce를, `/auth/apple`은 Apple authorization code·ID token·
   raw nonce를 검증한 뒤 Pickple access/refresh JWT를 발급한다. Pickple JWT는 소셜 로그인 완료 뒤
   보호 API에서 사용하는 서비스 인증 토큰이지, 소셜 신원 검증을 대신하는 로그인 자격증명이 아니다.
-- 로그인 URI에는 `dev`·`prod` 같은 환경명을 넣지 않는다. 환경은 배포 호스트와 프로필,
-  OAuth client·redirect 설정으로 분리하고 모든 환경에서 같은 `/auth/kakao`·`/auth/apple` 계약을 쓴다.
+- QA 로그인은 `{"loginId":"...","password":"..."}`를 받으며 내부 `userId`나 공유 헤더 키를
+  요청 자격증명으로 사용하지 않는다. 서버 설정의 BCrypt 해시와 일치하고 연결된 기존 계정이
+  `ACTIVE`·`ROLE_USER`일 때만 기존 access/refresh JWT 발급 흐름으로 진입한다.
+- `/auth/login`에는 `dev`·`prod` 같은 환경명을 넣지 않는다. 노출 여부는
+  `dev & !prod & !production` 프로필과 `QA_LOGIN_ENABLED=true`로 결정한다. 비밀번호 원문은
+  코드·DB·설정에 저장하지 않고 `QA_LOGIN_PASSWORD_HASH`로만 주입한다.
+- 상세 설정과 호출 방법: [QA 로그인 Runbook](qa-login-runbook.md).
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
@@ -691,7 +697,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
-| 2026-09-06 | Kakao·Apple OAuth2/OIDC만 로그인 진입점으로 유지하고 환경명 없는 URI 계약을 명시 | Issue #117·PR #120 리뷰 반영. 내부 ID·공유 키 기반 직접 JWT 발급안 철회 |
+| 2026-09-06 | dev QA 아이디·비밀번호 로그인 `/auth/login` 추가. URI에서 환경명을 분리하고 BCrypt 설정 자격증명을 기존 활성 계정에 연결 | Issue #117·PR #120 리뷰 반영. 내부 ID·공유 헤더 키 방식 철회 |
 | 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |
 | 2026-09-05 | Apple 탈퇴 완료 시 `provider_id`를 분리하고, 동일 `sub` 재로그인을 이력 미승계의 새 회원으로 처리(ADR-0037) | Issue #103. Issue #40의 연결 해제 후 재로그인 계약이 비활성 행 조회로 403이 되던 회귀 수정 |
