@@ -15,6 +15,7 @@ import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.KeysetScrollPosition;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,11 @@ public class PostService {
 
     /** 홈 랜덤 투표 카드의 고정 조각 크기 (§2.2). */
     private static final int RANDOM_SLICE_SIZE = 10;
+
+    /** 검색 결과의 고정 조각 크기 (§4.5, 이슈 #122). */
+    private static final int SEARCH_SLICE_SIZE = 10;
+    private static final int MAX_SEARCH_KEYWORD_LENGTH = 30;
+    private static final int MAX_SEARCH_CURSOR_LENGTH = 1_024;
 
     private final PostStore postStore;
     private final ItemContainerStore itemContainerStore;
@@ -113,6 +119,14 @@ public class PostService {
         ScrollPosition position = CursorCodec.decode(cursor);
         long initialSeed = position.isInitial() ? randomGenerator.nextLong() : 0L;
         return postStore.findRandomSlice(type, viewerId, position, RANDOM_SLICE_SIZE, initialSeed);
+    }
+
+    /** 상품명·주제·일반 제목을 검색하고 정확한 전체 건수와 최신순 조각을 반환한다. */
+    @Transactional(readOnly = true)
+    public PostStore.PostSearchResult search(String keyword, String cursor) {
+        String normalizedKeyword = normalizeSearchKeyword(keyword);
+        ScrollPosition position = decodeSearchCursor(cursor);
+        return postStore.search(normalizedKeyword, position, SEARCH_SLICE_SIZE);
     }
 
     private Post assemble(Long authorId, CreateCommand command, List<ProductCommand> products) {
@@ -191,6 +205,58 @@ public class PostService {
             return DEFAULT_SIZE;
         }
         return Math.min(size, MAX_SIZE);
+    }
+
+    private static String normalizeSearchKeyword(String keyword) {
+        if (keyword == null) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "검색어는 필수입니다.");
+        }
+
+        int start = 0;
+        while (start < keyword.length()) {
+            int codePoint = keyword.codePointAt(start);
+            if (!isTrimmableSpace(codePoint)) {
+                break;
+            }
+            start += Character.charCount(codePoint);
+        }
+
+        int end = keyword.length();
+        while (end > start) {
+            int codePoint = keyword.codePointBefore(end);
+            if (!isTrimmableSpace(codePoint)) {
+                break;
+            }
+            end -= Character.charCount(codePoint);
+        }
+
+        String normalized = keyword.substring(start, end);
+        if (normalized.isEmpty() || normalized.length() > MAX_SEARCH_KEYWORD_LENGTH) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "검색어는 1자 이상 30자 이하여야 합니다.");
+        }
+        if (normalized.codePoints().anyMatch(Character::isISOControl)) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "검색어에 제어문자를 사용할 수 없습니다.");
+        }
+        return normalized;
+    }
+
+    private static boolean isTrimmableSpace(int codePoint) {
+        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
+    }
+
+    private static ScrollPosition decodeSearchCursor(String cursor) {
+        if (cursor == null) {
+            return ScrollPosition.keyset();
+        }
+        if (cursor.isBlank() || cursor.length() > MAX_SEARCH_CURSOR_LENGTH) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "검색 커서 형식이 올바르지 않습니다.");
+        }
+
+        ScrollPosition position = CursorCodec.decode(cursor);
+        if (position instanceof KeysetScrollPosition keyset && keyset.getKeys().isEmpty()) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "검색 커서 형식이 올바르지 않습니다.");
+        }
+        return position;
     }
 
     private static String resolveTitle(PostType type, String requestedTitle, List<ProductCommand> products) {

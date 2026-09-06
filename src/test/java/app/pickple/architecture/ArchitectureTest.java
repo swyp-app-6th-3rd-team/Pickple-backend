@@ -390,6 +390,7 @@ class ArchitectureTest {
                 "GET /posts",
                 "GET /posts/popular",
                 "GET /posts/random",
+                "GET /posts/search",
                 "GET /users/nickname/availability",
                 "GET /rankings",
                 "GET /rankings/top",

@@ -121,6 +121,8 @@ public class SecurityConfig {
                                 mvc.matcher(HttpMethod.GET, "/posts/popular"),
                                 // 랜덤 투표 카드. 게스트도 보고, 토큰이 있으면 내 투표 결과도 붙인다.
                                 mvc.matcher(HttpMethod.GET, "/posts/random"),
+                                // 검색도 커뮤니티 공개 탐색의 일부이며 응답을 사용자별로 개인화하지 않는다.
+                                mvc.matcher(HttpMethod.GET, "/posts/search"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
                                 mvc.matcher(HttpMethod.GET, "/users/nickname/availability"),
                                 // 홈 화면의 인기 피커와 그 [더보기] 목록이라 로그인 전에 부른다 (§2.5·§3.1).

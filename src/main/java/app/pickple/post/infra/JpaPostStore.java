@@ -36,6 +36,7 @@ public class JpaPostStore implements PostStore {
     private final PostRepository repository;
     private final PostProductRepository productRepository;
     private final PostListRepository listRepository;
+    private final PostSearchRepository searchRepository;
     private final RandomPostRepository randomRepository;
     private final Clock clock;
 
@@ -124,6 +125,29 @@ public class JpaPostStore implements PostStore {
 
     @Override
     @Transactional(readOnly = true)
+    public PostSearchResult search(String keyword, ScrollPosition position, int size) {
+        PostSearchCursor cursor = PostSearchCursor.from(position, keyword);
+        List<Object[]> rows = searchRepository.search(keyword, cursor, size);
+        long totalCount = rows.isEmpty()
+                ? 0L
+                : toLong(rows.getFirst()[PostSearchRepository.Column.TOTAL_COUNT]);
+
+        List<Object[]> candidates = rows.stream()
+                .filter(row -> row[PostSearchRepository.Column.ID] != null)
+                .toList();
+        boolean hasNext = candidates.size() > size;
+        List<Object[]> page = hasNext ? candidates.subList(0, size) : candidates;
+        List<PostSearchView> content = page.stream()
+                .map(JpaPostStore::toSearchView)
+                .toList();
+
+        return new PostSearchResult(
+                totalCount,
+                Window.from(content, searchPositions(keyword, page), hasNext));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Window<RandomPostView> findRandomSlice(
             PostType type, Long viewerId, ScrollPosition position, int size, long initialSeed) {
 
@@ -166,6 +190,28 @@ public class JpaPostStore implements PostStore {
                 toLong(row[Column.AUTHOR_ID]),
                 (String) row[Column.AUTHOR_NICKNAME],
                 toRanking(row[Column.AUTHOR_RANKING]));
+    }
+
+    private static PostSearchView toSearchView(Object[] row) {
+        return new PostSearchView(
+                toLong(row[PostSearchRepository.Column.ID]),
+                PostType.valueOf((String) row[PostSearchRepository.Column.TYPE]),
+                (String) row[PostSearchRepository.Column.TITLE],
+                toLong(row[PostSearchRepository.Column.VOTE_COUNT]),
+                toLong(row[PostSearchRepository.Column.COMMENT_COUNT]),
+                toCreatedAt(row[PostSearchRepository.Column.CREATED_AT]),
+                (String) row[PostSearchRepository.Column.THUMBNAIL_URL]);
+    }
+
+    private static IntFunction<ScrollPosition> searchPositions(
+            String keyword, List<Object[]> rows) {
+        return index -> {
+            Object[] row = rows.get(index);
+            return PostSearchCursor.toPosition(
+                    keyword,
+                    toCreatedAt(row[PostSearchRepository.Column.CREATED_AT]),
+                    toLong(row[PostSearchRepository.Column.ID]));
+        };
     }
 
     /**

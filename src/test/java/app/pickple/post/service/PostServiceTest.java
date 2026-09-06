@@ -28,6 +28,7 @@ import org.springframework.data.domain.Window;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Base64;
 import java.util.random.RandomGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,6 +53,45 @@ class PostServiceTest {
     private RandomGenerator randomGenerator;
     @InjectMocks
     private PostService service;
+
+    @Test
+    @DisplayName("검색어는 Unicode 앞뒤 공백만 제거하고 고정 10건으로 조회한다")
+    void normalizesSearchKeyword() {
+        PostStore.PostSearchResult result = emptySearchResult();
+        given(postStore.search("에어  팟", ScrollPosition.keyset(), 10))
+                .willReturn(result);
+
+        assertThat(service.search("\u00a0 에어  팟 \u00a0", null)).isSameAs(result);
+
+        verify(postStore).search("에어  팟", ScrollPosition.keyset(), 10);
+    }
+
+    @Test
+    @DisplayName("누락·빈 값·31자·제어문자 검색어는 DB 조회 전에 400이다")
+    void rejectsInvalidSearchKeywordBeforeQuery() {
+        for (String keyword : new String[]{null, "", " \u00a0 ", "가".repeat(31), "가\u0000나"}) {
+            assertThatThrownBy(() -> service.search(keyword, null))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        }
+
+        verifyNoInteractions(postStore);
+    }
+
+    @Test
+    @DisplayName("빈 값·과대·빈 JSON 검색 커서는 DB 조회 전에 400이다")
+    void rejectsInvalidSearchCursorBeforeQuery() {
+        String emptyJsonCursor = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        for (String cursor : new String[]{" ", "a".repeat(1025), emptyJsonCursor, "not-a-cursor"}) {
+            assertThatThrownBy(() -> service.search("검색", cursor))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        }
+
+        verifyNoInteractions(postStore);
+    }
 
     @Test
     @DisplayName("랜덤 카드 첫 요청은 새 시드와 유형·사용자·10건 크기를 전달한다")
@@ -316,5 +356,11 @@ class PostServiceTest {
 
     private Window<PostStore.PostListView> emptyWindow() {
         return Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+    }
+
+    private PostStore.PostSearchResult emptySearchResult() {
+        Window<PostStore.PostSearchView> window =
+                Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+        return new PostStore.PostSearchResult(0L, window);
     }
 }

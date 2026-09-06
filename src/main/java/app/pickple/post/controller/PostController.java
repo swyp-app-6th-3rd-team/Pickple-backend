@@ -91,6 +91,23 @@ public class PostController {
     }
 
     /**
+     * 게시글 검색. 목록과 같은 공개 탐색 흐름이며 개인화하거나 검색 기록을 쓰지 않는다.
+     */
+    @Operation(
+            summary = "게시글 검색",
+            description = "찬반 상품명, A/B 주제와 양 상품명, 일반 제목을 부분 문자열로 검색합니다. "
+                    + "삭제되지 않은 게시글을 최신순 10건씩 반환하고 전체 검색 결과 건수를 함께 제공합니다.")
+    @GetMapping("/posts/search")
+    public ApiResponse<PostSearchResponse> search(
+            @Parameter(description = "검색어. 앞뒤 공백 제거 후 1~30자", required = true)
+            @RequestParam String keyword,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 첫 조각")
+            @RequestParam(required = false) String cursor) {
+
+        return ApiResponse.success(PostSearchResponse.from(postService.search(keyword, cursor)));
+    }
+
+    /**
      * 홈 화면의 랜덤 투표 카드 (§2.1 · §2.2).
      *
      * <p>게스트도 조회할 수 있지만, 유효한 액세스 토큰을 함께 보내면 현재 사용자의
@@ -157,6 +174,45 @@ public class PostController {
                     view.authorId(),
                     view.authorNickname(),
                     view.authorRanking());
+        }
+    }
+
+    /** 전체 건수와 최신순 검색 조각을 함께 주는 검색 전용 응답. */
+    public record PostSearchResponse(
+            @Schema(description = "현재 요청 시점의 전체 일치 게시글 수") long totalCount,
+            @Schema(description = "현재 검색 조각의 내용. 최대 10건") List<PostSearchItem> content,
+            @Schema(description = "다음 요청에 그대로 전달할 커서. null이면 마지막") String nextCursor,
+            @Schema(description = "다음 검색 조각 존재 여부") boolean hasNext) {
+
+        static PostSearchResponse from(PostStore.PostSearchResult result) {
+            ScrollResponse<PostSearchItem> scroll =
+                    ScrollResponse.of(result.window(), PostSearchItem::from);
+            return new PostSearchResponse(
+                    result.totalCount(), scroll.content(), scroll.nextCursor(), scroll.hasNext());
+        }
+    }
+
+    /** 검색 화면 한 줄. */
+    public record PostSearchItem(
+            @Schema(description = "게시글 식별자") Long id,
+            @Schema(description = "GENERAL | AGREE | A_B") PostType type,
+            @Schema(description = "찬반=상품명, A/B=주제, 일반=제목") String title,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @Schema(description = "투표 인원. 일반 게시글은 null") Long voteCount,
+            @Schema(description = "댓글 건수") long commentCount,
+            @Schema(description = "작성 시각") LocalDateTime createdAt) {
+
+        static PostSearchItem from(PostStore.PostSearchView view) {
+            return new PostSearchItem(
+                    view.id(),
+                    view.type(),
+                    view.title(),
+                    view.thumbnailUrl(),
+                    view.type().hasVoting() ? view.voteCount() : null,
+                    view.commentCount(),
+                    view.createdAt());
         }
     }
 

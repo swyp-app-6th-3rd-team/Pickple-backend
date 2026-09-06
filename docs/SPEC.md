@@ -131,6 +131,7 @@ app/pickple/
 | GET | `/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
 | GET | `/posts/popular` | 선택 (게스트 허용) | 인기 게시글 Top 10 (홈 화면) |
 | GET | `/posts/random?type=&cursor=` | 선택 (게스트 허용) | 랜덤 투표 카드 (홈 화면) |
+| GET | `/posts/search?keyword=&cursor=` | 선택 (게스트 허용) | 게시글 검색 (최신순 10건·전체 건수) |
 
 - 작성 요청은 `type`, `category`, `title`, `description`, `products[]`를 사용한다.
   `products[]`의 각 항목은 `itemContainerId`, `name`, `price`, `linkUrl`을 가진다.
@@ -226,6 +227,22 @@ app/pickple/
 - 시드 해시는 동적 계산이라 현재 인덱스로 정렬을 맡길 수 없고 후보 행의 해시 계산과 filesort가
   필요하다. 이번 범위는 별도 스키마 없이 페이징 일관성을 우선한다. 후보 규모가 커져 병목이
   측정되면 사전 계산 랜덤 키와 인덱스, 랜덤 시작점 방식으로 바꾼다.
+
+**`GET /posts/search` — 게시글 검색 (§4.5, Issue #122)**
+
+- 앞뒤 Unicode 공백을 제거한 `keyword`는 1~30자이며, 내부 공백은 보존한다. `%`·`_`·`!`는
+  LIKE 패턴이 아니라 문자 그대로 찾고, 제어문자는 거부한다.
+- 검색 대상은 찬반 상품명, A/B 주제와 양쪽 상품명, 일반 제목이다. 설명·URL·작성자 정보는
+  검색하지 않으며 삭제된 게시글은 제외한다. 여러 필드나 양 상품이 동시에 일치해도 게시글은
+  한 번만 반환한다.
+- 결과는 `createdAt DESC, id DESC` 최신순 10건 고정이다. 커서는 검색 종류·버전·검색어 해시와
+  `(createdAt,id)`를 담아 다른 검색어나 목록 커서의 재사용을 400으로 거부한다.
+- 응답은 `totalCount`, `content`, `nextCursor`, `hasNext`를 갖는다. `totalCount`는 커서 뒤의
+  잔여 건수가 아니라 요청 시점의 전체 일치 게시글 수다. 0건도 200과 빈 `content`다.
+- 찬반의 표시 제목은 상품명, A/B는 주제, 일반은 제목이다. 대표 사진은 찬반 첫 상품 사진,
+  A/B의 A 상품 사진이며 일반은 없다. 투표 인원은 투표형 글에만 있고 `commentCount`는 댓글 건수다.
+- 게스트에게 공개하고 응답을 개인화하지 않는다. 검색 기록은 이 GET 요청에서 서버에 쓰지 않는다.
+  검색 일치 집합·정확한 count·11번째 sentinel은 하나의 SQL snapshot에서 읽는다.
 
 ### 3.4 댓글
 
@@ -719,6 +736,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-06 | `GET /posts/search` 추가. 상품명·A/B 주제·일반 제목을 게시글 단위로 중복 제거해 검색하고, 정확한 전체 건수와 최신순 10건 커서를 한 SQL snapshot에서 반환 | Issue #122. A/B 상품명 누락·상품 조인 증폭·잘못된 커서 경계·count 불일치를 방지 |
 | 2026-09-05 | `GET /posts/random` 추가. 시드 기반 임의 순서와 유형 포함 커서로 중복 없는 10건 순회를 제공하고, 기투표자에게만 선택·득표 결과를 노출 | Issue #22. 요청마다 다시 섞으면 커서 경계가 무너지므로 첫 시드를 끝까지 유지 |
 | 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |

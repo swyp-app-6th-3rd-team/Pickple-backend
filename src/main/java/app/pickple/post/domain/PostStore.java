@@ -45,6 +45,15 @@ public interface PostStore {
     Window<PostListView> findSlice(PostCategory category, PostSort sort, ScrollPosition position, int size);
 
     /**
+     * 삭제되지 않은 게시글을 상품명·주제·일반 제목에서 찾아 최신순으로 읽는다.
+     *
+     * @param keyword  앞뒤 공백과 길이 검증을 마친 검색어
+     * @param position 검색어 문맥과 최신순 경계를 담은 커서. 첫 조각이면 빈 keyset
+     * @param size     고정 조각 크기
+     */
+    PostSearchResult search(String keyword, ScrollPosition position, int size);
+
+    /**
      * 한 유형의 투표 게시글을 시드 기반 임의 순서로 읽는다.
      *
      * @param type        {@link PostType#AGREE} 또는 {@link PostType#A_B}
@@ -89,6 +98,27 @@ public interface PostStore {
             Long authorId,
             String authorNickname,
             Integer authorRanking) {
+    }
+
+    /** 정확한 전체 건수와 현재 검색 조각을 같은 읽기 결과로 묶는다. */
+    record PostSearchResult(long totalCount, Window<PostSearchView> window) {
+
+        public PostSearchResult {
+            if (totalCount < 0) {
+                throw new IllegalArgumentException("검색 결과 전체 건수는 음수일 수 없습니다.");
+            }
+        }
+    }
+
+    /** 검색 결과 한 줄. 작성자·설명처럼 검색 화면에 없는 정보는 싣지 않는다. */
+    record PostSearchView(
+            Long id,
+            PostType type,
+            String title,
+            long voteCount,
+            long commentCount,
+            LocalDateTime createdAt,
+            String thumbnailUrl) {
     }
 
     /**
