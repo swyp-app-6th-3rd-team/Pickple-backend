@@ -119,6 +119,8 @@ public class SecurityConfig {
                                 // 홈 화면의 인기 게시글 Top 10. /posts 패턴은 이 경로를 덮지 않는다 —
                                 // PathPattern 은 세그먼트가 정확히 맞아야 하므로 따로 적어야 한다.
                                 mvc.matcher(HttpMethod.GET, "/posts/popular"),
+                                // 랜덤 투표 카드. 게스트도 보고, 토큰이 있으면 내 투표 결과도 붙인다.
+                                mvc.matcher(HttpMethod.GET, "/posts/random"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
                                 mvc.matcher(HttpMethod.GET, "/users/nickname/availability"),
                                 // 홈 화면의 인기 피커와 그 [더보기] 목록이라 로그인 전에 부른다 (§2.5·§3.1).

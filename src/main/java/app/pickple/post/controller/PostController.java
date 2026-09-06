@@ -6,9 +6,11 @@ import app.pickple.common.ResponseCode;
 import app.pickple.common.ScrollResponse;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
-import app.pickple.post.domain.PostQueryStore;
+import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.service.PostService;
+import app.pickple.vote.domain.VotePercentage;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -89,6 +91,31 @@ public class PostController {
     }
 
     /**
+     * 홈 화면의 랜덤 투표 카드 (§2.1 · §2.2).
+     *
+     * <p>게스트도 조회할 수 있지만, 유효한 액세스 토큰을 함께 보내면 현재 사용자의
+     * 투표를 같은 쿼리에서 찾아 이미 참여한 카드에만 결과를 싣는다.
+     */
+    @Operation(summary = "랜덤 투표 카드 조회",
+            description = "AGREE 또는 A_B 한 유형을 시드 기반 임의 순서로 조회한다. "
+                    + "커서를 이어 쓰면 한 순회 안에서 카드가 중복되지 않는다. "
+                    + "로그인 사용자가 이미 투표한 카드에만 선택과 득표 결과가 포함된다.")
+    @GetMapping("/posts/random")
+    public ApiResponse<ScrollResponse<RandomVoteCard>> findRandomVoteCards(
+            @Parameter(
+                    description = "AGREE | A_B",
+                    required = true,
+                    schema = @Schema(allowableValues = {"AGREE", "A_B"}))
+            @RequestParam PostType type,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 새 임의 순서의 첫 조각")
+            @RequestParam(required = false) String cursor,
+            @Parameter(hidden = true) @CurrentUser Long viewerId) {
+
+        return ApiResponse.success(ScrollResponse.of(
+                postService.findRandomSlice(type, cursor, viewerId), RandomVoteCard::from));
+    }
+
+    /**
      * 목록 한 줄 (§4.2).
      *
      * <p>유형마다 명세가 요구하는 필드가 다르다. <b>응답 스키마를 유형별로 쪼개지 않고
@@ -116,7 +143,7 @@ public class PostController {
             @Schema(description = "작성자 TOP 피커 순위. 아직 산정되지 않았으면 null (최대 5분 지연)")
             Integer authorRanking) {
 
-        static PostListItem from(PostQueryStore.PostListView view) {
+        static PostListItem from(PostStore.PostListView view) {
             return new PostListItem(
                     view.id(),
                     view.type(),
@@ -130,6 +157,74 @@ public class PostController {
                     view.authorId(),
                     view.authorNickname(),
                     view.authorRanking());
+        }
+    }
+
+    /** 홈 랜덤 투표 카드 한 장. */
+    public record RandomVoteCard(
+            @Schema(description = "게시글 식별자") Long id,
+            @Schema(description = "AGREE | A_B", allowableValues = {"AGREE", "A_B"}) PostType type,
+            @Schema(description = "찬반=상품명, A/B=주제") String title,
+            @Schema(description = "설명") String description,
+            @Schema(description = "투표한 사람 수") long voterCount,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @Schema(description = "현재 사용자가 고른 선택지. 게스트·미투표자는 이 필드가 없다")
+            Long selectedOptionId,
+            @Schema(description = "찬반은 상품 1개, A/B는 표시 순서대로 상품 2개")
+            List<RandomVoteProduct> products,
+            @Schema(description = "표시 순서대로 정렬된 투표 선택지 2개")
+            List<RandomVoteOption> options) {
+
+        static RandomVoteCard from(PostStore.RandomPostView view) {
+            boolean participated = view.selectedOptionId() != null;
+            return new RandomVoteCard(
+                    view.id(),
+                    view.type(),
+                    view.title(),
+                    view.description(),
+                    view.voterCount(),
+                    view.selectedOptionId(),
+                    view.products().stream().map(RandomVoteProduct::from).toList(),
+                    view.options().stream()
+                            .map(option -> RandomVoteOption.from(option, view.voterCount(), participated))
+                            .toList());
+        }
+    }
+
+    public record RandomVoteProduct(
+            @Schema(description = "게시글 상품 식별자") Long productId,
+            @Schema(description = "상품명") String name,
+            @Schema(description = "표시 순서. 찬반은 1, A/B는 1 또는 2") int displayOrder,
+            @Schema(description = "이 상품에서 가장 먼저 등록한 사진 URL") String imageUrl) {
+
+        static RandomVoteProduct from(PostStore.RandomProductView product) {
+            return new RandomVoteProduct(
+                    product.id(), product.name(), product.displayOrder(), product.imageUrl());
+        }
+    }
+
+    /** 찬반은 {@code label}, A/B는 {@code productId}가 선택지의 표시 내용을 정한다. */
+    public record RandomVoteOption(
+            @Schema(description = "투표 선택지 식별자") Long optionId,
+            @Schema(description = "찬반 선택지 라벨. A/B는 null") String label,
+            @Schema(description = "A/B 상품 식별자. 찬반은 null") Long productId,
+            @Schema(description = "표시 순서. 1 또는 2") int displayOrder,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @Schema(description = "이 선택지의 득표 수. 현재 사용자가 투표한 카드에만 존재")
+            Long voteCount,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @Schema(description = "정수 득표율. 현재 사용자가 투표한 카드에만 존재")
+            Integer percentage) {
+
+        static RandomVoteOption from(
+                PostStore.RandomOptionView option, long voterCount, boolean participated) {
+            return new RandomVoteOption(
+                    option.id(),
+                    option.label(),
+                    option.productId(),
+                    option.displayOrder(),
+                    participated ? option.voteCount() : null,
+                    participated ? VotePercentage.calculate(option.voteCount(), voterCount) : null);
         }
     }
 }
