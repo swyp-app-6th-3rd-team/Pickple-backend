@@ -101,6 +101,23 @@ class AuthControllerTest {
     }
 
     @Test
+    void oauth2LoginUrisUseProviderNamesInsteadOfEnvironmentNames() throws Exception {
+        var appleMapping = AuthController.class.getDeclaredMethod(
+                        "appleLogin", AuthController.AppleLoginRequest.class,
+                        jakarta.servlet.http.HttpServletResponse.class)
+                .getAnnotation(org.springframework.web.bind.annotation.PostMapping.class);
+        var kakaoMapping = AuthController.class.getDeclaredMethod(
+                        "kakaoLogin", AuthController.KakaoLoginRequest.class,
+                        jakarta.servlet.http.HttpServletResponse.class)
+                .getAnnotation(org.springframework.web.bind.annotation.PostMapping.class);
+
+        assertThat(List.of(appleMapping.value()[0], kakaoMapping.value()[0]))
+                .containsExactly("/auth/apple", "/auth/kakao")
+                .allSatisfy(path -> assertThat(path)
+                        .doesNotContain("/dev", "/local", "/stage", "/staging", "/prod", "/production"));
+    }
+
+    @Test
     void rejectsInvalidKakaoRequestWithoutCallingService() throws Exception {
         mockMvc.perform(post("/auth/kakao")
                         .contentType(MediaType.APPLICATION_JSON)
