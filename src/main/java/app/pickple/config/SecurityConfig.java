@@ -121,6 +121,16 @@ public class SecurityConfig {
                                 mvc.matcher(HttpMethod.GET, "/posts/popular"),
                                 // 랜덤 투표 카드. 게스트도 보고, 토큰이 있으면 내 투표 결과도 붙인다.
                                 mvc.matcher(HttpMethod.GET, "/posts/random"),
+                                // 목록에서 카드를 탭해 들어오는 상세 (§6.2). 목록이 공개인데
+                                // 상세가 막히면 게스트가 카드를 눌러 갈 곳이 없다.
+                                //
+                                // ⚠️ 같은 경로의 댓글(GET /posts/{id}/comments)은 인증이 필요하다 —
+                                // 명세 §6.4 가 게스트에게 "로그인 후 열람할 수 있어요" 로 바뀌었다.
+                                // 공개 여부는 경로 접두사가 아니라 엔드포인트마다 판단한다.
+                                //
+                                // /posts/popular·/posts/random 과 세그먼트 수가 같지만 PathPattern 은
+                                // 리터럴을 변수보다 우선해 매칭하므로 서로를 가리지 않는다.
+                                mvc.matcher(HttpMethod.GET, "/posts/{id}"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
                                 mvc.matcher(HttpMethod.GET, "/users/nickname/availability"),
                                 // 홈 화면의 인기 피커와 그 [더보기] 목록이라 로그인 전에 부른다 (§2.5·§3.1).
