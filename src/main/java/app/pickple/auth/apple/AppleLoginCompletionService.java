@@ -1,6 +1,7 @@
 package app.pickple.auth.apple;
 
 import app.pickple.auth.domain.User;
+import app.pickple.auth.domain.AppleClientType;
 import app.pickple.auth.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,8 +17,14 @@ public class AppleLoginCompletionService {
 
     @Transactional
     public AuthService.TokenPair complete(AppleIdentity identity, String providerRefreshToken) {
+        return complete(identity, providerRefreshToken, AppleClientType.NATIVE);
+    }
+
+    @Transactional
+    public AuthService.TokenPair complete(AppleIdentity identity, String providerRefreshToken,
+                                          AppleClientType clientType) {
         User user = authService.loginOrRegister(identity);
-        providerTokenService.store(user.id(), providerRefreshToken);
+        providerTokenService.store(user.id(), clientType, providerRefreshToken);
         return authService.issueTokens(user);
     }
 }

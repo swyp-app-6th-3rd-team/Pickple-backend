@@ -13,6 +13,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -42,6 +44,18 @@ public class GlobalExceptionHandler {
         // rejected value에는 authorization code나 token이 들어갈 수 있으므로 상세 메시지를 기록하지 않는다.
         log.warn("요청 검증 실패: {}", e.getClass().getSimpleName());
         return status(ResponseCode.INVALID_REQUEST);
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(HttpRequestMethodNotSupportedException e) {
+        log.warn("허용되지 않은 HTTP 메서드");
+        return status(ResponseCode.METHOD_NOT_ALLOWED);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException e) {
+        log.warn("지원하지 않는 Content-Type");
+        return status(ResponseCode.UNSUPPORTED_MEDIA_TYPE);
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

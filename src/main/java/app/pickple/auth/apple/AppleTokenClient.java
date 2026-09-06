@@ -16,6 +16,14 @@ public interface AppleTokenClient {
             @RequestParam("code") String authorizationCode,
             @RequestParam("grant_type") String grantType);
 
+    @PostExchange(url = "/auth/token", accept = MediaType.APPLICATION_JSON_VALUE)
+    AppleTokenResponse exchangeWebAuthorizationCode(
+            @RequestParam("client_id") String clientId,
+            @RequestParam("client_secret") String clientSecret,
+            @RequestParam("code") String authorizationCode,
+            @RequestParam("grant_type") String grantType,
+            @RequestParam("redirect_uri") String redirectUri);
+
     @PostExchange("/auth/revoke")
     void revokeRefreshToken(
             @RequestParam("client_id") String clientId,

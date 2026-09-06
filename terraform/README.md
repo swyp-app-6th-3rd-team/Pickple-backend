@@ -150,7 +150,10 @@ aws secretsmanager put-secret-value \
     \"oauth_apple_client_id\": \"not-configured\",
     \"oauth_apple_private_key_base64\": \"not-configured\",
     \"oauth_apple_token_encryption_keys\": \"not-configured\",
-    \"oauth_apple_token_active_key_id\": \"not-configured\"
+    \"oauth_apple_token_active_key_id\": \"not-configured\",
+    \"oauth_apple_web_enabled\": \"false\",
+    \"oauth_apple_web_client_id\": \"not-configured\",
+    \"oauth_apple_web_redirect_uri\": \"not-configured\"
   }"
 ```
 
@@ -191,7 +194,14 @@ oauth_apple_client_id=<iOS Bundle ID>
 oauth_apple_private_key_base64=<위에서 만든 한 줄 값>
 oauth_apple_token_encryption_keys=k1=<별도로 생성한 32바이트 AES 키의 Base64>
 oauth_apple_token_active_key_id=k1
+oauth_apple_web_enabled=true
+oauth_apple_web_client_id=<Android 웹 로그인용 Services ID>
+oauth_apple_web_redirect_uri=https://dev-api.pickple.app/auth/apple/web/callback
 ```
+
+`oauth_apple_enabled`는 iOS 네이티브 진입점, `oauth_apple_web_enabled`는 Galaxy 웹 진입점을
+각각 연다. 웹 로그인을 켜기 전에 Services ID를 기존 Primary App ID에 연결하고 위 HTTPS URI를
+Web Authentication Return URL로 정확히 등록한다.
 
 Apple `client_secret`은 Secrets Manager에 저장하지 않는다. 앱이 `.p8`로 짧은 수명의 JWT를 만든다.
 Terraform은 `secret_string` 변경을 무시하므로 `terraform apply`만 실행해서는 기존 Secret 값이

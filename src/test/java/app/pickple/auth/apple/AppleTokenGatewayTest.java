@@ -1,6 +1,8 @@
 package app.pickple.auth.apple;
 
 import app.pickple.config.AppleProperties;
+import app.pickple.config.AppleWebProperties;
+import app.pickple.auth.domain.AppleClientType;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +37,7 @@ class AppleTokenGatewayTest {
     @BeforeEach
     void setUp() {
         gateway = new AppleTokenGateway(properties(true), clientSecretProvider, tokenClient);
-        lenient().when(clientSecretProvider.create()).thenReturn("signed-client-secret");
+        lenient().when(clientSecretProvider.create("app.pickple.ios")).thenReturn("signed-client-secret");
     }
 
     @Test
@@ -118,6 +120,35 @@ class AppleTokenGatewayTest {
     }
 
     @Test
+    void webExchangeUsesServicesIdAndRegisteredReturnUrl() {
+        AppleWebProperties web = webProperties(true);
+        AppleTokenGateway webGateway = new AppleTokenGateway(
+                properties(true), web, clientSecretProvider, tokenClient);
+        given(clientSecretProvider.create("app.pickple.web")).willReturn("web-client-secret");
+        AppleTokenResponse response = new AppleTokenResponse(
+                "apple-access", 300L, "apple-id-token", "apple-refresh", "Bearer");
+        given(tokenClient.exchangeWebAuthorizationCode(
+                "app.pickple.web", "web-client-secret", "web-code", "authorization_code",
+                "https://api.pickple.app/auth/apple/web/callback"))
+                .willReturn(response);
+
+        assertThat(webGateway.exchangeWebAuthorizationCode("web-code")).isSameAs(response);
+    }
+
+    @Test
+    void webRevokeUsesServicesIdEvenWhenWebLoginIsDisabled() {
+        AppleWebProperties web = webProperties(false);
+        AppleTokenGateway webGateway = new AppleTokenGateway(
+                properties(true), web, clientSecretProvider, tokenClient);
+        given(clientSecretProvider.create("app.pickple.web")).willReturn("web-client-secret");
+
+        webGateway.revokeRefreshToken(AppleClientType.WEB, "web-refresh");
+
+        verify(tokenClient).revokeRefreshToken(
+                "app.pickple.web", "web-client-secret", "web-refresh", "refresh_token");
+    }
+
+    @Test
     void mapsBlankTokenAndRevokeFailuresToDedicatedUnavailableCode() {
         assertThatThrownBy(() -> gateway.revokeRefreshToken(" "))
                 .isInstanceOf(ApiException.class)
@@ -157,5 +188,12 @@ class AppleTokenGatewayTest {
                 "https://appleid.apple.com",
                 "https://appleid.apple.com/auth/keys",
                 Duration.ofMinutes(10));
+    }
+
+    private static AppleWebProperties webProperties(boolean enabled) {
+        return new AppleWebProperties(
+                enabled, "app.pickple.web", "https://api.pickple.app/auth/apple/web/callback",
+                AppleWebProperties.PICKPLE_CALLBACK, "https://appleid.apple.com/auth/authorize",
+                Duration.ofMinutes(10), Duration.ofMinutes(1), Duration.ofDays(1));
     }
 }

@@ -45,7 +45,7 @@ import java.util.List;
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
-@EnableConfigurationProperties({AuthProperties.class, AppleProperties.class,
+@EnableConfigurationProperties({AuthProperties.class, AppleProperties.class, AppleWebProperties.class,
         KakaoProperties.class, ProfileProperties.class})
 public class SecurityConfig {
 
@@ -71,6 +71,7 @@ public class SecurityConfig {
     private final RestAuthenticationEntryPoint authenticationEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
     private final AuthProperties properties;
+    private final AppleWebProperties appleWebProperties;
 
     /**
      * 관리 포트(management.server.port) 전용 체인.
@@ -135,7 +136,10 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(mvc.matcher("/oauth2/**"), mvc.matcher("/login/oauth2/**")).permitAll()
                         .requestMatchers(
+                                mvc.matcher(HttpMethod.GET, "/auth/apple/web"),
                                 mvc.matcher(HttpMethod.POST, "/auth/apple"),
+                                mvc.matcher(HttpMethod.POST, "/auth/apple/web/callback"),
+                                mvc.matcher(HttpMethod.POST, "/auth/apple/web/exchange"),
                                 mvc.matcher(HttpMethod.POST, "/auth/kakao"),
                                 mvc.matcher(HttpMethod.POST, "/auth/refresh"),
                                 mvc.matcher(HttpMethod.POST, "/auth/mobile/refresh"),
@@ -194,6 +198,13 @@ public class SecurityConfig {
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration appleWebCallback = new CorsConfiguration();
+        appleWebCallback.setAllowedOrigins(List.of(appleWebProperties.authorizationOrigin()));
+        appleWebCallback.setAllowedMethods(List.of("POST"));
+        appleWebCallback.setAllowedHeaders(List.of("Content-Type"));
+        appleWebCallback.setAllowCredentials(false);
+        appleWebCallback.setMaxAge(3600L);
+
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.cors().allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
@@ -203,6 +214,7 @@ public class SecurityConfig {
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/auth/apple/web/callback", appleWebCallback);
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }

@@ -50,9 +50,10 @@
           "item_container",
           "item_resource",
           "user_refresh_token",
-          "apple_provider_token"
+          "apple_provider_token",
+          "apple_web_login_attempt"
         ],
-        "note": "사진은 묶음 단위로 올리고, 세션과 애플 연동 토큰은 회원에 하나씩 붙는다."
+        "note": "사진은 묶음 단위로 올리고, Apple 웹 로그인 시도와 client별 연동 토큰은 만료·암호화 상태로 보관한다."
       }
     ]
   },
@@ -287,10 +288,25 @@
       "type": "database",
       "label": "애플 연동 토큰",
       "sublabel": "apple_provider_token",
-      "tag": "암호화 보관 · 탈퇴 시 해제",
+      "tag": "NATIVE · WEB 별 암호화 보관",
       "pos": [
         40,
         540
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "apple_web_login_attempt",
+      "type": "database",
+      "label": "Apple 웹 로그인 시도",
+      "sublabel": "apple_web_login_attempt",
+      "tag": "state · nonce · handoff TTL",
+      "pos": [
+        40,
+        750
       ],
       "size": [
         168,
@@ -305,7 +321,8 @@
       "wraps": [
         "users",
         "user_refresh_token",
-        "apple_provider_token"
+        "apple_provider_token",
+        "apple_web_login_attempt"
       ],
       "pad": 22
     },
@@ -363,6 +380,12 @@
         124,
         418
       ]
+    },
+    {
+      "from": "users",
+      "to": "apple_web_login_attempt",
+      "label": "검증 중 바인딩",
+      "variant": "dashed"
     },
     {
       "from": "post",

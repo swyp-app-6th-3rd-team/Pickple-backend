@@ -25,19 +25,34 @@ public record AppleProperties(
 
     public AppleProperties {
         if (enabled) {
-            requireConfigured("team-id", teamId);
-            requireConfigured("key-id", keyId);
+            validateSharedCredentials(teamId, keyId, privateKeyBase64,
+                    providerTokenEncryptionKeys, providerTokenActiveKeyId);
             requireConfigured("client-id", clientId);
-            requireConfigured("private-key-base64", privateKeyBase64);
-            requireConfigured("provider-token-encryption-keys", providerTokenEncryptionKeys);
-            requireConfigured("provider-token-active-key-id", providerTokenActiveKeyId);
-            validateEncryptionKeys(providerTokenEncryptionKeys, providerTokenActiveKeyId);
         }
         if (clientSecretValidity == null || clientSecretValidity.isZero()
                 || clientSecretValidity.isNegative()
                 || clientSecretValidity.compareTo(MAX_CLIENT_SECRET_VALIDITY) > 0) {
             throw new IllegalStateException("Apple client secret 유효기간은 0초 초과, 15,777,000초 이하여야 합니다.");
         }
+    }
+
+    /** native 또는 web 로그인이 공유하는 Apple 키와 provider token 암호화 설정을 검증한다. */
+    public void validateSharedCredentials() {
+        validateSharedCredentials(teamId, keyId, privateKeyBase64,
+                providerTokenEncryptionKeys, providerTokenActiveKeyId);
+    }
+
+    private static void validateSharedCredentials(String teamId,
+                                                  String keyId,
+                                                  String privateKeyBase64,
+                                                  String providerTokenEncryptionKeys,
+                                                  String providerTokenActiveKeyId) {
+        requireConfigured("team-id", teamId);
+        requireConfigured("key-id", keyId);
+        requireConfigured("private-key-base64", privateKeyBase64);
+        requireConfigured("provider-token-encryption-keys", providerTokenEncryptionKeys);
+        requireConfigured("provider-token-active-key-id", providerTokenActiveKeyId);
+        validateEncryptionKeys(providerTokenEncryptionKeys, providerTokenActiveKeyId);
     }
 
     private static void requireConfigured(String name, String value) {

@@ -30,9 +30,12 @@ public class AccountWithdrawalService {
 
         WithdrawalOutcome outcome = WithdrawalOutcome.COMPLETED;
         if (user.provider() == SocialProvider.APPLE) {
-            var providerToken = appleProviderTokenService.findDecryptedByUserId(userId);
-            if (providerToken.isPresent()) {
-                appleTokenGateway.revokeRefreshToken(providerToken.get());
+            var providerTokens = appleProviderTokenService.findAllDecryptedByUserId(userId);
+            if (!providerTokens.isEmpty()) {
+                for (AppleProviderTokenService.ClientToken providerToken : providerTokens) {
+                    appleTokenGateway.revokeRefreshToken(
+                            providerToken.clientType(), providerToken.refreshToken());
+                }
             } else {
                 log.warn("Apple 회원 탈퇴 시 저장된 provider token이 없습니다. 수동 연결 해제가 필요합니다: userId={}",
                         userId);

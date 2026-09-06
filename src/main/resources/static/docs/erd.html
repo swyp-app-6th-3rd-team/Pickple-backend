@@ -4840,7 +4840,7 @@
       </div>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"post-flow","label":"게시글과 의견","focus":["users","post","post_option","post_product","vote","comment"],"note":"회원이 올린 게시글에 선택지와 상품이 딸리고, 투표와 댓글로 의견이 모인다."},{"id":"onepick-reward","label":"원픽과 보상","focus":["comment","comment_pick","point_history","badge","user_badge"],"note":"작성자가 고른 원픽 하나가 포인트 적립의 근거가 되고, 누적이 뱃지로 이어진다."},{"id":"counters","label":"집계와 랭킹","focus":["users","post","post_commenter","user_daily_activity"],"note":"조회 때 세지 않도록 카운터와 일별 집계를 미리 쌓아 둔다. 순위는 배치가 채운다."},{"id":"media-auth","label":"첨부와 인증","focus":["users","item_container","item_resource","user_refresh_token","apple_provider_token"],"note":"사진은 묶음 단위로 올리고, 세션과 애플 연동 토큰은 회원에 하나씩 붙는다."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"post-flow","label":"게시글과 의견","focus":["users","post","post_option","post_product","vote","comment"],"note":"회원이 올린 게시글에 선택지와 상품이 딸리고, 투표와 댓글로 의견이 모인다."},{"id":"onepick-reward","label":"원픽과 보상","focus":["comment","comment_pick","point_history","badge","user_badge"],"note":"작성자가 고른 원픽 하나가 포인트 적립의 근거가 되고, 누적이 뱃지로 이어진다."},{"id":"counters","label":"집계와 랭킹","focus":["users","post","post_commenter","user_daily_activity"],"note":"조회 때 세지 않도록 카운터와 일별 집계를 미리 쌓아 둔다. 순위는 배치가 채운다."},{"id":"media-auth","label":"첨부와 인증","focus":["users","item_container","item_resource","user_refresh_token","apple_provider_token","apple_web_login_attempt"],"note":"사진은 묶음 단위로 올리고, Apple 웹 로그인 시도와 client별 연동 토큰은 만료·암호화 상태로 보관한다."}]</script>
 
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
       <button id="guided-view-prev" type="button" aria-label="Previous guided view" title="Previous guided view ([)">&#8592;</button>
@@ -4909,7 +4909,7 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Boundaries (behind everything) -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="0" x="18" y="98" width="212" height="536" rx="8" class="c-security-group" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="0" x="18" y="98" width="212" height="748" rx="8" class="c-security-group" stroke-width="1"/>
         <text x="26" y="116" class="t-security" font-size="9" font-weight="600">회원 애그리거트</text>
 
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" x="338" y="98" width="212" height="536" rx="12" class="c-region" stroke-width="1"/>
@@ -4925,6 +4925,7 @@
         <path data-edge-from="users" data-edge-to="post" data-edge-label="작성" data-edge-key="0" data-composition-points="208,367;360,367" d="M 208 367 L 360 367" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="users" data-edge-to="user_refresh_token" data-edge-label="세션" data-edge-key="1" data-composition-points="124,330;124,194" d="M 124 330 L 124 194" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="users" data-edge-to="apple_provider_token" data-edge-label="연동" data-edge-key="2" data-composition-points="124,404;124,540" d="M 124 404 L 124 540" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="users" data-edge-to="apple_web_login_attempt" data-edge-label="검증 중 바인딩" data-edge-key="16" data-composition-points="40,367;24,367;24,787;40,787" d="M 40 367 L 32 367 Q 24 367 24 375 L 24 779 Q 24 787 32 787 L 40 787" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="post" data-edge-to="post_option" data-edge-label="선택지" data-edge-key="3" data-composition-points="444,330;444,194" d="M 444 330 L 444 194" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="post" data-edge-to="post_product" data-edge-label="대상" data-edge-key="4" data-composition-points="444,404;444,540" d="M 444 404 L 444 540" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="post" data-edge-to="comment" data-edge-label="댓글" data-edge-key="5" data-composition-points="528,360;680,360" d="M 528 360 L 680 360" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
@@ -5140,8 +5141,8 @@
         <text data-detail="fine" x="124" y="186" class="t-database" font-size="7" text-anchor="middle">SHA-256 해시 보관</text>
         </g>
 
-        <g id="node-apple_provider_token" data-node-id="apple_provider_token" data-node-label="애플 연동 토큰" tabindex="0" role="button" aria-label="Focus 애플 연동 토큰, apple_provider_token, 회원 애그리거트" aria-pressed="false" data-node-kind="database" data-node-sublabel="apple_provider_token" data-node-tag="암호화 보관 · 탈퇴 시 해제" data-node-context="회원 애그리거트">
-          <title>애플 연동 토큰 · apple_provider_token · 회원 애그리거트 · 암호화 보관 · 탈퇴 시 해제</title>
+        <g id="node-apple_provider_token" data-node-id="apple_provider_token" data-node-label="애플 연동 토큰" tabindex="0" role="button" aria-label="Focus 애플 연동 토큰, apple_provider_token, 회원 애그리거트" aria-pressed="false" data-node-kind="database" data-node-sublabel="apple_provider_token" data-node-tag="NATIVE · WEB 별 암호화 보관" data-node-context="회원 애그리거트">
+          <title>애플 연동 토큰 · apple_provider_token · 회원 애그리거트 · NATIVE · WEB 별 암호화 보관</title>
           <rect x="40" y="540" width="168" height="74" rx="6" class="c-mask"/>
           <rect x="40" y="540" width="168" height="74" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 546) scale(0.6875)">
@@ -5150,7 +5151,20 @@
           </g>
           <text data-detail-anchor x="124" y="575" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">애플 연동 토큰</text>
         <text data-detail="context" x="124" y="591" class="t-muted" font-size="9" text-anchor="middle">apple_provider_token</text>
-        <text data-detail="fine" x="124" y="606" class="t-database" font-size="7" text-anchor="middle">암호화 보관 · 탈퇴 시 해제</text>
+        <text data-detail="fine" x="124" y="606" class="t-database" font-size="7" text-anchor="middle">NATIVE · WEB 별 암호화 보관</text>
+        </g>
+
+        <g id="node-apple_web_login_attempt" data-node-id="apple_web_login_attempt" data-node-label="Apple 웹 로그인 시도" tabindex="0" role="button" aria-label="Focus Apple 웹 로그인 시도, apple_web_login_attempt, 회원 애그리거트" aria-pressed="false" data-node-kind="database" data-node-sublabel="apple_web_login_attempt" data-node-tag="state · nonce · handoff TTL" data-node-context="회원 애그리거트">
+          <title>Apple 웹 로그인 시도 · apple_web_login_attempt · 회원 애그리거트 · state · nonce · handoff TTL</title>
+          <rect x="40" y="750" width="168" height="74" rx="6" class="c-mask"/>
+          <rect x="40" y="750" width="168" height="74" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 756) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-detail-anchor x="124" y="785" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Apple 웹 로그인 시도</text>
+        <text data-detail="context" x="124" y="801" class="t-muted" font-size="9" text-anchor="middle">apple_web_login_attempt</text>
+        <text data-detail="fine" x="124" y="816" class="t-database" font-size="7" text-anchor="middle">state · nonce · handoff TTL</text>
         </g>
 
         <!-- Connection labels -->
@@ -5165,6 +5179,10 @@
         <g data-detail="context" data-edge-from="users" data-edge-to="apple_provider_token" data-edge-label="연동" data-edge-key="2">
           <rect x="109" y="408" width="30" height="14" rx="3" class="c-mask"/>
           <text x="124" y="418" class="t-messagebus" font-size="8" text-anchor="middle">연동</text>
+        </g>
+        <g data-detail="context" data-edge-from="users" data-edge-to="apple_web_login_attempt" data-edge-label="검증 중 바인딩" data-edge-key="16">
+          <rect x="18" y="562" width="78" height="14" rx="3" class="c-mask"/>
+          <text x="57" y="572" class="t-messagebus" font-size="8" text-anchor="middle">검증 중 바인딩</text>
         </g>
         <g data-detail="context" data-edge-from="post" data-edge-to="post_option" data-edge-label="선택지" data-edge-key="3">
           <rect x="424.6" y="310" width="38.8" height="14" rx="3" class="c-mask"/>
@@ -13841,4 +13859,4 @@
 </body>
 </html>
 
-<!-- erd-source-sha256:b767794225decfc9f00d930d749d5e4e7640a153261c0af07ce7951a7ee85dc0 -->
+<!-- erd-source-sha256:3356edfaea00d9c1f3b7cfbdbefa3229dcfb5ff1338902e54956ec67eb4dd631 -->

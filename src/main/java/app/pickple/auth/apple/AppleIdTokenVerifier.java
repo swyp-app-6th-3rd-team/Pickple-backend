@@ -2,6 +2,7 @@ package app.pickple.auth.apple;
 
 import com.nimbusds.jose.RemoteKeySourceException;
 import app.pickple.config.AppleProperties;
+import app.pickple.config.AppleWebProperties;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,7 +10,6 @@ import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jwt.JwtAudienceValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
@@ -32,16 +32,23 @@ public class AppleIdTokenVerifier {
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
 
     private final AppleProperties properties;
+    private final AppleWebProperties webProperties;
     private final Clock clock;
     private final JwtDecoder decoder;
 
     @Autowired
-    public AppleIdTokenVerifier(AppleProperties properties, Clock clock) {
-        this(properties, clock, createDecoder(properties, clock));
+    public AppleIdTokenVerifier(AppleProperties properties, AppleWebProperties webProperties, Clock clock) {
+        this(properties, webProperties, clock, createDecoder(properties, clock));
     }
 
     AppleIdTokenVerifier(AppleProperties properties, Clock clock, JwtDecoder decoder) {
+        this(properties, AppleWebProperties.disabled(), clock, decoder);
+    }
+
+    AppleIdTokenVerifier(AppleProperties properties, AppleWebProperties webProperties,
+                         Clock clock, JwtDecoder decoder) {
         this.properties = properties;
+        this.webProperties = webProperties;
         this.clock = clock;
         this.decoder = decoder;
     }
@@ -54,7 +61,7 @@ public class AppleIdTokenVerifier {
 
         try {
             Jwt jwt = decoder.decode(identityToken);
-            validateClaims(jwt, rawNonce);
+            validateClaims(jwt, properties.clientId(), sha256(rawNonce));
             String email = isEmailVerified(jwt) ? jwt.getClaimAsString("email") : null;
             return new AppleIdentity(jwt.getSubject(), email, null);
         } catch (JwtException e) {
@@ -69,12 +76,35 @@ public class AppleIdTokenVerifier {
         }
     }
 
-    private void validateClaims(Jwt jwt, String rawNonce) {
+    public AppleIdentity verifyWeb(String identityToken, String expectedNonceHash) {
+        if (!webProperties.enabled()) {
+            throw new ApiException(ResponseCode.APPLE_LOGIN_UNAVAILABLE);
+        }
+        if (identityToken == null || identityToken.isBlank()
+                || expectedNonceHash == null || !expectedNonceHash.matches("[0-9a-f]{64}")) {
+            throw invalidToken();
+        }
+        try {
+            Jwt jwt = decoder.decode(identityToken);
+            validateClaims(jwt, webProperties.clientId(), expectedNonceHash);
+            String email = isEmailVerified(jwt) ? jwt.getClaimAsString("email") : null;
+            return new AppleIdentity(jwt.getSubject(), email, null);
+        } catch (JwtException e) {
+            if (causedByRemoteJwkFailure(e)) {
+                throw new ApiException(ResponseCode.APPLE_LOGIN_UNAVAILABLE);
+            }
+            throw invalidToken();
+        } catch (IllegalArgumentException e) {
+            throw invalidToken();
+        }
+    }
+
+    private void validateClaims(Jwt jwt, String expectedAudience, String expectedNonce) {
         String issuer = jwt.getClaimAsString("iss");
         if (!properties.issuer().equals(issuer)) {
             throw invalidToken();
         }
-        if (jwt.getAudience() == null || !jwt.getAudience().contains(properties.clientId())) {
+        if (jwt.getAudience() == null || !jwt.getAudience().contains(expectedAudience)) {
             throw invalidToken();
         }
         Instant expiresAt = jwt.getExpiresAt();
@@ -86,7 +116,6 @@ public class AppleIdTokenVerifier {
         }
 
         String tokenNonce = jwt.getClaimAsString("nonce");
-        String expectedNonce = sha256(rawNonce);
         if (tokenNonce == null || !constantTimeEquals(tokenNonce, expectedNonce)) {
             throw invalidToken();
         }
@@ -145,8 +174,7 @@ public class AppleIdTokenVerifier {
         timestamp.setClock(clock);
         OAuth2TokenValidator<Jwt> validators = new DelegatingOAuth2TokenValidator<>(
                 timestamp,
-                new JwtIssuerValidator(properties.issuer()),
-                new JwtAudienceValidator(properties.clientId()));
+                new JwtIssuerValidator(properties.issuer()));
         decoder.setJwtValidator(validators);
         return decoder;
     }

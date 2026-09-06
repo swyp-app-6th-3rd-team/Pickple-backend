@@ -19,8 +19,12 @@ cp .env.example .env
 | `MYSQL_PASSWORD` | 아무 값이나 |
 | `JWT_SECRET_KEY` | `openssl rand -base64 48` 로 생성. **32바이트 미만이면 기동 실패** |
 
-Apple 로그인을 쓰지 않는다면 `OAUTH_APPLE_ENABLED=false` 로 둔다.
-`true` 면 Apple 관련 6개 값이 전부 필수가 된다.
+Apple 네이티브 로그인을 쓰지 않는다면 `OAUTH_APPLE_ENABLED=false` 로 둔다.
+`true` 면 Apple 공통 키와 iOS Bundle ID를 포함한 관련 6개 값이 전부 필수가 된다.
+Galaxy 웹 로그인을 켤 때는 공통 키가 준비된 상태에서 `OAUTH_APPLE_WEB_ENABLED=true`,
+별도 Services ID인 `OAUTH_APPLE_WEB_CLIENT_ID`, Apple에 등록한 공개 HTTPS
+`OAUTH_APPLE_WEB_REDIRECT_URI`를 함께 설정한다. 상세 계약은
+[Apple 로그인 Runbook](docs/apple-sign-in-runbook.md)을 따른다.
 
 ### 2. MySQL 기동
 
@@ -68,7 +72,7 @@ spring:
 |---|---|
 | `JWT_SECRET_KEY 는 32바이트 이상이어야 합니다` | 값이 짧거나 **아예 없다**. 두 경우가 같은 메시지다 |
 | `Client id of registration must not be empty` | `.env` 에 `OAUTH_..._CLIENT_ID=` 처럼 **빈 값**이 있다. 기본값은 변수가 미정의일 때만 발동한다 |
-| Apple 관련 기동 실패 | `OAUTH_APPLE_ENABLED=true` 인데 6개 값이 덜 찼다 |
+| Apple 관련 기동 실패 | 네이티브 또는 웹 로그인을 켰는데 공통 키, 해당 client ID, 웹 Return URL 중 필요한 값이 덜 찼다 |
 | `MYSQL_PASSWORD ... missing a value` | compose 명령에 `--env-file .env` 가 빠졌다 |
 | Flyway checksum mismatch | 오래된 컨테이너다. `docker compose --env-file .env -f docker/docker-compose-local.yml down -v` 후 재기동 |
 

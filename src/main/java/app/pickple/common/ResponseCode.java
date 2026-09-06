@@ -17,6 +17,8 @@ public enum ResponseCode {
 
     // 요청 오류
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
+    METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "허용되지 않은 요청 방식입니다."),
+    UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 요청 형식입니다."),
     INVALID_IMAGE(HttpStatus.BAD_REQUEST, "JPEG 또는 PNG 이미지 파일만 업로드할 수 있습니다."),
     IMAGE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "이미지 파일 크기가 허용 범위를 초과했습니다."),
     NOT_FOUND(HttpStatus.NOT_FOUND, "대상을 찾을 수 없습니다."),
@@ -31,6 +33,8 @@ public enum ResponseCode {
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
     OAUTH2_FAILED(HttpStatus.UNAUTHORIZED, "소셜 로그인에 실패했습니다."),
     APPLE_LOGIN_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Apple 로그인을 현재 사용할 수 없습니다."),
+    APPLE_WEB_LOGIN_INVALID(HttpStatus.BAD_REQUEST, "Apple 로그인 시도가 만료됐거나 유효하지 않습니다."),
+    APPLE_WEB_EXCHANGE_INVALID(HttpStatus.UNAUTHORIZED, "Apple 로그인 교환 코드가 만료됐거나 유효하지 않습니다."),
     KAKAO_LOGIN_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Kakao 로그인을 현재 사용할 수 없습니다."),
     APPLE_ACCOUNT_REVOCATION_UNAVAILABLE(
             HttpStatus.SERVICE_UNAVAILABLE, "Apple 계정 연결 해제를 완료할 수 없습니다. 잠시 후 다시 시도해 주세요."),

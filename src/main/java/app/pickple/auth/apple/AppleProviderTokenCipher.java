@@ -1,7 +1,8 @@
 package app.pickple.auth.apple;
 
-import app.pickple.config.AppleProperties;
+import app.pickple.auth.domain.AppleClientType;
 import app.pickple.common.ResponseCode;
+import app.pickple.config.AppleProperties;
 import app.pickple.error.ApiException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -24,7 +25,9 @@ public class AppleProviderTokenCipher {
 
     private static final int IV_LENGTH_BYTES = 12;
     private static final int GCM_TAG_LENGTH_BITS = 128;
-    private static final int FORMAT_VERSION = 1;
+    private static final int LEGACY_PROVIDER_FORMAT_VERSION = 1;
+    private static final int PROVIDER_FORMAT_VERSION = 2;
+    private static final int WEB_ATTEMPT_FORMAT_VERSION = 1;
     private static final int MAX_REFRESH_TOKEN_BYTES = 3_000;
 
     private final AppleProperties properties;
@@ -43,7 +46,51 @@ public class AppleProviderTokenCipher {
     }
 
     public EncryptedToken encrypt(Long userId, String refreshToken) {
+        return encrypt(userId, AppleClientType.NATIVE, refreshToken);
+    }
+
+    public EncryptedToken encrypt(Long userId, AppleClientType clientType, String refreshToken) {
         requireUserId(userId);
+        if (clientType == null) {
+            throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token client 구분이 없습니다.");
+        }
+        return encrypt(refreshToken, PROVIDER_FORMAT_VERSION,
+                providerAad(userId, clientType, PROVIDER_FORMAT_VERSION));
+    }
+
+    public String decrypt(Long userId, EncryptedToken encryptedToken) {
+        return decrypt(userId, AppleClientType.NATIVE, encryptedToken);
+    }
+
+    public String decrypt(Long userId, AppleClientType clientType, EncryptedToken encryptedToken) {
+        requireUserId(userId);
+        if (clientType == null) {
+            throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token client 구분이 없습니다.");
+        }
+        if (encryptedToken != null
+                && encryptedToken.formatVersion() == LEGACY_PROVIDER_FORMAT_VERSION
+                && clientType != AppleClientType.NATIVE) {
+            throw new ApiException(ResponseCode.SYSTEM_ERROR,
+                    "기존 Apple provider token은 native client에서만 사용할 수 있습니다.");
+        }
+        byte[] aad = encryptedToken != null
+                && encryptedToken.formatVersion() == LEGACY_PROVIDER_FORMAT_VERSION
+                ? legacyProviderAad(userId)
+                : providerAad(userId, clientType, PROVIDER_FORMAT_VERSION);
+        return decrypt(encryptedToken, aad, LEGACY_PROVIDER_FORMAT_VERSION, PROVIDER_FORMAT_VERSION);
+    }
+
+    public EncryptedToken encryptWebAttempt(String stateHash, String refreshToken) {
+        requireStateHash(stateHash);
+        return encrypt(refreshToken, WEB_ATTEMPT_FORMAT_VERSION, webAttemptAad(stateHash));
+    }
+
+    public String decryptWebAttempt(String stateHash, EncryptedToken encryptedToken) {
+        requireStateHash(stateHash);
+        return decrypt(encryptedToken, webAttemptAad(stateHash), WEB_ATTEMPT_FORMAT_VERSION);
+    }
+
+    private EncryptedToken encrypt(String refreshToken, int formatVersion, byte[] aad) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new ApiException(ResponseCode.OAUTH2_FAILED);
         }
@@ -55,44 +102,30 @@ public class AppleProviderTokenCipher {
         SecretKey key = requireEncryptionKey(activeKeyId);
         byte[] iv = new byte[IV_LENGTH_BYTES];
         secureRandom.nextBytes(iv);
-
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
-            cipher.updateAAD(aad(userId, FORMAT_VERSION, activeKeyId));
-            byte[] ciphertext = cipher.doFinal(plaintext);
-            return new EncryptedToken(
-                    FORMAT_VERSION,
-                    Base64.getEncoder().encodeToString(ciphertext),
-                    Base64.getEncoder().encodeToString(iv),
-                    activeKeyId);
+            cipher.updateAAD(withKeyId(aad, activeKeyId));
+            return new EncryptedToken(formatVersion,
+                    Base64.getEncoder().encodeToString(cipher.doFinal(plaintext)),
+                    Base64.getEncoder().encodeToString(iv), activeKeyId);
         } catch (GeneralSecurityException e) {
             throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token 암호화에 실패했습니다.");
         }
     }
 
-    public String decrypt(Long userId, EncryptedToken encryptedToken) {
-        requireUserId(userId);
-        if (encryptedToken == null
-                || encryptedToken.ciphertext() == null
-                || encryptedToken.iv() == null
-                || encryptedToken.keyId() == null) {
-            throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token 암호문이 올바르지 않습니다.");
-        }
-        if (encryptedToken.formatVersion() != FORMAT_VERSION) {
-            throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token 암호화 형식을 사용할 수 없습니다.");
-        }
-
+    private String decrypt(EncryptedToken token, byte[] aad, int... allowedVersions) {
+        validateEncryptedToken(token, allowedVersions);
         try {
-            byte[] iv = Base64.getDecoder().decode(encryptedToken.iv());
+            byte[] iv = Base64.getDecoder().decode(token.iv());
             if (iv.length != IV_LENGTH_BYTES) {
                 throw new IllegalArgumentException("invalid iv length");
             }
-            byte[] ciphertext = Base64.getDecoder().decode(encryptedToken.ciphertext());
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, requireEncryptionKey(encryptedToken.keyId()),
+            cipher.init(Cipher.DECRYPT_MODE, requireEncryptionKey(token.keyId()),
                     new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
-            cipher.updateAAD(aad(userId, encryptedToken.formatVersion(), encryptedToken.keyId()));
+            cipher.updateAAD(withKeyId(aad, token.keyId()));
+            byte[] ciphertext = Base64.getDecoder().decode(token.ciphertext());
             return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
         } catch (AEADBadTagException e) {
             throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token 무결성 검증에 실패했습니다.");
@@ -101,10 +134,40 @@ public class AppleProviderTokenCipher {
         }
     }
 
-    private byte[] aad(Long userId, int formatVersion, String keyId) {
-        return ("pickple|apple-provider-refresh-token|v" + formatVersion
-                + "|userId=" + userId + "|keyId=" + keyId)
+    private void validateEncryptedToken(EncryptedToken token, int... allowedVersions) {
+        if (token == null || token.ciphertext() == null || token.iv() == null || token.keyId() == null) {
+            throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token 암호문이 올바르지 않습니다.");
+        }
+        for (int version : allowedVersions) {
+            if (token.formatVersion() == version) {
+                return;
+            }
+        }
+        throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple provider token 암호화 형식을 사용할 수 없습니다.");
+    }
+
+    private byte[] legacyProviderAad(Long userId) {
+        return ("pickple|apple-provider-refresh-token|v1|userId=" + userId)
                 .getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] providerAad(Long userId, AppleClientType clientType, int version) {
+        return ("pickple|apple-provider-refresh-token|v" + version
+                + "|userId=" + userId + "|clientType=" + clientType.name())
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] webAttemptAad(String stateHash) {
+        return ("pickple|apple-web-attempt-refresh-token|v1|stateHash=" + stateHash)
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] withKeyId(byte[] aad, String keyId) {
+        byte[] suffix = ("|keyId=" + keyId).getBytes(StandardCharsets.UTF_8);
+        byte[] result = new byte[aad.length + suffix.length];
+        System.arraycopy(aad, 0, result, 0, aad.length);
+        System.arraycopy(suffix, 0, result, aad.length, suffix.length);
+        return result;
     }
 
     private SecretKey requireEncryptionKey(String keyId) {
@@ -147,8 +210,13 @@ public class AppleProviderTokenCipher {
         }
     }
 
-    public record EncryptedToken(int formatVersion, String ciphertext, String iv, String keyId) {
+    private static void requireStateHash(String stateHash) {
+        if (stateHash == null || !stateHash.matches("[0-9a-f]{64}")) {
+            throw new ApiException(ResponseCode.SYSTEM_ERROR, "Apple 웹 로그인 시도 식별자가 없습니다.");
+        }
+    }
 
+    public record EncryptedToken(int formatVersion, String ciphertext, String iv, String keyId) {
         @Override
         public String toString() {
             return "EncryptedToken[redacted]";

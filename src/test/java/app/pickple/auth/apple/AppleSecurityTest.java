@@ -2,6 +2,7 @@ package app.pickple.auth.apple;
 
 import com.nimbusds.jose.RemoteKeySourceException;
 import app.pickple.config.AppleProperties;
+import app.pickple.config.AppleWebProperties;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import io.jsonwebtoken.Claims;
@@ -94,6 +95,21 @@ class AppleSecurityTest {
     }
 
     @Test
+    void webClientSecretUsesServicesIdAsSubject() throws Exception {
+        KeyPair pair = ecKeyPair();
+        AppleProperties properties = properties(base64Pem(pair));
+        String token = new AppleClientSecretProvider(properties, CLOCK).create("app.pickple.web");
+
+        Jws<Claims> parsed = Jwts.parser()
+                .verifyWith((ECPublicKey) pair.getPublic())
+                .clock(() -> Date.from(NOW))
+                .build()
+                .parseSignedClaims(token);
+
+        assertThat(parsed.getPayload().getSubject()).isEqualTo("app.pickple.web");
+    }
+
+    @Test
     void clientSecretRemainsAvailableForRevokeWhenLoginToggleIsOff() throws Exception {
         KeyPair pair = ecKeyPair();
         AppleProperties enabled = properties(base64Pem(pair));
@@ -132,6 +148,47 @@ class AppleSecurityTest {
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code())
                 .isEqualTo(ResponseCode.OAUTH2_FAILED);
+    }
+
+    @Test
+    void webVerifierAcceptsOnlyServicesIdAudienceAndServerNonce() throws Exception {
+        AppleProperties properties = properties(base64Pem(ecKeyPair()));
+        AppleWebProperties web = AppleWebLoginServiceTest.webProperties(true);
+        String expectedNonce = AppleIdTokenVerifier.sha256("server-nonce");
+        Jwt valid = identityJwt(properties.issuer(), web.clientId(),
+                "apple-sub", NOW.plusSeconds(300), expectedNonce);
+        AppleIdTokenVerifier verifier = new AppleIdTokenVerifier(properties, web, CLOCK, token -> valid);
+
+        assertThat(verifier.verifyWeb("web-id-token", expectedNonce).providerId())
+                .isEqualTo("apple-sub");
+
+        Jwt nativeAudience = identityJwt(properties.issuer(), properties.clientId(),
+                "apple-sub", NOW.plusSeconds(300), expectedNonce);
+        AppleIdTokenVerifier crossClient = new AppleIdTokenVerifier(
+                properties, web, CLOCK, token -> nativeAudience);
+        assertThatThrownBy(() -> crossClient.verifyWeb("native-id-token", expectedNonce))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code())
+                .isEqualTo(ResponseCode.OAUTH2_FAILED);
+    }
+
+    @Test
+    void webConfigurationRequiresFixedDeepLinkAndHttpsCallbackPath() {
+        assertThatThrownBy(() -> new AppleWebProperties(
+                true, "app.pickple.web", "http://api.pickple.app/auth/apple/web/callback",
+                AppleWebProperties.PICKPLE_CALLBACK, "https://appleid.apple.com/auth/authorize",
+                Duration.ofMinutes(10), Duration.ofMinutes(1), Duration.ofDays(1)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new AppleWebProperties(
+                true, "app.pickple.web", "https://api.pickple.app/wrong",
+                AppleWebProperties.PICKPLE_CALLBACK, "https://appleid.apple.com/auth/authorize",
+                Duration.ofMinutes(10), Duration.ofMinutes(1), Duration.ofDays(1)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new AppleWebProperties(
+                true, "app.pickple.web", "https://api.pickple.app/auth/apple/web/callback",
+                "attacker://callback", "https://appleid.apple.com/auth/authorize",
+                Duration.ofMinutes(10), Duration.ofMinutes(1), Duration.ofDays(1)))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

@@ -31,14 +31,15 @@ app/pickple/
 ├── common/          ApiResponse · ResponseCode · PageResponse · ScrollResponse
 │                    CursorCodec · CorrelationIdFilter
 ├── config/          ClockConfig · QuerydslConfig · ScalarConfig
-│                    SecurityConfig · AuthProperties · AppleProperties · KakaoProperties
+│                    SecurityConfig · AuthProperties · AppleProperties · AppleWebProperties
+│                    KakaoProperties
 │                    FileStorageProperties · S3FileStorageConfig · KakaoUnlinkClientConfig
 │                    ※ 설정은 여기 하나로 모은다. 도메인별 config 하위 패키지는
 │                      ArchitectureTest 가 막는다(#63)
 ├── docs/            LlmsTextController · OpenApiMarkdownRenderer · DocsConfig
 ├── error/           ApiException · GlobalExceptionHandler
 │
-└── auth/            OAuth2 + Apple/Kakao native login + JWT
+└── auth/            OAuth2 + Apple native/web · Kakao native login + JWT
     ├── domain/      User · Role · SocialProvider · SocialIdentity · *Store
     ├── service/     AuthService · JwtService · AccountWithdrawal*Service
     ├── infra/       UserEntity · *TokenEntity · Jpa*Store
@@ -49,7 +50,7 @@ app/pickple/
     │                RestAuthenticationEntryPoint · RestAccessDeniedHandler
     ├── apple/       client secret · code 교환/revoke · ID token 검증 · provider token 암호화
     ├── kakao/       ID token 검증 · 서비스 JWT 발급 · HTTP Interface Admin API unlink
-    └── controller/  AuthController
+    └── controller/  AuthController · AppleWebLoginController
 ```
 
 > 위 트리는 `auth` 만 펼친 것이다. 같은 형태(`domain`·`service`·`infra`·`controller`)로
@@ -83,6 +84,9 @@ app/pickple/
 | GET | `/oauth2/authorization/{google\|kakao\|naver}` | — | 소셜 로그인 시작 |
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
 | POST | `/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
+| GET | `/auth/apple/web` | — | Galaxy Apple 웹 로그인 시작. 앱의 S256 challenge와 app state를 서버 state·nonce에 결합하고 Apple로 302 이동 |
+| POST | `/auth/apple/web/callback` | — | Apple `application/x-www-form-urlencoded` 응답 전용. 처리 뒤 자격 증명 없는 `pickple://auth/callback` 딥링크로 303 이동 |
+| POST | `/auth/apple/web/exchange` | — | 딥링크의 60초 일회용 code와 앱의 verifier를 교환해 서비스 JWT 발급 |
 | POST | `/auth/kakao` | — | iOS Kakao ID token·nonce 검증 + 서비스 JWT 발급 |
 | GET | `/auth/me` | 필요 | 내 정보 |
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
@@ -109,10 +113,15 @@ app/pickple/
 - iOS 토큰 — HTTPS JSON으로 access/refresh를 받고 Keychain에 저장한다. URL·로그에 담지 않는다
 - iOS nonce — 로그인마다 안전한 새 `rawNonce`를 만든다. Apple 요청에는
   `lowercase hex SHA-256(rawNonce)`를 넣고 `/auth/apple`에는 원문 `rawNonce`를 보낸다
+- Galaxy Apple 웹 로그인 — 앱이 RFC 7636 verifier와 S256 Base64URL challenge, 별도 `app_state`를
+  만들고 verifier와 app state 원문을 로컬에 보관한다. 딥링크에는 60초 일회용 handoff code와
+  `app_state`만 싣고, Apple code·ID token·provider refresh token·Pickple JWT는 싣지 않는다.
+  앱은 `app_state`를 대조한 뒤 `/auth/apple/web/exchange`에서 verifier와 code를 HTTPS JSON으로 교환한다
 - Kakao nonce — 로그인마다 안전한 새 원문 nonce를 만들고 Kakao SDK와 `/auth/kakao`에 같은 값을 보낸다.
   Apple 방식처럼 해시하지 않는다
-- 백엔드는 nonce를 발급·저장하지 않는다. Apple은 authorization code의 일회성 교환으로 재전송을 막고,
-  Kakao는 ID token과 nonce 묶음 탈취 시 만료 전 재전송 가능성을 수용한다. 더 강한 방어는 ADR-0038의 후속 범위다
+- 네이티브 백엔드는 nonce를 발급·저장하지 않는다. 웹 로그인에서는 서버가 매 시도 nonce를 만들어
+  해시만 저장하고 Apple ID token의 nonce와 대조한다. Kakao는 ID token과 nonce 묶음 탈취 시 만료 전
+  재전송 가능성을 수용한다. 더 강한 방어는 ADR-0038의 후속 범위다
 
 ### 3.2 문서
 
@@ -490,7 +499,7 @@ app/pickple/
 
 ## 4. 스키마
 
-### 4.1 인증 3개
+### 4.1 인증 4개
 
 ```sql
 users(id, provider, provider_id NULL, email, name, role, state, created_at, updated_at,
@@ -503,9 +512,18 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
       UNIQUE KEY uk_refresh_token_hash (token_hash),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
 
-apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token,
+apple_provider_token(user_id, client_type, encryption_format_version, encrypted_refresh_token,
       encryption_iv, encryption_key_id, created_at, updated_at,
+      PRIMARY KEY (user_id, client_type),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
+
+apple_web_login_attempt(state_hash, status, app_state, code_challenge, nonce_hash,
+      bound_user_id NULL, provider_id NULL, email NULL, name NULL,
+      encryption_format_version NULL, encrypted_provider_refresh_token NULL,
+      encryption_iv NULL, encryption_key_id NULL, handoff_code_hash NULL,
+      created_at, expires_at, handoff_expires_at NULL, updated_at,
+      PRIMARY KEY (state_hash),
+      UNIQUE KEY uk_apple_web_handoff_code (handoff_code_hash))
 ```
 
 도메인에서 `provider_id = NULL`은 **Apple 비활성 회원**에만 허용한다. DB의
@@ -528,6 +546,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V11__activity_list_indexes.sql` | `db/migration` | 항상 |
 | `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
+| `V14__apple_web_login.sql` | `db/migration` | 항상 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -612,12 +631,20 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - `typ` 클레임으로 액세스/리프레시를 구분해 혼용을 막는다
 - 리다이렉트 URI 는 호스트 화이트리스트 검증 (오픈 리다이렉트 방지)
 - 활성 Apple 사용자는 이메일이 아닌 `(APPLE, ID token의 sub)`로 식별한다
-- Apple client secret은 `.p8`로 ES256 서명하고, Apple ID token은 JWKS의 RS256 서명을 검증한다
+- Apple client secret은 `.p8`로 ES256 서명하고 client별 audience를 쓴다. 네이티브는 iOS Bundle ID,
+  웹은 Services ID를 사용한다. Apple ID token은 JWKS의 RS256 서명과 해당 audience를 검증한다
 - Apple provider refresh token은 별도 AES-256-GCM keyring으로 암호화해 저장한다. 랜덤 12-byte IV와
-  사용자 ID·키 ID를 묶은 AAD를 사용하며 DB에는 평문을 저장하지 않는다
+  사용자 ID·client type·키 ID를 묶은 AAD를 사용하며 DB에는 평문을 저장하지 않는다.
+  같은 회원의 NATIVE와 WEB grant는 `(user_id, client_type)`으로 함께 보존한다
+- Apple 웹 로그인 state와 handoff code는 원문 대신 SHA-256 해시만 저장한다. state는 조건부 갱신으로
+  한 번만 callback 처리하며 handoff는 행 잠금과 상태 전이로 한 번만 교환한다. 시도는 10분,
+  handoff는 1분 후 만료하며 앱의 S256 verifier를 소유한 요청만 Pickple JWT를 받는다
+- 교환 없이 만료된 VERIFIED handoff는 정리 worker가 잠근 뒤 WEB provider grant를 revoke하고
+  암호문을 지운다. 실패하면 지표를 올리고 암호문을 보존해 5분 이후 다시 시도한다
 - Apple code 교환 뒤 ID token 불일치나 로컬 로그인 완료가 실패하면, 새로 발급된 provider refresh token을
   보상 revoke해 로컬에서 소유하지 않는 Apple 세션이 남지 않게 한다
-- Apple 회원 탈퇴는 provider refresh token으로 `/auth/revoke`에 성공한 뒤 로컬 계정을 비활성화하고
+- Apple 회원 탈퇴는 저장된 모든 client별 provider refresh token을 각각 맞는 client ID로
+  `/auth/revoke`에 성공한 뒤 로컬 계정을 비활성화하고
   `provider_id`를 분리하며 서비스/provider refresh token을 같은 로컬 트랜잭션에서 삭제한다.
   Apple 일시 장애 시 503으로 재시도하고 로컬 상태를 바꾸지 않는다. token이 없는 기존 계정은
   로컬 탈퇴와 identity 분리를 완료한 뒤 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
@@ -636,8 +663,9 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - authorization code·identity token·nonce·`.p8`·Admin 키·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
   [ADR-0016](adr/0016-refresh-token-rotation-cas.md), [ADR-0038](adr/0038-native-kakao-sign-in.md),
-  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md)
-- 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md),
+  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md),
+  [ADR-0040](adr/0040-android-apple-web-login-handoff.md)
+- 적용·키 교체·iOS/Galaxy 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md),
   [Kakao 로그인 Runbook](kakao-sign-in-runbook.md)
 
 ### 5.5 로깅
@@ -665,7 +693,11 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 |---|---|---|
 | 성공 | `OK` / `CREATED` | 200 / 201 |
 | 요청 값 오류 · 도메인 불변식 위반 | `INVALID_REQUEST` | 400 |
+| Apple 웹 state 만료·재사용 | `APPLE_WEB_LOGIN_INVALID` | 400 |
+| 허용되지 않은 HTTP 메서드 | `METHOD_NOT_ALLOWED` | 405 |
+| 지원하지 않는 Content-Type | `UNSUPPORTED_MEDIA_TYPE` | 415 |
 | 미인증 · 토큰 오류 | `UNAUTHORIZED` / `INVALID_TOKEN` / `EXPIRED_TOKEN` | 401 |
+| Apple 웹 handoff 만료·재사용·verifier 불일치 | `APPLE_WEB_EXCHANGE_INVALID` | 401 |
 | 권한 없음 | `FORBIDDEN` | 403 |
 | 대상 없음 | `NOT_FOUND` | 404 |
 | 상태 충돌 — 닉네임 선점 · 이미 원픽함 · 이미지 컨테이너 재사용 | `NICKNAME_ALREADY_IN_USE` / `ALREADY_PICKED` / `ITEM_CONTAINER_ALREADY_IN_USE` | 409 |
@@ -719,6 +751,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-07 | Galaxy Apple 웹 로그인 시작·form callback·PKCE형 앱 handoff 교환을 추가하고 Apple provider grant를 NATIVE/WEB client별로 보존 | Issue #127. Apple HTTPS Return URL 제약과 앱 딥링크 전환을 연결하면서 자격 증명이 URL에 노출되지 않게 함 |
 | 2026-09-05 | `GET /posts/random` 추가. 시드 기반 임의 순서와 유형 포함 커서로 중복 없는 10건 순회를 제공하고, 기투표자에게만 선택·득표 결과를 노출 | Issue #22. 요청마다 다시 섞으면 커서 경계가 무너지므로 첫 시드를 끝까지 유지 |
 | 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |

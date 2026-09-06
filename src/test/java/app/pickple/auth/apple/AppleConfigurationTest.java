@@ -1,6 +1,7 @@
 package app.pickple.auth.apple;
 
 import app.pickple.config.AppleProperties;
+import app.pickple.config.AppleWebProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -54,7 +55,7 @@ class AppleConfigurationTest {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @EnableConfigurationProperties(AppleProperties.class)
+    @EnableConfigurationProperties({AppleProperties.class, AppleWebProperties.class})
     @Import({AppleClientSecretProvider.class, AppleTokenClientConfiguration.class, AppleTokenGateway.class,
             AppleIdTokenVerifier.class, AppleProviderTokenCipher.class})
     static class AppleTestConfiguration {

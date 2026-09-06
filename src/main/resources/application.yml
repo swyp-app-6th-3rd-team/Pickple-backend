@@ -133,6 +133,17 @@ app:
       issuer: https://appleid.apple.com
       jwk-set-uri: https://appleid.apple.com/auth/keys
       client-secret-validity: PT10M
+      web:
+        # Galaxy 앱은 브라우저에서 Apple Services ID 로그인을 시작한다.
+        enabled: ${OAUTH_APPLE_WEB_ENABLED:false}
+        client-id: ${OAUTH_APPLE_WEB_CLIENT_ID:not-configured}
+        # Apple Developer의 Services ID Return URL과 정확히 같아야 한다.
+        redirect-uri: ${OAUTH_APPLE_WEB_REDIRECT_URI:not-configured}
+        app-redirect-uri: pickple://auth/callback
+        authorization-uri: https://appleid.apple.com/auth/authorize
+        attempt-validity: PT10M
+        handoff-validity: PT1M
+        retention: P1D
   profile:
     # 프로필 이미지를 등록하지 않은 사용자에게 무작위로 하나를 준다(명세 §1.5).
     # 디자인이 이미지를 늘리거나 CDN 주소가 바뀌어도 배포 없이 교체할 수 있게 설정으로 받는다.

@@ -2,6 +2,7 @@ package app.pickple.auth.service;
 
 import app.pickple.auth.apple.AppleProviderTokenService;
 import app.pickple.auth.apple.AppleTokenGateway;
+import app.pickple.auth.domain.AppleClientType;
 import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
@@ -17,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -53,22 +55,24 @@ class AccountWithdrawalServiceTest {
     @Test
     void revokesAppleTokenBeforeCompletingLocalWithdrawal() {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
-        given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
+        given(providerTokenService.findAllDecryptedByUserId(7L)).willReturn(List.of(
+                new AppleProviderTokenService.ClientToken(AppleClientType.NATIVE, "provider-refresh")));
 
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
         assertThat(outcome).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
         InOrder order = inOrder(appleTokenGateway, persistenceService);
-        order.verify(appleTokenGateway).revokeRefreshToken("provider-refresh");
+        order.verify(appleTokenGateway).revokeRefreshToken(AppleClientType.NATIVE, "provider-refresh");
         order.verify(persistenceService).complete(7L);
     }
 
     @Test
     void revokeFailurePreservesLocalStateForRetry() {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
-        given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
+        given(providerTokenService.findAllDecryptedByUserId(7L)).willReturn(List.of(
+                new AppleProviderTokenService.ClientToken(AppleClientType.NATIVE, "provider-refresh")));
         org.mockito.Mockito.doThrow(new ApiException(ResponseCode.APPLE_ACCOUNT_REVOCATION_UNAVAILABLE))
-                .when(appleTokenGateway).revokeRefreshToken("provider-refresh");
+                .when(appleTokenGateway).revokeRefreshToken(AppleClientType.NATIVE, "provider-refresh");
 
         assertThatThrownBy(() -> service.withdraw(7L))
                 .isInstanceOf(ApiException.class)
@@ -80,7 +84,7 @@ class AccountWithdrawalServiceTest {
     @Test
     void missingAppleTokenCompletesLocallyAndRequestsManualRevocation() {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
-        given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.empty());
+        given(providerTokenService.findAllDecryptedByUserId(7L)).willReturn(List.of());
 
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
@@ -93,7 +97,8 @@ class AccountWithdrawalServiceTest {
     @Test
     void retriesIdempotentAppleRevokeWhenLocalCompletionFailed() {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
-        given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
+        given(providerTokenService.findAllDecryptedByUserId(7L)).willReturn(List.of(
+                new AppleProviderTokenService.ClientToken(AppleClientType.NATIVE, "provider-refresh")));
         doThrow(new IllegalStateException("temporary db failure"))
                 .doNothing()
                 .when(persistenceService).complete(7L);
@@ -105,9 +110,24 @@ class AccountWithdrawalServiceTest {
         assertThat(service.withdraw(7L))
                 .isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
         InOrder order = inOrder(appleTokenGateway, persistenceService);
-        order.verify(appleTokenGateway).revokeRefreshToken("provider-refresh");
+        order.verify(appleTokenGateway).revokeRefreshToken(AppleClientType.NATIVE, "provider-refresh");
         order.verify(persistenceService).complete(7L);
-        order.verify(appleTokenGateway).revokeRefreshToken("provider-refresh");
+        order.verify(appleTokenGateway).revokeRefreshToken(AppleClientType.NATIVE, "provider-refresh");
+        order.verify(persistenceService).complete(7L);
+    }
+
+    @Test
+    void revokesNativeAndWebGrantsWithTheirIssuingClients() {
+        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
+        given(providerTokenService.findAllDecryptedByUserId(7L)).willReturn(List.of(
+                new AppleProviderTokenService.ClientToken(AppleClientType.NATIVE, "native-refresh"),
+                new AppleProviderTokenService.ClientToken(AppleClientType.WEB, "web-refresh")));
+
+        assertThat(service.withdraw(7L)).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
+
+        InOrder order = inOrder(appleTokenGateway, persistenceService);
+        order.verify(appleTokenGateway).revokeRefreshToken(AppleClientType.NATIVE, "native-refresh");
+        order.verify(appleTokenGateway).revokeRefreshToken(AppleClientType.WEB, "web-refresh");
         order.verify(persistenceService).complete(7L);
     }
 

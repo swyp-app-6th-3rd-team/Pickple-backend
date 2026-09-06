@@ -1,7 +1,8 @@
 # Apple 로그인 적용·키 관리 Runbook
 
-백엔드 구현은 키 없이도 빌드·단위 테스트할 수 있다. 실제 Apple 계정 왕복은 아래 값을 받은 뒤
-`OAUTH_APPLE_ENABLED=true`로 전환해야 한다.
+백엔드 구현은 키 없이도 빌드·단위 테스트할 수 있다. iOS native 로그인은 아래 값을 받은 뒤
+`OAUTH_APPLE_ENABLED=true`, Android 웹 로그인은 Services ID와 Return URL까지 준비한 뒤
+`OAUTH_APPLE_WEB_ENABLED=true`로 각각 전환한다.
 
 ## 1. Apple Developer에서 받을 값
 
@@ -13,10 +14,17 @@
 | `OAUTH_APPLE_PRIVATE_KEY_BASE64` | `AuthKey_XXXX.p8` 파일 전체의 Base64 | PEM 원문·경로가 아니다 |
 | `OAUTH_APPLE_TOKEN_ENCRYPTION_KEYS` | `key-id=Base64 32-byte AES key` keyring | Apple에서 받는 값이 아니다 |
 | `OAUTH_APPLE_TOKEN_ACTIVE_KEY_ID` | 새 암호화에 사용할 key ID | keyring 안에 반드시 있어야 한다 |
+| `OAUTH_APPLE_WEB_CLIENT_ID` | Android 웹 로그인용 Services ID | iOS Bundle ID와 별도 |
+| `OAUTH_APPLE_WEB_REDIRECT_URI` | 공개 HTTPS callback | 경로는 정확히 `/auth/apple/web/callback` |
 
 Apple Developer의 Identifiers에서 해당 Bundle ID에 **Sign in with Apple capability**가 켜져 있고,
 Keys에서 그 App ID에 연결된 **Sign in with Apple 키**인지 확인한다. APNs 기능이 붙은 `.p8`과
 Sign in with Apple 기능이 붙은 `.p8`은 같은 확장자를 쓰더라도 용도가 다르다.
+
+웹 로그인은 Apple Developer의 Services ID를 기존 Primary App ID에 연결하고, 개발 환경 domain과
+`https://<API_HOST>/auth/apple/web/callback`을 Web Authentication Return URL로 등록한다.
+Apple에 `pickple://auth/callback`을 등록하지 않는다. 그 URI는 백엔드 검증이 끝난 뒤 Galaxy 앱을
+여는 고정 handoff 주소다.
 
 `.p8`은 내려받을 때만 안전한 비밀 저장소로 옮긴다. Git, 이슈, 채팅, CI 로그, Notion에 붙이지 않는다.
 
@@ -69,11 +77,14 @@ OAUTH_APPLE_CLIENT_ID=com.example.ios
 OAUTH_APPLE_PRIVATE_KEY_BASE64=...
 OAUTH_APPLE_TOKEN_ENCRYPTION_KEYS=k1=...
 OAUTH_APPLE_TOKEN_ACTIVE_KEY_ID=k1
+OAUTH_APPLE_WEB_ENABLED=true
+OAUTH_APPLE_WEB_CLIENT_ID=app.pickple.web
+OAUTH_APPLE_WEB_REDIRECT_URI=https://dev-api.pickple.app/auth/apple/web/callback
 ```
 
 `.env`는 `docker compose --profile app`이 변수 보간에 사용할 때만 자동 적용된다. IntelliJ나
-`gradlew bootRun`으로 Spring Boot를 직접 실행할 때는 위 다섯 값을 Run Configuration의
-환경변수(또는 현재 셸 환경변수)로 넣어야 한다. Spring Boot가 저장소의 `.env` 파일을 직접 읽지는 않는다.
+`gradlew bootRun`으로 Spring Boot를 직접 실행할 때는 위 Apple 값을 Run Configuration의
+환경변수(또는 저장소의 local 프로파일 `.env` import)로 넣는다.
 
 ### AWS develop
 
@@ -124,6 +135,33 @@ Content-Type: application/json
 이전 refresh token은 회전 즉시 무효다. 서버는 제출된 해시를 조건으로 CAS 회전하므로 동시 요청 중
 하나만 성공한다. 늦은 요청은 401이지만 먼저 성공한 응답의 새 refresh token은 삭제되지 않는다.
 
+### Android와 백엔드 계약
+
+Android는 Custom Tabs 또는 외부 브라우저 사용을 기본으로 한다. embedded WebView가 확정되면 실제
+쿠키·callback Origin·deep link 복귀를 같은 테스트 계정으로 다시 확인한다.
+
+1. 앱이 43~128자 RFC 7636 verifier와 128비트 이상 URL-safe app state를 새로 만들고 안전하게 보관한다.
+2. `BASE64URL(SHA-256(verifier))`를 `code_challenge`로 보내 로그인 URL을 연다.
+
+```http
+GET /auth/apple/web?code_challenge=<43-char>&code_challenge_method=S256&app_state=<pending-state>
+```
+
+3. 앱은 `pickple://auth/callback?code=...&app_state=...`을 받으면 보관 중인 app state와 먼저
+   비교한다. pending state가 없거나 다르면 무시하고 로그인 완료로 처리하지 않는다.
+4. 일치할 때만 60초 안에 verifier와 code를 HTTPS로 교환한다.
+
+```http
+POST /auth/apple/web/exchange
+Content-Type: application/json
+
+{"code":"<one-time-handoff-code>","codeVerifier":"<app-held-verifier>"}
+```
+
+성공 응답의 access/refresh token은 Android Keystore 기반 보안 저장소에 보관한다. Apple code,
+ID token, Pickple JWT와 provider refresh token은 deep link·일반 로그·analytics에 넣지 않는다.
+`error=cancelled`은 pending 로그인만 종료하고 기존 로그인 session을 지우지 않는다.
+
 ## 5. 백엔드가 검증하는 것
 
 - 앱이 보낸 ID token을 Apple JWKS의 RS256으로 검증
@@ -136,6 +174,12 @@ Content-Type: application/json
 - 이메일이 아닌 `(APPLE, sub)`로 활성 사용자 조회·생성
 - 우리 서비스 access/refresh JWT 발급 및 refresh 원문 대신 해시 저장
 - Apple provider refresh token을 AES-256-GCM으로 암호화 저장
+- 웹 시작마다 서버 state·nonce를 만들고 MySQL에 해시·TTL·앱 challenge를 저장
+- 웹 callback의 state를 한 번만 claim하고 Services ID audience·서버 nonce를 검증
+- 웹 code 교환에 시작 때와 같은 고정 HTTPS Return URL과 Services ID client secret 사용
+- 앱 handoff code는 해시로 저장하고 S256 verifier와 함께 60초 안에 한 번만 소비
+- 교환 없이 만료된 handoff의 WEB provider token은 revoke 뒤 삭제하고 실패하면 5분 후 재시도
+- native/web provider token을 client별로 저장하고 user ID·client type·key ID를 암호화 AAD에 포함
 - 회원 탈퇴 시 저장 token으로 Apple `/auth/revoke` 호출
 - 로컬 Apple 탈퇴 완료 시 과거 행을 `INACTIVE`로 보존하고 `provider_id`를 분리
 - 분리 뒤 같은 `sub`의 로그인은 과거 행을 되살리지 않고 새 `userId`로 생성하며 이력을 승계하지 않음
@@ -143,9 +187,9 @@ Content-Type: application/json
 Apple authorization code는 한 번만 쓸 수 있고 약 5분 동안 유효하다. 이 구현의 client secret은
 요청 시 생성하며 10분 동안 유효하다. 5분 제한과 client secret 수명을 혼동하지 않는다.
 
-백엔드는 nonce를 직접 발급하거나 사용 여부를 저장하지 않는다. 따라서 동일 credential 묶음의 재전송은
+기존 iOS native 경로에서는 백엔드가 nonce를 직접 발급하거나 사용 여부를 저장하지 않는다. 따라서 동일 credential 묶음의 재전송은
 authorization code의 일회성 교환으로 막지만, 탈취자가 정상 앱보다 먼저 교환하는 선점 공격은 현재 범위 밖이다.
-서버 발급 nonce를 로그인 세션이나 기기에 묶는 저장소가 필요해지면 별도 설계한다.
+Android 웹 경로는 서버 발급 nonce와 state를 저장하고, 앱 handoff에는 별도의 S256 proof를 사용한다.
 
 ## 6. 키 없이 가능한 테스트와 키 수령 뒤 테스트
 
@@ -161,6 +205,10 @@ authorization code의 일회성 교환으로 막지만, 탈취자가 정상 앱�
 - 동시 refresh 중 하나만 CAS 회전에 성공하고, 늦은 요청이 현재 token을 삭제하지 않는지 확인
 - provider token 누락 사용자의 로컬 탈퇴 완료와 수동 Apple 연결 해제 응답 확인
 - MySQL에서 V12가 기존 `APPLE + INACTIVE` 행만 `provider_id = NULL`로 백필하는지 확인
+- 웹 시작·callback·handoff 서비스와 고정 딥링크, CORS 경로 한정 계약 확인
+- Services ID와 Bundle ID audience 교차 거절, client별 code 교환·revoke 확인
+- MySQL에서 state 중복 claim과 handoff 동시 교환 중 하나만 성공하는지 확인
+- V14가 기존 provider token을 NATIVE로 보존하고 native/web 행을 함께 저장하는지 확인
 - Apple 탈퇴 뒤 과거 행·콘텐츠는 보존되고, 같은 `sub` 로그인은 다른 `userId`를 만들며 이력을 승계하지 않는지 확인
 
 키 수령 뒤 반드시 할 종단간 테스트:
@@ -177,6 +225,9 @@ authorization code의 일회성 교환으로 막지만, 탈취자가 정상 앱�
 10. `DELETE /auth/me`가 Apple 연결을 revoke하고, 새 credential로 `/auth/apple` 재로그인하면
     과거와 다른 `userId`의 신규 회원 흐름으로 성공하는지 확인
 11. provider token이 없는 기존 계정은 `APPLE_MANUAL_REVOCATION_REQUIRED`를 받고 iOS가 수동 해제를 안내하는지 확인
+12. Galaxy에서 웹 로그인 → HTTPS callback → `pickple://auth/callback` cold/warm start → JSON JWT 교환 확인
+13. Galaxy 취소·네트워크 단절·handoff 만료·중복 deep link가 기존 session을 지우거나 JWT를 재발급하지 않는지 확인
+14. 같은 Apple 계정의 iOS/Services ID `sub`가 같은 Pickple 회원으로 연결되고 탈퇴 시 두 grant가 revoke되는지 확인
 
 iPhone 없이도 백엔드 구현 대부분은 검증 가능하지만, Apple credential 발급부터 서버 교환까지의
 진짜 종단간 검증은 iOS 앱 실행 환경과 Apple 계정이 필요하다. 시뮬레이터 확인만으로 배포 빌드를
@@ -207,6 +258,10 @@ iPhone 없이도 백엔드 구현 대부분은 검증 가능하지만, Apple cre
 `pickple.auth.apple.login.compensation.revoke.failures`가 증가한다. 같은 시각의 WARN 로그는
 `correlationId`로 조회한다. `trace_id`와 `span_id`는 OTel agent가 활성화된 환경에서만 채워지므로
 현재 develop 환경의 복구 식별자로 가정하지 않는다. token, sub, Apple 응답 본문은 기록하지 않는다.
+웹 callback이 provider token을 받은 뒤 검증·저장 실패하고 보상 revoke까지 실패하면
+`pickple.auth.apple.web.callback.compensation.revoke.failures`가 증가한다.
+만료 handoff 정리의 revoke가 실패하면
+`pickple.auth.apple.web.handoff.cleanup.revoke.failures`가 증가하며 암호문은 재시도를 위해 유지된다.
 
 EC2에서는 관리 포트에서 다음처럼 확인한다.
 

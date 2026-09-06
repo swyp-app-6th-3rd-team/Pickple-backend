@@ -13,7 +13,8 @@ erDiagram
     users ||--o{ user_daily_activity : "일별 집계"
     users ||--o{ item_container : "업로드"
     users ||--o| user_refresh_token : "세션"
-    users ||--o| apple_provider_token : "Apple 연동"
+    users ||--o{ apple_provider_token : "Apple client별 연동"
+    users ||--o{ apple_web_login_attempt : "검증 중 신원 바인딩"
     users ||--o{ post_commenter : "참여"
 
     post ||--o{ post_option : "선택지"
@@ -191,10 +192,32 @@ erDiagram
 
     apple_provider_token {
         bigint user_id PK
+        varchar client_type PK "NATIVE|WEB"
         varchar encrypted_refresh_token
         int encryption_format_version
         varchar encryption_iv
         varchar encryption_key_id
         datetime created_at
+        datetime updated_at
+    }
+
+    apple_web_login_attempt {
+        char state_hash PK "서버 state SHA-256"
+        varchar app_state
+        char code_challenge "앱 handoff S256"
+        char nonce_hash
+        varchar status
+        bigint bound_user_id "기존 회원이면 고정"
+        varchar provider_id
+        varchar email
+        varchar name
+        int encryption_format_version
+        varchar encrypted_provider_refresh_token
+        varchar encryption_iv
+        varchar encryption_key_id
+        char handoff_code_hash UK
+        datetime created_at
+        datetime expires_at
+        datetime handoff_expires_at
         datetime updated_at
     }

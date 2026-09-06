@@ -1,9 +1,14 @@
 package app.pickple.auth.apple;
 
 import app.pickple.config.AppleProperties;
+import app.pickple.auth.domain.AppleClientType;
 import app.pickple.error.ApiException;
 import org.junit.jupiter.api.Test;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
@@ -44,6 +49,36 @@ class AppleProviderTokenCipherTest {
     }
 
     @Test
+    void bindsProviderCiphertextToIssuingClientAndWebAttemptToState() {
+        AppleProviderTokenCipher cipher = new AppleProviderTokenCipher(properties("k1", keyring("k1", (byte) 1)));
+        AppleProviderTokenCipher.EncryptedToken web =
+                cipher.encrypt(7L, AppleClientType.WEB, "web-refresh");
+        String firstState = "a".repeat(64);
+        String secondState = "b".repeat(64);
+        AppleProviderTokenCipher.EncryptedToken attempt =
+                cipher.encryptWebAttempt(firstState, "attempt-refresh");
+
+        assertThat(cipher.decrypt(7L, AppleClientType.WEB, web)).isEqualTo("web-refresh");
+        assertThatThrownBy(() -> cipher.decrypt(7L, AppleClientType.NATIVE, web))
+                .isInstanceOf(ApiException.class);
+        assertThat(cipher.decryptWebAttempt(firstState, attempt)).isEqualTo("attempt-refresh");
+        assertThatThrownBy(() -> cipher.decryptWebAttempt(secondState, attempt))
+                .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void decryptsMigratedV1CiphertextOnlyAsNative() throws Exception {
+        AppleProviderTokenCipher cipher = new AppleProviderTokenCipher(properties("k1", keyring("k1", (byte) 1)));
+        AppleProviderTokenCipher.EncryptedToken legacy = legacyToken(
+                7L, "legacy-native-refresh", "k1", (byte) 1);
+
+        assertThat(cipher.decrypt(7L, AppleClientType.NATIVE, legacy))
+                .isEqualTo("legacy-native-refresh");
+        assertThatThrownBy(() -> cipher.decrypt(7L, AppleClientType.WEB, legacy))
+                .isInstanceOf(ApiException.class);
+    }
+
+    @Test
     void oldKeyRemainsDecryptableAfterActiveKeyRotation() {
         String oldOnly = keyring("k1", (byte) 1);
         AppleProviderTokenCipher oldCipher = new AppleProviderTokenCipher(properties("k1", oldOnly));
@@ -79,5 +114,22 @@ class AppleProviderTokenCipherTest {
         byte[] key = new byte[32];
         Arrays.fill(key, fill);
         return keyId + "=" + Base64.getEncoder().encodeToString(key);
+    }
+
+    private static AppleProviderTokenCipher.EncryptedToken legacyToken(
+            Long userId, String refreshToken, String keyId, byte keyFill) throws Exception {
+        byte[] key = new byte[32];
+        Arrays.fill(key, keyFill);
+        byte[] iv = new byte[12];
+        Arrays.fill(iv, (byte) 7);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, iv));
+        cipher.updateAAD(("pickple|apple-provider-refresh-token|v1|userId=" + userId + "|keyId=" + keyId)
+                .getBytes(StandardCharsets.UTF_8));
+        return new AppleProviderTokenCipher.EncryptedToken(
+                1,
+                Base64.getEncoder().encodeToString(cipher.doFinal(refreshToken.getBytes(StandardCharsets.UTF_8))),
+                Base64.getEncoder().encodeToString(iv),
+                keyId);
     }
 }

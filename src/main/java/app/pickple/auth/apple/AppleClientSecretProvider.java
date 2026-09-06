@@ -30,12 +30,20 @@ public class AppleClientSecretProvider {
     }
 
     public String create() {
+        return create(properties.clientId());
+    }
+
+    public String create(String clientId) {
         try {
+            if (clientId == null || clientId.isBlank()
+                    || "not-configured".equalsIgnoreCase(clientId)) {
+                throw new ApiException(ResponseCode.APPLE_LOGIN_UNAVAILABLE);
+            }
             Instant now = clock.instant();
             return Jwts.builder()
                     .header().keyId(properties.keyId()).and()
                     .issuer(properties.teamId())
-                    .subject(properties.clientId())
+                    .subject(clientId)
                     .audience().add(properties.issuer()).and()
                     .issuedAt(Date.from(now))
                     .expiration(Date.from(now.plus(properties.clientSecretValidity())))

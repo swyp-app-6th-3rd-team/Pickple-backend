@@ -59,6 +59,30 @@ class AppleTokenClientTest {
     }
 
     @Test
+    void exchangesWebAuthorizationCodeWithRegisteredReturnUrl() {
+        var expected = new LinkedMultiValueMap<String, String>();
+        expected.add("client_id", "app.pickple.web");
+        expected.add("client_secret", "signed-web-secret");
+        expected.add("code", "web-code");
+        expected.add("grant_type", "authorization_code");
+        expected.add("redirect_uri", "https://api.pickple.app/auth/apple/web/callback");
+        server.expect(once(), requestTo(TOKEN_URI))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().formData(expected))
+                .andRespond(withSuccess("""
+                        {"access_token":"apple-access","expires_in":300,
+                         "id_token":"apple-id-token","refresh_token":"apple-refresh","token_type":"Bearer"}
+                        """, MediaType.APPLICATION_JSON));
+
+        AppleTokenResponse response = client.exchangeWebAuthorizationCode(
+                "app.pickple.web", "signed-web-secret", "web-code", "authorization_code",
+                "https://api.pickple.app/auth/apple/web/callback");
+
+        assertThat(response.idToken()).isEqualTo("apple-id-token");
+        server.verify();
+    }
+
+    @Test
     void revokesProviderRefreshTokenThroughDeclaredFormContract() {
         var expected = new LinkedMultiValueMap<String, String>();
         expected.add("client_id", "app.pickple.ios");

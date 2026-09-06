@@ -1,6 +1,7 @@
 package app.pickple.auth.apple;
 
 import app.pickple.config.AppleProperties;
+import app.pickple.auth.domain.AppleClientType;
 import app.pickple.auth.domain.AppleProviderTokenStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,13 +44,16 @@ class AppleProviderTokenServiceTest {
         ArgumentCaptor<String> ciphertext = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> iv = ArgumentCaptor.forClass(String.class);
         verify(store).store(org.mockito.ArgumentMatchers.eq(7L),
-                org.mockito.ArgumentMatchers.eq(1), ciphertext.capture(), iv.capture(),
+                org.mockito.ArgumentMatchers.eq(AppleClientType.NATIVE),
+                org.mockito.ArgumentMatchers.eq(2), ciphertext.capture(), iv.capture(),
                 org.mockito.ArgumentMatchers.eq("k1"));
         assertThat(ciphertext.getValue()).doesNotContain("provider-refresh-token");
 
-        org.mockito.BDDMockito.given(store.findByUserId(7L)).willReturn(Optional.of(
+        org.mockito.BDDMockito.given(store.findByUserIdAndClientType(7L, AppleClientType.NATIVE))
+                .willReturn(Optional.of(
                 new AppleProviderTokenStore.StoredAppleProviderToken(
-                        7L, 1, ciphertext.getValue(), iv.getValue(), "k1", LocalDateTime.now())));
+                        7L, AppleClientType.NATIVE, 2, ciphertext.getValue(), iv.getValue(), "k1",
+                        LocalDateTime.now())));
         assertThat(service.findDecryptedByUserId(7L)).contains("provider-refresh-token");
     }
 }
