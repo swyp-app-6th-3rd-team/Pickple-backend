@@ -447,10 +447,13 @@ class ActivityControllerIT {
             assertThat(twelveRows).isEqualTo(oneRow);
 
             // 그 상수가 무엇으로 이루어졌는지도 고정한다. 늘어나면 이유를 대야 한다.
-            //   1) 활동 목록 조회 — 조각 하나를 한 번에 읽는다
-            //   2) 탈퇴 회원 차단 관문의 상태 확인 (#106, ADR-0035)
+            //   1) 키 문장 — 조각에 들어갈 게시글 id 를 활동 인덱스로 확정한다
+            //   2) 행 문장 — 그 id 들에만 게시글과 대표 사진을 붙인다 (ADR-0043)
+            //      옛 네이티브 SQL 은 파생 테이블로 1) 2) 를 한 문장에 담았다. QueryDSL 전환으로
+            //      둘로 갈라졌지만 행 수에 비례하는 쪽은 여전히 없다.
+            //   3) 탈퇴 회원 차단 관문의 상태 확인 (#106, ADR-0035)
             //      요청당 1회이고 행 수와 무관하다. type=const / key=PRIMARY 로 끝난다.
-            assertThat(oneRow).isEqualTo(2L);
+            assertThat(oneRow).isEqualTo(3L);
         }
 
         @Test
