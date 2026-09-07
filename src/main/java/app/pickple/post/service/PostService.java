@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -78,8 +79,12 @@ public class PostService {
      * @param category 없으면 전체 (§4.1 기본값)
      * @param sort     없거나 모르는 값이면 최신순
      * @param cursor   없으면 첫 조각
+     *
+     * <p><b>REPEATABLE READ 를 여기서 선언한다.</b> 저장소가 키 문장과 행 문장을 나눠 내므로(ADR-0045)
+     * 둘이 한 스냅샷을 봐야 하는데, 격리 수준은 <b>가장 바깥 트랜잭션</b>이 정한다 — 이 메서드가 그 경계다.
+     * {@code JpaPostStore} 의 같은 선언은 여기에 참여하므로 효력이 없고, 저장소는 이 값이 낮춰지지 않았음을 단언한다.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Window<PostStore.PostListView> findSlice(
             PostCategory category, String sort, String cursor, Integer size) {
 
@@ -92,8 +97,9 @@ public class PostService {
      *
      * <p>커서 없는 인기순 첫 조각을 그대로 사용하되, Top 10 계약에는 다음 조각이 없으므로
      * 커서 봉투를 벗기고 내용만 반환한다. 더 보기는 {@code GET /posts?sort=POPULAR} 로 간다.
+     * 목록과 같은 두 문장 경로라 격리 수준도 같이 선언한다.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<PostStore.PostListView> findPopularTop() {
         return postStore
                 .findSlice(null, PostSort.POPULAR, ScrollPosition.keyset(), POPULAR_TOP_SIZE)
