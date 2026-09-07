@@ -51,3 +51,4 @@
 | [0041](0041-read-only-mapping-for-derived-columns.md) | 유도·생성 컬럼은 엔티티에 읽기 전용으로 매핑한다 | Accepted |
 | [0043](0043-activity-list-two-statement-split.md) | 내 활동 목록은 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
 | [0045](0045-post-list-two-statement-split.md) | 게시글 목록도 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
+| [0046](0046-post-detail-single-type-with-nested-vote-section.md) | 게시글 상세는 단일 응답 타입에 투표 섹션만 중첩하고, 미투표자에게는 집계를 감춘다 | Accepted |
