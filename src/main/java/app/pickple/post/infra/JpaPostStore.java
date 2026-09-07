@@ -8,6 +8,8 @@ import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.infra.PostListQuerydslRepository.PostListRow;
 import app.pickple.post.infra.PostListQuerydslRepository.PostListSlice;
+import app.pickple.post.infra.RandomPostQuerydslRepository.RandomCardEntry;
+import app.pickple.post.infra.RandomPostQuerydslRepository.RandomPostSlice;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -19,11 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.IntFunction;
@@ -37,7 +36,7 @@ public class JpaPostStore implements PostStore {
     private final PostRepository repository;
     private final PostProductRepository productRepository;
     private final PostListQuerydslRepository listRepository;
-    private final RandomPostRepository randomRepository;
+    private final RandomPostQuerydslRepository randomRepository;
     private final Clock clock;
 
     /**
@@ -130,19 +129,25 @@ public class JpaPostStore implements PostStore {
         return Window.from(content, positionFunction(sort, slice.rows()), slice.hasNext());
     }
 
+    /**
+     * 랜덤 카드도 목록과 같은 두 문장 경로다 (ADR-0043). 격리 수준 선언의 뜻은 {@link #findSlice} 와 같다 —
+     * 실제 경계는 {@code PostService} 이고 여기의 선언은 낮추는 변경이 이 파일을 지나가게 하는 표지다.
+     *
+     * <p>카드 접기는 저장소로 갔다. 조회가 {@code Object} 배열 대신 접힌 {@link RandomCardEntry} 를
+     * 돌려주므로 컬럼 인덱스 상수 16개와 드라이버 타입 방어({@code toLong}·{@code toNullableLong}·{@code toInt})가
+     * 필요 없다. {@code hasNext} 는 키 문장이 정한다 — 행 문장의 카드 수로 세면 두 문장 사이에 지워진 글이
+     * "다음이 있다" 를 조용히 없앤다.
+     */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Window<RandomPostView> findRandomSlice(
             PostType type, Long viewerId, ScrollPosition position, int size, long initialSeed) {
 
         RandomPostCursor cursor = RandomPostCursor.from(position, type, initialSeed);
-        List<Object[]> rows = randomRepository.findSlice(type, viewerId, cursor, size);
-        List<RandomCardEntry> entries = groupByCard(rows);
+        RandomPostSlice slice = randomRepository.findSlice(type, viewerId, cursor, size);
 
-        boolean hasNext = entries.size() > size;
-        List<RandomCardEntry> page = hasNext ? entries.subList(0, size) : entries;
-        List<RandomPostView> content = page.stream().map(RandomCardEntry::view).toList();
-        return Window.from(content, randomPositions(cursor, type, page), hasNext);
+        List<RandomPostView> content = slice.cards().stream().map(RandomCardEntry::view).toList();
+        return Window.from(content, randomPositions(cursor, type, slice.cards()), slice.hasNext());
     }
 
     /**
@@ -162,11 +167,6 @@ public class JpaPostStore implements PostStore {
         };
     }
 
-    /** 네이티브 결과의 수치 컬럼은 드라이버가 정하는 타입으로 온다(BigInteger·Integer·Long). */
-    private static long toLong(Object raw) {
-        return raw == null ? 0L : ((Number) raw).longValue();
-    }
-
     private static IntFunction<ScrollPosition> randomPositions(
             RandomPostCursor cursor, PostType type, List<RandomCardEntry> entries) {
         return index -> {
@@ -174,85 +174,6 @@ public class JpaPostStore implements PostStore {
             return RandomPostCursor.toPosition(
                     cursor.seed(), type, entry.randomKey(), entry.view().id());
         };
-    }
-
-    /** 두 선택지 행과 중복된 찬반 상품을 카드 하나로 접는다. SQL 순서를 그대로 보존한다. */
-    private static List<RandomCardEntry> groupByCard(List<Object[]> rows) {
-        Map<Long, RandomCardAccumulator> cards = new LinkedHashMap<>();
-        for (Object[] row : rows) {
-            long postId = toLong(row[RandomPostRepository.Column.ID]);
-            RandomCardAccumulator card = cards.computeIfAbsent(postId, ignored -> new RandomCardAccumulator(row));
-            card.addProduct(row);
-            card.addOption(row);
-        }
-        return cards.values().stream().map(RandomCardAccumulator::toEntry).toList();
-    }
-
-    private static final class RandomCardAccumulator {
-
-        private final long id;
-        private final PostType type;
-        private final String title;
-        private final String description;
-        private final long voterCount;
-        private final Long selectedOptionId;
-        private final long randomKey;
-        private final Map<Long, RandomProductView> products = new LinkedHashMap<>();
-        private final List<RandomOptionView> options = new ArrayList<>(2);
-
-        private RandomCardAccumulator(Object[] row) {
-            this.id = toLong(row[RandomPostRepository.Column.ID]);
-            this.type = PostType.valueOf((String) row[RandomPostRepository.Column.TYPE]);
-            this.title = (String) row[RandomPostRepository.Column.TITLE];
-            this.description = (String) row[RandomPostRepository.Column.DESCRIPTION];
-            this.voterCount = toLong(row[RandomPostRepository.Column.VOTER_COUNT]);
-            this.selectedOptionId = toNullableLong(row[RandomPostRepository.Column.SELECTED_OPTION_ID]);
-            this.randomKey = toLong(row[RandomPostRepository.Column.RANDOM_KEY]);
-        }
-
-        private void addProduct(Object[] row) {
-            Long productId = toNullableLong(row[RandomPostRepository.Column.PRODUCT_ID]);
-            if (productId == null) {
-                return;
-            }
-            products.putIfAbsent(productId, new RandomProductView(
-                    productId,
-                    (String) row[RandomPostRepository.Column.PRODUCT_NAME],
-                    toInt(row[RandomPostRepository.Column.PRODUCT_ORDER]),
-                    (String) row[RandomPostRepository.Column.IMAGE_URL]));
-        }
-
-        private void addOption(Object[] row) {
-            options.add(new RandomOptionView(
-                    toLong(row[RandomPostRepository.Column.OPTION_ID]),
-                    (String) row[RandomPostRepository.Column.OPTION_LABEL],
-                    toNullableLong(row[RandomPostRepository.Column.OPTION_PRODUCT_ID]),
-                    toInt(row[RandomPostRepository.Column.OPTION_ORDER]),
-                    toLong(row[RandomPostRepository.Column.OPTION_VOTE_COUNT])));
-        }
-
-        private RandomCardEntry toEntry() {
-            return new RandomCardEntry(randomKey, new RandomPostView(
-                    id,
-                    type,
-                    title,
-                    description,
-                    voterCount,
-                    selectedOptionId,
-                    List.copyOf(products.values()),
-                    List.copyOf(options)));
-        }
-    }
-
-    private record RandomCardEntry(long randomKey, RandomPostView view) {
-    }
-
-    private static Long toNullableLong(Object raw) {
-        return raw == null ? null : ((Number) raw).longValue();
-    }
-
-    private static int toInt(Object raw) {
-        return ((Number) raw).intValue();
     }
 
     private static boolean hasConstraint(Throwable throwable, String constraintName) {
