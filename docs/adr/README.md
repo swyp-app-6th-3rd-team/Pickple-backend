@@ -49,3 +49,4 @@
 | [0039](0039-explicit-http-exception-boundary.md) | HTTP 예외 경계를 요청 오류와 내부 오류로 명시한다 | Accepted |
 | [0040](0040-withdrawal-erases-personal-data.md) | 탈퇴는 모든 provider에서 개인정보를 즉시 파기한다 | Accepted |
 | [0041](0041-read-only-mapping-for-derived-columns.md) | 유도·생성 컬럼은 엔티티에 읽기 전용으로 매핑한다 | Accepted |
+| [0043](0043-activity-list-two-statement-split.md) | 내 활동 목록은 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
