@@ -132,6 +132,8 @@ app/pickple/
 | GET | `/posts/popular` | 선택 (게스트 허용) | 인기 게시글 Top 10 (홈 화면) |
 | GET | `/posts/random?type=&cursor=` | 선택 (게스트 허용) | 랜덤 투표 카드 (홈 화면) |
 | GET | `/posts/{id}` | 선택 (게스트 허용) | 게시글 상세 |
+| PATCH | `/posts/{id}` | 필요 (작성자) | 게시글 수정 — 카테고리·주제/제목·설명만 (R-33) |
+| DELETE | `/posts/{id}` | 필요 (작성자) | 게시글 삭제 (소프트) |
 
 - 작성 요청은 `type`, `category`, `title`, `description`, `products[]`를 사용한다.
   `products[]`의 각 항목은 `itemContainerId`, `name`, `price`, `linkUrl`을 가진다.
@@ -279,6 +281,32 @@ app/pickple/
     관문이 계정 상태를 확인하는 비용이다(ADR-0035). 요청당 상수이고 데이터 수와 무관하다.
   - 작성자 등급은 `users.highest_grade` 를 `UserEntity` 에 읽기 전용으로 매핑해 읽는다(ADR-0041 의 장치).
     쓰기 경로는 여전히 등급 저장소의 원자적 UPDATE 하나뿐이다.
+
+**`PATCH /posts/{id}` · `DELETE /posts/{id}` — 게시글 수정·삭제 (§6.1 `[더보기]`, #31)**
+
+수정 범위는 R-33, 요청 스키마의 근거는 [ADR-0047](adr/0047-post-update-whitelist-schema.md) 이다.
+기획문서 갱신본 미반영 상태에서 [#32 기획 담당자 코멘트](https://github.com/swyp-app-6th-3rd-team/Pickple-backend/issues/32#issuecomment-5570120403)를 근거로 구현했다.
+
+- **작성자만.** 없거나 삭제된 글은 `NOT_FOUND`(404), 남의 글은 `FORBIDDEN`(403). 순서는 404 → 403 으로
+  댓글(`CommentService`)과 같다 — 지운 글의 존재를 남에게 알리지 않는다.
+- **수정 요청은 `category` · `title` · `description` 셋만 받는다.** 상품(상품명·가격·URL·사진)과 `type` 은
+  **스키마에 없다** — 보내도 바인딩되지 않고 저장 값이 바뀌지 않는다. 투표 유무를 보지 않는다(R-33).
+  유형은 만들 때 정해지고 바뀌지 않는다(R-01). 요청 DTO 를 셋으로 좁혀 두 규칙이 스키마 수준에서 보장된다.
+- **찬반 게시글은 `title` 을 바꿀 수 없다.** 찬반의 제목은 상품명이라(작성 시 `resolveTitle` 이 상품명을 제목으로 쓴다)
+  상품 필드에 속한다. 보내면 `INVALID_REQUEST`(400). A/B 의 주제와 일반의 제목은 30자 이내로 바꾼다.
+- **부분 갱신이다.** 필드가 없거나 `null` 이면 그대로 둔다. `description` 을 빈 문자열로 보내면 **비운다**
+  (설명은 선택 입력이라 지우는 길이 있어야 한다). `title` 의 빈 문자열은 무시한다(제목은 필수라 비울 수 없다).
+- 응답은 `{ postId, type, category, title, description }` — 저장된 값을 되돌려 준다. `type` 을 함께 주는 것은
+  바뀌지 않았음을 클라이언트가 확인하게 하려는 것이다.
+- **삭제는 소프트 삭제다.** `post.deleted_at` 을 찍고 행·상품·선택지·투표·댓글은 남긴다.
+  - 모든 조회(목록·인기·랜덤·상세·내 활동)가 `deleted_at IS NULL` 로 거르므로 즉시 사라진다.
+  - 투표·댓글·원픽은 `ActivePostGuard` 를 지나 `INVALID_REQUEST`(400)로 거절된다 — 새 장치가 아니라 기존 관문이다.
+  - 지운 글의 이미지 컨테이너는 `post_product` 행이 남아 `uk_product_container` 에 계속 잡힌다.
+    **다른 게시글에서 재사용할 수 없다**(PR #76 리뷰 합의).
+  - 다시 지우거나 수정하면 404 다. 두 삭제가 동시에 들어오면 둘 다 `deleted_at` 을 같은 값으로 두므로 결과는 하나다.
+  - 응답은 `200 OK`, `returnObject: null` — 댓글 삭제와 같은 모양이다.
+- 카운터(`vote_count`·`commenter_count`·`comment_count`)는 건드리지 않는다. 삭제된 글은 조회에서 빠지므로
+  인기순에 영향이 없고, 복구 경로가 없어 되돌릴 일도 없다.
 
 ### 3.4 댓글
 
@@ -830,3 +858,4 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 2026-09-04 | 내 활동 조회 계약 추가(§3.10). 목록 항목을 활동이 아니라 게시글로 확정하고 활동 인덱스 추가(V11) | Issue #30. 정렬 튜플의 두 번째 자리를 `p.id` 로 두면 인덱스가 정렬을 못 맡아 내 활동 전체를 읽는다(500건 4.29ms). 활동 테이블 쪽 `post_id` 로 맞추고 인덱스를 넓혀 11행 고정(ADR-0036) |
 | 2026-09-04 | `/api` prefix 를 실제로 제거하고 문서 노출을 `paths-to-exclude` 로 전환 | Issue #91. 프론트 합의가 닫혀 착수. 브릿지는 불필요로 확인돼 두지 않았다(ADR-0033 이 ADR-0029 대체) |
 | 2026-09-08 | 랜덤 카드 조회를 키·행 두 문장으로 분할(§3.3) | Issue #139. QueryDSL 전환 — 파생 테이블 `FROM (SELECT … LIMIT)` 을 QueryDSL-JPA 가 지원하지 않아 ADR-0043 의 분할을 적용. 응답·커서 계약은 같고 요청당 문장 수만 1 → 2 |
+| 2026-09-08 | 게시글 수정·삭제 계약 추가(§3.3). 수정은 카테고리·주제/제목·설명 화이트리스트, 삭제는 소프트 | Issue #31. #32 가 "투표 유무와 무관하게 상품 불변" 으로 닫혀 요청 스키마를 세 필드로 좁혔다(ADR-0047). 찬반의 제목은 상품명이라 도메인이 거절한다 |
