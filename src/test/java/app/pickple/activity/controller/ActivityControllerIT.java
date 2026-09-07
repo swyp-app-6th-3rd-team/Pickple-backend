@@ -1,5 +1,8 @@
 package app.pickple.activity.controller;
 
+import app.pickple.activity.domain.ActivityQueryStore;
+import app.pickple.activity.domain.ActivitySort;
+import app.pickple.activity.domain.ActivityType;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
@@ -11,6 +14,7 @@ import app.pickple.post.domain.PostOption;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.support.IntegrationTest;
+import app.pickple.support.SqlCapture;
 import app.pickple.vote.domain.Vote;
 import app.pickple.vote.domain.VoteStore;
 import com.jayway.jsonpath.JsonPath;
@@ -24,6 +28,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.ScrollPosition;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.context.bean.override.convention.TestBean;
@@ -38,6 +44,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -70,6 +77,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@Import(SqlCapture.Config.class)
 class ActivityControllerIT {
 
     private static final String SUMMARY = "/users/me/activities/summary";
@@ -94,6 +102,10 @@ class ActivityControllerIT {
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Autowired
+    private ActivityQueryStore activityQueryStore;
+    @Autowired
+    private SqlCapture sqlCapture;
     /**
      * 초 단위로 끊은 <b>고정</b> 시계. 눈금은 운영과 같게 두어({@code datetime(0)} 정밀도)
      * 초 미만 값이 DB 에서 잘리는 상황을 그대로 재현한다 — 시각을 고정하되
@@ -468,6 +480,29 @@ class ActivityControllerIT {
         }
 
         @Test
+        @DisplayName("대표 사진은 가장 처음 등록한 사진 한 장이다 — 세 유형 모두")
+        void thumbnailIsTheFirstRegisteredPhoto() throws Exception {
+            // 다른 픽스처는 상품 없이 심어 대표 사진이 늘 null 이다. 이 테스트만 사진을 붙여
+            // 상관 서브쿼리가 "그 게시글의" 첫 사진을 고르는지 본다 — 상관 조건이 엉뚱한
+            // 별칭에 묶이면 아무 글의 사진이나 올라온다.
+            Post voted = saveAgreePost("투표한 사진 글");
+            Post commented = saveAgreePost("댓글 단 사진 글");
+            Post mine = saveAgreePost("내 사진 글", me);
+            attachPhotos(voted, "https://cdn/voted-1.jpg", "https://cdn/voted-2.jpg", "https://cdn/voted-3.jpg");
+            attachPhotos(commented, "https://cdn/commented-1.jpg", "https://cdn/commented-2.jpg");
+            attachPhotos(mine, "https://cdn/mine-1.jpg", "https://cdn/mine-2.jpg");
+            voteOn(voted);
+            commenterStore.recordIfFirst(commented.id(), me.id());
+
+            assertThat(thumbnailsOf(ACTIVITIES + "?type=VOTE")).containsExactly("https://cdn/voted-1.jpg");
+            assertThat(thumbnailsOf(ACTIVITIES + "?type=COMMENT")).containsExactly("https://cdn/commented-1.jpg");
+            assertThat(thumbnailsOf(ACTIVITIES + "?type=POST")).containsExactly("https://cdn/mine-1.jpg");
+            assertThat(idsOf(ACTIVITIES + "?type=VOTE"))
+                    .as("사진이 세 장이어도 게시글은 한 줄이다")
+                    .containsExactly(voted.id().intValue());
+        }
+
+        @Test
         @DisplayName("조작된 커서는 400 이다")
         void tamperedCursorIsRejected() throws Exception {
             mockMvc.perform(get(ACTIVITIES + "?cursor=not-a-cursor").header("Authorization", bearer(me)))
@@ -569,6 +604,15 @@ class ActivityControllerIT {
      * <p>애플리케이션 레이어 filter 는 조각 크기를 어긋나게 하고 커서를 깨뜨린다.
      * "결과가 맞다" 로는 그것을 구분할 수 없어 계획을 직접 읽는다.
      *
+     * <p><b>EXPLAIN 하는 문장은 Hibernate 가 실제로 내보낸 것이다</b>({@link SqlCapture}).
+     * QueryDSL 전환(#133) 뒤로 SQL 은 사람이 쓰지 않으므로, 손으로 베껴 둔 문장을 EXPLAIN 하면
+     * 저장소가 바뀌어도 테스트가 초록색으로 남는다. 실제 조회 경로를 한 번 태우고 그때 나간
+     * 문장에 같은 값을 바인딩해 계획을 읽는다. 정렬 튜플의 두 번째 자리를 {@code p.id} 로
+     * 바꿔 위반을 주입했을 때 {@code Sort} 가 나타나 실제로 실패하는 것을 확인했다.
+     *
+     * <p><b>둘째 조각을 본다.</b> 첫 조각은 keyset 조건이 없어 행 값 비교가 계획에
+     * 어떻게 내려가는지 보여주지 못한다. 커서는 심은 활동의 한가운데를 가리킨다.
+     *
      * <p><b>행을 먼저 심는다.</b> 빈 테이블에서는 옵티마이저가 통계 없이 아무 인덱스나
      * 고르므로 계획이 의미를 갖지 않는다 — 실제로 {@code idx_post_latest_all} 을 골랐다.
      */
@@ -576,9 +620,16 @@ class ActivityControllerIT {
     @DisplayName("실행 계획 — 필터와 정렬이 SQL 에서 끝난다")
     class QueryPlan {
 
+        private static final int SLICE = 10;
+
+        private LocalDateTime now;
+        /** 커서가 가리키는 게시글. 심은 60건의 한가운데라 앞뒤로 행이 남는다. */
+        private long cursorPostId;
+        private LocalDateTime cursorAt;
+
         @BeforeEach
         void seedForOptimizer() {
-            LocalDateTime now = LocalDateTime.now(clock);
+            now = LocalDateTime.now(clock);
             // 남의 글을 함께 심는다. 전부 내 글이면 user_id 가 선택적이지 않아
             // 옵티마이저가 idx_post_user 를 고를 이유가 없다 — 운영에서는 내 글이
             // 전체의 극히 일부라, 그 비율을 흉내내지 않으면 계획이 현실과 갈린다.
@@ -605,48 +656,94 @@ class ActivityControllerIT {
                 jdbcTemplate.update("""
                         INSERT INTO post_commenter (post_id, user_id, created_at) VALUES (?, ?, ?)
                         """, postId, me.id(), now.minusMinutes(i));
+                if (i == 30) {
+                    cursorPostId = postId;
+                    cursorAt = now.minusMinutes(i);
+                }
             }
             jdbcTemplate.execute("ANALYZE TABLE post, vote, post_commenter");
         }
 
         @Test
-        @DisplayName("활동 유형 필터가 인덱스로 적용된다 — 애플리케이션이 거르지 않는다")
-        void typeFilterUsesIndex() {
-            assertThat(explainVoteSlice())
-                    .as("애플리케이션이 아니라 쿼리가 좁힌다")
-                    .contains("idx_vote_user_activity");
+        @DisplayName("투표 최신순 둘째 조각이 활동 인덱스를 타고 filesort 가 없다")
+        void voteLatestSliceUsesActivityIndex() {
+            Statements statements = slice(ActivityType.VOTE, ActivitySort.LATEST);
+
+            // 계획을 먼저 본다. 문장 형태 검사가 앞서면 위반 주입 때 이 단언이 실제로 물리는지 알 수 없다.
+            assertThat(explain(statements.keys(), me.id(), cursorAt, cursorPostId, SLICE + 1))
+                    .as("애플리케이션이 아니라 쿼리가 좁힌다 — 정렬 튜플을 p.id 로 바꾸면 Sort 가 나타난다")
+                    .containsPattern(ACTIVITY_INDEX_LOOKUP.formatted("idx_vote_user_activity"))
+                    .doesNotContain("Sort:");
+            assertThat(statements.keys())
+                    .as("행 값 비교가 풀어쓴 OR 로 바뀌면 인덱스 범위가 접히지 않는다")
+                    .containsPattern(ROW_VALUE_LESS_THAN)
+                    .doesNotContainIgnoringCase(" or ");
         }
 
         @Test
-        @DisplayName("최신순 정렬에 filesort 가 없다")
-        void latestSortNeedsNoFilesort() {
-            // 정렬 튜플의 두 번째 자리를 p.id 로 쓰면 여기서 Sort 가 나타나고
-            // 내 활동 전체를 읽는다 — 활동 500건 실측 4.29ms(ADR-0036).
-            assertThat(explainVoteSlice()).doesNotContain("Sort:");
+        @DisplayName("투표 오래된순은 같은 인덱스를 반대 방향으로 읽고 filesort 가 없다")
+        void voteOldestSliceReadsTheSameIndexForward() {
+            Statements statements = slice(ActivityType.VOTE, ActivitySort.OLDEST);
+
+            assertThat(explain(statements.keys(), me.id(), cursorAt, cursorPostId, SLICE + 1))
+                    .containsPattern(ACTIVITY_INDEX_LOOKUP.formatted("idx_vote_user_activity"))
+                    .doesNotContain("Sort:");
+            assertThat(statements.keys()).containsPattern(ROW_VALUE_GREATER_THAN);
+        }
+
+        @Test
+        @DisplayName("댓글 활동도 전용 인덱스를 탄다")
+        void commentLatestSliceUsesActivityIndex() {
+            Statements statements = slice(ActivityType.COMMENT, ActivitySort.LATEST);
+
+            assertThat(explain(statements.keys(), me.id(), cursorAt, cursorPostId, SLICE + 1))
+                    .containsPattern(ACTIVITY_INDEX_LOOKUP.formatted("idx_commenter_user_activity"))
+                    .doesNotContain("Sort:");
+        }
+
+        @Test
+        @DisplayName("인기순은 활동 인덱스로 좁힌 뒤 정렬한다 — Θ(내 활동 수)는 의도한 한계다")
+        void popularSliceStartsFromActivityIndex() {
+            // 정렬 키 popularity_score 는 활동 테이블에 없어 인덱스가 정렬을 맡지 못한다(ADR-0036).
+            // 그래도 user_id 로 좁히는 것은 활동 인덱스여야 한다 — post 에서 시작하면 전체를 훑는다.
+            Statements statements = slice(ActivityType.VOTE, ActivitySort.POPULAR);
+
+            assertThat(explain(statements.keys(), me.id(), 0L, cursorPostId, SLICE + 1))
+                    .as("인덱스 이름만으로는 전량 스캔과 구분되지 않는다 — user_id 로 좁힌 조회여야 한다")
+                    .containsPattern(ACTIVITY_INDEX_LOOKUP.formatted("idx_vote_user_activity"));
+        }
+
+        @Test
+        @DisplayName("행 문장은 확정된 id 만 기본 키와 유니크 키로 읽는다 — 내 활동 전체를 다시 훑지 않는다")
+        void rowsStatementReadsOnlyTheSlice() {
+            Statements vote = slice(ActivityType.VOTE, ActivitySort.LATEST);
+            Statements comment = slice(ActivityType.COMMENT, ActivitySort.LATEST);
+
+            // 인덱스 이름이 아니라 접근 방식을 본다 — 유니크 키를 전량 훑어도 이름은 계획에 남는다.
+            assertThat(explain(vote.rows(), vote.rowsArgs()))
+                    .as("post.id IN (…) 은 기본 키 범위, 활동은 (post_id, user_id) 유니크 키로 한 줄씩")
+                    .containsPattern(PRIMARY_KEY_RANGE)
+                    .containsPattern(UNIQUE_KEY_LOOKUP.formatted("uk_vote_post_user"))
+                    .doesNotContain("idx_vote_user_activity")
+                    .doesNotContain("Table scan");
+            assertThat(explain(comment.rows(), comment.rowsArgs()))
+                    .containsPattern(PRIMARY_KEY_RANGE)
+                    .containsPattern(UNIQUE_KEY_LOOKUP.formatted("uk_commenter_post_user"))
+                    .doesNotContain("Table scan");
         }
 
         @Test
         @DisplayName("정렬 튜플의 두 번째 자리를 p.id 로 쓰면 filesort 로 떨어진다")
         void wrongIdColumnFallsBackToFilesort() {
             // 규칙이 무언가를 지킨다는 증거 — 일부러 어긴 형태가 실제로 나빠지는지 본다.
+            // 저장소의 postIdOf(VOTE) 를 POST.id 로 바꾸면 위 voteLatestSliceUsesActivityIndex 가
+            // 정확히 이 계획을 보고 실패한다.
             assertThat(explain("""
                     SELECT p.id FROM vote v JOIN post p ON p.id = v.post_id AND p.deleted_at IS NULL
-                     WHERE v.user_id = %d ORDER BY v.created_at DESC, p.id DESC LIMIT 11
-                    """.formatted(me.id())))
+                     WHERE v.user_id = ? ORDER BY v.created_at DESC, p.id DESC LIMIT 11
+                    """, me.id()))
                     .as("값이 같아도 어느 테이블에서 읽느냐가 실행계획을 가른다")
                     .contains("Sort:");
-        }
-
-        @Test
-        @DisplayName("댓글 활동도 전용 인덱스를 탄다")
-        void commentActivityUsesIndex() {
-            assertThat(explain("""
-                    SELECT p.id FROM post_commenter pc JOIN post p ON p.id = pc.post_id
-                       AND p.deleted_at IS NULL
-                     WHERE pc.user_id = %d ORDER BY pc.created_at DESC, pc.post_id DESC LIMIT 11
-                    """.formatted(me.id())))
-                    .contains("idx_commenter_user_activity")
-                    .doesNotContain("Sort:");
         }
 
         @Test
@@ -657,10 +754,9 @@ class ActivityControllerIT {
             // 커서 튜플의 두 키 방향이 갈려 행 값 비교가 성립하지 않는다(ADR-0036).
             // 이 테스트는 결함이 아니라 "여기까지 안다" 를 고정한다 —
             // 나중에 사라지면 그때 문서를 고치라는 신호다.
-            assertThat(explain("""
-                    SELECT p.id FROM post p WHERE p.user_id = %d AND p.deleted_at IS NULL
-                     ORDER BY p.created_at DESC, p.id DESC LIMIT 11
-                    """.formatted(me.id())))
+            Statements statements = slice(ActivityType.POST, ActivitySort.LATEST);
+
+            assertThat(explain(statements.keys(), me.id(), cursorAt, cursorPostId, SLICE + 1))
                     .contains("idx_post_user")
                     .contains("Sort:");
         }
@@ -668,21 +764,71 @@ class ActivityControllerIT {
         @Test
         @DisplayName("7일 이내 조회가 내 게시글 인덱스를 탄다")
         void recentPostsUseExistingIndex() {
-            assertThat(explain("""
-                    SELECT p.id FROM post p
-                     WHERE p.user_id = %d AND p.deleted_at IS NULL AND p.type <> 'GENERAL'
-                       AND p.created_at > '2020-01-01 00:00:00'
-                     ORDER BY p.created_at DESC, p.id DESC LIMIT 10
-                    """.formatted(me.id())))
+            LocalDateTime since = now.minusDays(7);
+            List<String> statements = sqlCapture.record(
+                    () -> activityQueryStore.findRecentVotePosts(me.id(), since, SLICE));
+            String keys = statements.stream().filter(sql -> sql.contains(" limit ")).findFirst().orElseThrow();
+
+            assertThat(explain(keys, me.id(), "GENERAL", since, SLICE))
                     .as("V11 없이도 기존 idx_post_user 로 족하다")
                     .contains("idx_post_user");
         }
 
-        private String explainVoteSlice() {
-            return explain("""
-                    SELECT p.id FROM vote v JOIN post p ON p.id = v.post_id AND p.deleted_at IS NULL
-                     WHERE v.user_id = %d ORDER BY v.created_at DESC, v.post_id DESC LIMIT 11
-                    """.formatted(me.id()));
+        /** {@code (v.created_at, v.post_id) < (?, ?)} — 별칭과 공백은 Hibernate 가 정한다. */
+        private static final String ROW_VALUE_LESS_THAN =
+                "\\(\\s*\\w+\\.created_at\\s*,\\s*\\w+\\.post_id\\s*\\)\\s*<\\s*\\(\\s*\\?\\s*,\\s*\\?\\s*\\)";
+        private static final String ROW_VALUE_GREATER_THAN = ROW_VALUE_LESS_THAN.replace("<", ">");
+        /** 활동 테이블을 {@code user_id} 로 좁힌 인덱스 조회. 이름만 보면 전량 스캔과 구분되지 않는다. */
+        private static final String ACTIVITY_INDEX_LOOKUP = "index lookup on \\w+ using %s \\(user_id=";
+        /** 행 문장의 게시글 접근 — 확정된 id 들의 기본 키 범위. */
+        private static final String PRIMARY_KEY_RANGE = "Index range scan on \\w+ using PRIMARY over \\(id = ";
+        /** 행 문장의 활동 접근 — {@code (post_id, user_id)} 유니크 키 단건 조회. */
+        private static final String UNIQUE_KEY_LOOKUP = "Single-row index lookup on \\w+ using %s \\(post_id=";
+
+        /** 한 조각이 내보낸 두 문장과 행 문장의 바인딩 값. */
+        private record Statements(String keys, String rows, Object[] rowsArgs) {
+        }
+
+        /**
+         * 실제 조회 경로를 둘째 조각으로 한 번 태우고, 그때 나간 키 문장과 행 문장을 붙잡는다.
+         * 문장의 자리는 형태로 가른다 — {@code limit} 이 있으면 키 문장, 대표 사진 서브쿼리가
+         * 있으면 행 문장이다.
+         */
+        private Statements slice(ActivityType type, ActivitySort sort) {
+            Object sortValue = sort.byActivityTime() ? cursorAt : 0L;
+            ScrollPosition cursor = ScrollPosition.forward(Map.of(sort.cursorKey(), sortValue, "id", cursorPostId));
+
+            List<Long> ids = new ArrayList<>();
+            List<String> statements = sqlCapture.record(() ->
+                    activityQueryStore.findSlice(me.id(), type, sort, cursor, SLICE)
+                            .forEach(view -> ids.add(view.id())));
+            assertThat(ids).as("커서 뒤에 행이 남아 있어야 계획이 의미를 갖는다").hasSize(SLICE);
+
+            String keys = statements.stream().filter(sql -> sql.contains(" limit ")).findFirst().orElseThrow();
+            String rows = statements.stream().filter(sql -> sql.contains("item_resource")).findFirst().orElseThrow();
+            // 바인딩 순서는 문장 안의 위치다 — SELECT 절의 대표 사진 서브쿼리(display_order = 1)가
+            // 가장 앞이고, 그 다음이 조인 조건의 user_id, 마지막이 IN 의 id 목록이다.
+            // POST 는 조인이 없어 user_id 가 WHERE 의 IN 뒤에 온다.
+            List<Object> rowsArgs = new ArrayList<>();
+            rowsArgs.add(1);
+            if (type == ActivityType.POST) {
+                rowsArgs.addAll(ids);
+                rowsArgs.add(me.id());
+            } else {
+                rowsArgs.add(me.id());
+                rowsArgs.addAll(ids);
+            }
+            return new Statements(keys, rows, rowsArgs.toArray());
+        }
+
+        private String explain(String sql, Object... args) {
+            // 개수만 검사한다. Hibernate 가 개수를 유지한 채 술어 순서를 바꾸면 값이 다른 자리에 묶이는데,
+            // 그때도 인덱스 선택은 값이 아니라 술어 모양이 정하므로 계획은 같다. 값까지 붙잡으려면
+            // JDBC 바인딩을 가로채야 해 이 테스트의 크기를 넘는다.
+            assertThat(sql.chars().filter(c -> c == '?').count())
+                    .as("바인딩 값의 수가 문장의 ? 와 같아야 같은 계획을 본다")
+                    .isEqualTo(args.length);
+            return String.join(" ", jdbcTemplate.queryForList("EXPLAIN FORMAT=TREE " + sql, String.class, args));
         }
     }
 
@@ -744,6 +890,31 @@ class ActivityControllerIT {
                 VALUES (?, NULL, '사자', 1, 0, ?), (?, NULL, '말자', 2, 0, ?)
                 """, postId, now, postId, now);
         return postStore.findById(postId).orElseThrow();
+    }
+
+    /**
+     * 게시글에 대표 상품과 사진을 붙인다. 사진은 주어진 순서대로 등록되어 id 가 오름차순이다.
+     *
+     * <p>컨테이너 → 사진 → 상품 순으로 넣는다. {@code post_product} 가 {@code (item_container_id,
+     * container_type)} 복합 FK 로 {@code PRODUCT} 용 컨테이너만 받으므로 컨테이너가 먼저다.
+     */
+    private void attachPhotos(Post post, String... accessUrls) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        jdbcTemplate.update("""
+                INSERT INTO item_container (user_id, attach_type, created_at, updated_at)
+                VALUES (?, 'PRODUCT', ?, ?)
+                """, author.id(), now, now);
+        Long containerId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        for (String url : accessUrls) {
+            jdbcTemplate.update("""
+                    INSERT INTO item_resource (item_container_id, size, original_file_name, item_key, access_url, created_at, updated_at)
+                    VALUES (?, 1024, 'photo.jpg', ?, ?, ?, ?)
+                    """, containerId, "key/" + url, url, now, now);
+        }
+        jdbcTemplate.update("""
+                INSERT INTO post_product (post_id, item_container_id, name, display_order, created_at, updated_at)
+                VALUES (?, ?, '상품', 1, ?, ?)
+                """, post.id(), containerId, now, now);
     }
 
     private long voteOn(Post post) {
@@ -809,6 +980,11 @@ class ActivityControllerIT {
     private List<Integer> idsOf(String url) throws Exception {
         JSONArray ids = JsonPath.read(read(url), "$.returnObject.content[*].id");
         return ids.stream().map(id -> (Integer) id).toList();
+    }
+
+    private List<String> thumbnailsOf(String url) throws Exception {
+        JSONArray urls = JsonPath.read(read(url), "$.returnObject.content[*].thumbnailUrl");
+        return urls.stream().map(u -> (String) u).toList();
     }
 
     private List<Integer> recentIds() throws Exception {
