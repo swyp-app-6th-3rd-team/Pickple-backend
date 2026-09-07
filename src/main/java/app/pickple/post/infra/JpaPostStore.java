@@ -37,6 +37,7 @@ public class JpaPostStore implements PostStore {
     private final PostProductRepository productRepository;
     private final PostListQuerydslRepository listRepository;
     private final RandomPostQuerydslRepository randomRepository;
+    private final PostDetailQuerydslRepository detailRepository;
     private final Clock clock;
 
     /**
@@ -148,6 +149,20 @@ public class JpaPostStore implements PostStore {
 
         List<RandomPostView> content = slice.cards().stream().map(RandomCardEntry::view).toList();
         return Window.from(content, randomPositions(cursor, type, slice.cards()), slice.hasNext());
+    }
+
+    /**
+     * 상세 한 건 (§6.2·§6.3). 세 문장 경로라 격리 수준 선언의 뜻은 {@link #findSlice} 와 같다 —
+     * 실제 경계는 {@code PostService} 이고 여기의 선언은 낮추는 변경이 이 파일을 지나가게 하는 표지다.
+     *
+     * <p>행 변환 코드가 없다. 조회가 {@code Object} 배열 대신 {@link PostDetailView} 를 직접 돌려주므로
+     * 첫 판(PR #128)의 컬럼 인덱스 상수 25개와 드라이버 타입 방어가 여기 들어오지 않았다 —
+     * 그 계약은 {@code PostDetailQuerydslRepository} 의 프로젝션이 지킨다.
+     */
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Optional<PostDetailView> findDetail(Long id, Long viewerId) {
+        return detailRepository.findDetail(id, viewerId);
     }
 
     /**
