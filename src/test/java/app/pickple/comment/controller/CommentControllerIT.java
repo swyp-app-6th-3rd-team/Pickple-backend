@@ -3,6 +3,7 @@ package app.pickple.comment.controller;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
+import app.pickple.auth.service.AccountWithdrawalPersistenceService;
 import app.pickple.auth.service.JwtService;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.domain.OnePickStore;
@@ -63,6 +64,8 @@ class CommentControllerIT {
     private EntityManager entityManager;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Autowired
+    private AccountWithdrawalPersistenceService withdrawalPersistenceService;
 
     private MockMvc mockMvc;
     private User postAuthor;
@@ -238,6 +241,35 @@ class CommentControllerIT {
                         .content("{\"content\":\"삭제된 글의 댓글\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    /**
+     * C-9 (PRD-023) — 탈퇴 회원의 댓글은 남고 작성자만 비식별 표기가 된다.
+     *
+     * <p>개인정보처리방침 제3조가 댓글을 보존 예외로 두면서 "작성자 정보는 비식별 처리" 를
+     * 조건으로 달았다. 댓글이 사라지면 보존 위반이고 닉네임이 남으면 비식별 위반이라
+     * 두 가지를 함께 본다 (ADR-0040).
+     *
+     * <p>읽는 쪽은 <b>다른 활성 회원</b>이다. 댓글 조회가 인증을 요구하므로 탈퇴자 본인의
+     * 토큰으로는 관문(ADR-0035)에 막혀 이 경로에 닿지 못한다.
+     */
+    @Test
+    void withdrawnAuthorCommentStaysListedWithMaskedNickname() throws Exception {
+        writeThroughApi("탈퇴자가 쓴 댓글");
+
+        withdrawalPersistenceService.complete(commentAuthor.id());
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(otherUserToken)))
+                .andExpect(status().isOk())
+                // 보존 — 댓글이 사라지면 INNER JOIN 회귀다.
+                .andExpect(jsonPath("$.returnObject.commentCount").value(1))
+                .andExpect(jsonPath("$.returnObject.comments[0].content").value("탈퇴자가 쓴 댓글"))
+                // 비식별 — 원본 닉네임·프로필 이미지가 남아 있으면 제3조 위반이다.
+                .andExpect(jsonPath("$.returnObject.comments[0].nickname").value("알 수 없음"))
+                .andExpect(jsonPath("$.returnObject.comments[0].profileImageUrl").doesNotExist());
     }
 
     private User saveUser(String providerId, String name) {
