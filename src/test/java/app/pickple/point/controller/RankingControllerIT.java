@@ -71,6 +71,8 @@ class RankingControllerIT {
     @Autowired
     private JwtService jwtService;
     @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired
     private EntityManager entityManager;
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -398,5 +400,34 @@ class RankingControllerIT {
 
     private String bearer(User user) {
         return "Bearer " + jwtService.createAccessToken(user);
+    }
+
+    /**
+     * 커서 조회가 정렬 인덱스를 타는지 실행 계획으로 확인한다.
+     *
+     * <p><b>왜 결과 단언으로는 부족한가.</b> 인덱스를 못 타도 결과는 똑같이 옳다 —
+     * MySQL 이 전량을 읽어 정렬한 뒤 21건을 잘라내면 된다. 200k 회원에서 그 차이가
+     * 33ms 대 0.060ms 였다(V10 마이그레이션 주석). 정확성 테스트는 이 회귀를 못 잡는다.
+     *
+     * <p>QueryDSL 전환(#130)에서 이 단언이 특히 필요하다. 손으로 쓴 SQL 과 달리
+     * 생성된 SQL 은 사람이 읽지 않으므로, 계획이 조용히 바뀌어도 드러나지 않는다.
+     */
+    @Test
+    @DisplayName("랭킹 조각 조회가 ranking 인덱스를 range scan 으로 탄다")
+    void sliceUsesRankingIndex() {
+        String plan = String.join(" ", jdbcTemplate.queryForList("""
+                EXPLAIN FORMAT=TREE
+                SELECT u.id, u.ranking, u.point, u.vote_count
+                  FROM users u
+                 WHERE u.ranking IS NOT NULL AND u.ranking > 10
+                 ORDER BY u.ranking ASC LIMIT 21
+                """, String.class));
+
+        assertThat(plan)
+                .as("정렬 인덱스를 타야 한다 — 못 타면 전량 스캔 후 정렬이 된다")
+                .contains("idx_users_ranking_order");
+        assertThat(plan)
+                .as("filesort 가 보이면 인덱스가 정렬을 맡지 못한 것이다")
+                .doesNotContain("Sort:");
     }
 }
