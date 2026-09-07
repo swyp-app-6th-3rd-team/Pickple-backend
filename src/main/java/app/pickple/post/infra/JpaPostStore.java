@@ -6,12 +6,15 @@ import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
+import app.pickple.post.infra.PostListQuerydslRepository.PostListRow;
+import app.pickple.post.infra.PostListQuerydslRepository.PostListSlice;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -25,8 +28,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.IntFunction;
 
-import static app.pickple.post.infra.PostListRepository.Column;
-
 @Component
 @RequiredArgsConstructor
 public class JpaPostStore implements PostStore {
@@ -35,7 +36,7 @@ public class JpaPostStore implements PostStore {
 
     private final PostRepository repository;
     private final PostProductRepository productRepository;
-    private final PostListRepository listRepository;
+    private final PostListQuerydslRepository listRepository;
     private final RandomPostRepository randomRepository;
     private final Clock clock;
 
@@ -101,25 +102,32 @@ public class JpaPostStore implements PostStore {
     /**
      * 게시글 목록 조회 결과를 {@link Window} 로 감싼다.
      *
-     * <p>{@code Window} 를 직접 만드는 이유는 정렬 키가 매핑되지 않은 생성 컬럼이라
-     * Spring Data 의 파생 keyset 스크롤을 쓸 수 없기 때문이다({@link PostListRepository} 참조).
+     * <p>{@code Window} 를 직접 만드는 이유는 정렬 키가 읽기 전용 생성 컬럼이라(인기순)
+     * Spring Data 의 파생 keyset 스크롤을 쓸 수 없기 때문이다({@link PostListQuerydslRepository} 참조).
      * 다만 <b>타입은 그대로 쓴다</b> — {@code ScrollResponse.of(...)} 와 ArchUnit 규칙이
      * 그 위에 서 있다(ADR-0004).
+     *
+     * <p><b>두 문장 조회는 REPEATABLE READ 를 명시한다.</b> 저장소가 키 문장과 행 문장을 나눠 내므로
+     * (ADR-0045) 둘이 한 스냅샷을 봐야 한다. MySQL 기본값과 같아 실제로 바뀌는 것은 없지만, 전제를
+     * 애노테이션에 적어 두면 격리 수준을 낮추는 변경이 이 파일을 지나가게 된다. 바깥 트랜잭션에
+     * 참여하면 그쪽 격리 수준을 따른다 — Spring 은 참여 트랜잭션의 격리를 검증하지 않으므로
+     * 이 선언은 새 트랜잭션을 여는 경우에만 강제다. 저장소의 {@code requireSnapshot()} 은 트랜잭션의
+     * 존재만 확인한다.
+     *
+     * <p><b>행 변환 코드가 사라졌다.</b> 조회가 {@code Object} 배열 대신 {@link PostListRow} 를
+     * 직접 돌려주므로 컬럼 인덱스 상수와 드라이버 타입 방어({@code toCreatedAt}·{@code toRanking})가
+     * 필요 없다. 그 계약은 이제 {@code PostListQuerydslRepository} 의 프로젝션이 지킨다.
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Window<PostListView> findSlice(
             PostCategory category, PostSort sort, ScrollPosition position, int size) {
 
         PostListCursor cursor = PostListCursor.from(position, sort);
-        List<Object[]> rows = listRepository.findSlice(category, sort, cursor, size);
+        PostListSlice slice = listRepository.findSlice(category, sort, cursor, size);
 
-        // size + 1 건을 요청했으므로, 넘치면 다음 조각이 있다는 뜻이다.
-        boolean hasNext = rows.size() > size;
-        List<Object[]> page = hasNext ? rows.subList(0, size) : rows;
-
-        List<PostListView> content = page.stream().map(JpaPostStore::toView).toList();
-        return Window.from(content, positionFunction(sort, page), hasNext);
+        List<PostListView> content = slice.rows().stream().map(PostListRow::view).toList();
+        return Window.from(content, positionFunction(sort, slice.rows()), slice.hasNext());
     }
 
     @Override
@@ -140,47 +148,18 @@ public class JpaPostStore implements PostStore {
     /**
      * 각 행의 커서 위치. {@code ScrollResponse} 는 마지막 행의 것만 쓰지만,
      * {@code Window} 계약상 어느 색인이든 물어볼 수 있으므로 행마다 만든다.
-     */
-    private static IntFunction<ScrollPosition> positionFunction(PostSort sort, List<Object[]> rows) {
-        return index -> {
-            Object[] row = rows.get(index);
-            Object sortValue = switch (sort) {
-                case LATEST -> PostListRepository.toLocalDateTime(row[Column.CREATED_AT]);
-                case POPULAR -> toLong(row[Column.POPULARITY_SCORE]);
-            };
-            return PostListCursor.toPosition(sort, sortValue, toLong(row[Column.ID]));
-        };
-    }
-
-    private static PostListView toView(Object[] row) {
-        return new PostListView(
-                toLong(row[Column.ID]),
-                PostType.valueOf((String) row[Column.TYPE]),
-                PostCategory.valueOf((String) row[Column.CATEGORY]),
-                (String) row[Column.TITLE],
-                (String) row[Column.DESCRIPTION],
-                toLong(row[Column.VOTE_COUNT]),
-                toLong(row[Column.COMMENT_COUNT]),
-                toCreatedAt(row[Column.CREATED_AT]),
-                (String) row[Column.THUMBNAIL_URL],
-                toLong(row[Column.AUTHOR_ID]),
-                (String) row[Column.AUTHOR_NICKNAME],
-                toRanking(row[Column.AUTHOR_RANKING]));
-    }
-
-    /**
-     * 랭킹은 <b>없을 수 있다</b> — 가입 직후 다음 배치까지, 그리고 탈퇴 회원이 그렇다.
      *
-     * <p>{@link #toLong} 을 쓰지 않는 이유가 여기 있다. 그쪽은 null 을 0 으로 접는데,
-     * 순위 0 은 존재하지 않는 값이라 "아직 모른다" 를 "0위" 라는 거짓으로 바꾼다.
-     * 미산정은 {@code null} 로 그대로 올려보내고 화면이 비운다.
+     * <p>인기순 커서 값은 응답에 없는 점수라 {@link PostListRow} 가 뷰 곁에 들고 온다.
      */
-    private static Integer toRanking(Object raw) {
-        return raw == null ? null : ((Number) raw).intValue();
-    }
-
-    private static LocalDateTime toCreatedAt(Object raw) {
-        return PostListRepository.toLocalDateTime(raw);
+    private static IntFunction<ScrollPosition> positionFunction(PostSort sort, List<PostListRow> rows) {
+        return index -> {
+            PostListRow row = rows.get(index);
+            Object sortValue = switch (sort) {
+                case LATEST -> row.view().createdAt();
+                case POPULAR -> row.popularityScore();
+            };
+            return PostListCursor.toPosition(sort, sortValue, row.view().id());
+        };
     }
 
     /** 네이티브 결과의 수치 컬럼은 드라이버가 정하는 타입으로 온다(BigInteger·Integer·Long). */
