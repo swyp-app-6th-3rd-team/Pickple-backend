@@ -16,6 +16,7 @@ import app.pickple.post.domain.PostProduct;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.support.IntegrationTest;
+import app.pickple.support.SqlCapture;
 import app.pickple.vote.service.VoteService;
 import com.jayway.jsonpath.JsonPath;
 import jakarta.persistence.EntityManager;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,6 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** 홈 랜덤 투표 카드 API(이슈 #22)의 완료 판정을 실제 MySQL로 확인한다. */
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@Import(SqlCapture.Config.class)
 @Transactional
 class RandomPostsIT {
 
@@ -79,6 +82,8 @@ class RandomPostsIT {
     private EntityManager entityManager;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Autowired
+    private SqlCapture sqlCapture;
 
     private MockMvc mockMvc;
     private User author;
@@ -384,37 +389,67 @@ class RandomPostsIT {
     }
 
     @Test
-    @DisplayName("카드 SQL 1회에 유형·삭제 필터를 적용하고 로그인은 계정 확인 1회만 더한다")
-    void keepsCardQueryConstantAndFiltersInSql() throws Exception {
+    @DisplayName("카드가 5배가 되어도 SQL 문장 수는 그대로고 유형·삭제 필터는 키 문장의 WHERE 에 있다")
+    void statementCountDoesNotGrowWithCards() throws Exception {
         User viewer = saveUser("random-query-viewer-" + seed, "조회자");
-        for (int i = 0; i < 5; i++) {
+        saveAbPost("쿼리 0");
+        flush();
+        long oneCard = countStatements(null, 1);
+        for (int i = 1; i < 5; i++) {
             saveAbPost("쿼리 " + i);
         }
         flush();
+        long fiveCards = countStatements(null, 5);
 
+        // 지키려는 성질은 "1회" 라는 숫자가 아니라 카드 수에 비례하지 않는다는 것이다.
+        // 절대값만 박아 두면 요청당 상수 비용이 하나 늘 때마다 깨지면서 정작 N+1 은 알려주지 못한다.
+        assertThat(fiveCards).isEqualTo(oneCard);
+
+        // 그 상수가 무엇으로 이루어졌는지도 고정한다. 늘어나면 이유를 대야 한다.
+        //   1) 키 문장 — 유형·삭제 필터와 시드 정렬로 카드에 들어갈 게시글 id 를 확정한다
+        //   2) 행 문장 — 그 id 들에만 선택지·상품·내 투표를 붙인다 (ADR-0043 의 분할, #139)
+        //      옛 네이티브 SQL 은 파생 테이블로 1) 2) 를 한 문장에 담았다.
+        assertThat(oneCard).isEqualTo(2L);
+        // 로그인은 인증 필터의 계정 확인 1회만 더한다 — 카드 문장은 게스트와 같다.
+        assertThat(countStatements(viewer, 5)).isEqualTo(oneCard + 1);
+
+        // 유형·삭제 필터는 조각을 자르기 전 키 문장의 WHERE 에 있다 (§2.2). 행 문장에는 없다 —
+        // 거기서 다시 걸면 두 문장 사이에 지워진 글이 조용히 빠져 스냅샷 전제가 깨진 사실이 가려진다.
+        List<String> statements = sqlCapture.record(() -> readQuietly(PostType.A_B));
+        assertThat(statements).hasSize(2);
+        assertThat(statements.get(0))
+                .containsPattern("where \\w+\\.deleted_at is null and \\w+\\.type=\\?")
+                .contains("limit ?");
+        assertThat(statements.get(1))
+                .doesNotContain("deleted_at")
+                .contains("item_resource");
+    }
+
+    private long countStatements(User viewer, int expectedCards) throws Exception {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         boolean wasEnabled = statistics.isStatisticsEnabled();
         statistics.setStatisticsEnabled(true);
         try {
             statistics.clear();
-            mockMvc.perform(get(RANDOM_POSTS).param("type", "A_B"))
+            var request = get(RANDOM_POSTS).param("type", "A_B");
+            if (viewer != null) {
+                request.header("Authorization", bearer(jwtService.createAccessToken(viewer)));
+            }
+            mockMvc.perform(request)
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath(CONTENT + ".length()").value(5));
-            assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
-            assertThat(statistics.getQueries()).singleElement().satisfies(sql -> {
-                String normalized = sql.replaceAll("\\s+", " ");
-                assertThat(normalized).contains("WHERE p.deleted_at IS NULL AND p.type =");
-            });
-
-            statistics.clear();
-            mockMvc.perform(get(RANDOM_POSTS).param("type", "A_B")
-                            .header("Authorization", bearer(jwtService.createAccessToken(viewer))))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath(CONTENT + ".length()").value(5));
-            assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+                    .andExpect(jsonPath(CONTENT + ".length()").value(expectedCards));
+            return statistics.getPrepareStatementCount();
         } finally {
             statistics.setStatisticsEnabled(wasEnabled);
             statistics.clear();
+        }
+    }
+
+    private void readQuietly(PostType type) {
+        try {
+            read(type, null);
+        } catch (Exception e) {
+            throw new AssertionError(e);
         }
     }
 
