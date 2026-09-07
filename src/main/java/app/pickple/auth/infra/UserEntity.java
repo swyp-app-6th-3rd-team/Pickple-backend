@@ -71,6 +71,20 @@ public class UserEntity {
     private Integer ranking;
 
     /**
+     * 도달한 최고 등급의 레벨 (R-16). <b>읽기 전용이다</b> (ADR-0041) — 이 컬럼에 쓰는 경로는
+     * 등급 저장소의 원자적 {@code UPDATE … WHERE highest_grade < :level} 하나뿐이다({@code GradeRepository}).
+     * {@code insertable = false, updatable = false} 라 프로필 저장 같은 평범한 쓰기가 옛 스냅샷으로
+     * 등급을 덮어쓸 수 없다 — {@code ranking} 과 같은 장치다. 매핑한 이유는 게시글 상세가 작성자 등급을
+     * 프로젝션으로 읽기 위해서다(ADR-0046). 가입 시 기본값 1 이라 비지 않는다.
+     *
+     * <p>스키마가 {@code TINYINT UNSIGNED} 라 {@code Byte} 다 — {@code ddl-auto: validate} 가 JDBC 타입으로
+     * 대조하므로 {@code Integer} 로 두면 기동에서 "wrong column type" 으로 깨진다({@code PostOptionEntity.displayOrder}
+     * 와 같은 사정). 도메인 {@code Grade} 로의 복원은 프로젝션이 한다 — 엔티티는 DB 타입을 따른다.
+     */
+    @Column(name = "highest_grade", nullable = false, insertable = false, updatable = false)
+    private Byte highestGrade;
+
+    /**
      * 누적 포인트. 원장({@code point_history})에서 유도한 캐시이며 배치가 채운다 (R-14).
      *
      * <p>스키마가 {@code INT UNSIGNED} 라 {@code Integer} 다. 도메인 {@code RankingView} 는

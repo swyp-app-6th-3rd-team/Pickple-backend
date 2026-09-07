@@ -16,7 +16,7 @@ import java.util.Optional;
  * 아래 세 메서드뿐이다. CRUD 를 상속하면 {@code users} 를 이 패키지에서 저장·삭제할 수 있는
  * 문이 열린다. {@code UserEntity} 는 Spring Data 가 요구하는 관리 타입 자리일 뿐이고,
  * 이 인터페이스는 그 엔티티를 읽거나 쓰지 않는다 — {@code highest_grade} 는 엔티티에
- * 매핑돼 있지 않다 ({@code JpaGradeStore} javadoc).
+ * 읽기 전용으로만 매핑돼 있다 ({@code JpaGradeStore} javadoc · ADR-0041).
  *
  * <p><b>왜 인터페이스 프로젝션인가</b> — 드라이버가 함수마다 다른 타입을 돌려준다
  * ({@code SUM()} → {@code BigDecimal}, {@code COUNT()} → {@code Long},
@@ -71,8 +71,10 @@ interface GradeRepository extends Repository<UserEntity, Long> {
      * 그 사이에 끼어든 승급을 되돌린다 — 조건을 SQL 에 두면 DB 가 원자적으로 판정한다.
      * 낮은 값으로 부르면 아무 행도 갱신되지 않고 0 을 돌려준다.
      *
-     * <p>{@code clearAutomatically} 를 켜지 않는다. {@code highest_grade} 는 어느 엔티티에도
-     * 매핑돼 있지 않아 영속성 컨텍스트에 이 값의 옛 스냅샷이 남을 수 없다.
+     * <p>{@code clearAutomatically} 를 켜지 않는다. {@code highest_grade} 는 {@code UserEntity} 에
+     * 읽기 전용으로 매핑돼 있지만(ADR-0041 · #20), 이 경로는 관리 {@code UserEntity} 를 적재하지 않는다 —
+     * 이 인터페이스는 네이티브 스칼라 SQL 만 내보내므로 영속성 컨텍스트에 이 값의 옛 스냅샷이 남을 수 없다.
+     * 같은 트랜잭션에서 회원 엔티티를 먼저 읽는 호출자가 생기면 그때 이 판단을 다시 한다.
      */
     @Modifying
     @Query(value = """
