@@ -1,0 +1,292 @@
+package app.pickple.activity.infra;
+
+import app.pickple.activity.domain.ActivityQueryStore.ActivityPostView;
+import app.pickple.activity.domain.ActivityQueryStore.ActivitySummary;
+import app.pickple.activity.domain.ActivitySort;
+import app.pickple.activity.domain.ActivityType;
+import app.pickple.auth.infra.QUserEntity;
+import app.pickple.comment.infra.QPostCommenterEntity;
+import app.pickple.item.infra.QItemResourceEntity;
+import app.pickple.post.domain.PostType;
+import app.pickple.post.infra.QPostEntity;
+import app.pickple.post.infra.QPostProductEntity;
+import app.pickple.vote.infra.QVoteEntity;
+import com.querydsl.core.types.Expression;
+import com.querydsl.core.types.OrderSpecifier;
+import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.core.types.dsl.ComparableExpressionBase;
+import com.querydsl.core.types.dsl.DateTimePath;
+import com.querydsl.core.types.dsl.Expressions;
+import com.querydsl.core.types.dsl.NumberPath;
+import com.querydsl.jpa.JPAExpressions;
+import com.querydsl.jpa.impl.JPAQuery;
+import com.querydsl.jpa.impl.JPAQueryFactory;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.util.Assert;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * 내 활동 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0043).
+ *
+ * <p><b>먼저 자르고 나중에 붙인다.</b> 조각에 들어갈 게시글 id 를 활동 테이블의 인덱스로
+ * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 게시글과 대표 사진을 붙인다.
+ * 옛 네이티브 SQL 은 이것을 파생 테이블 {@code FROM (SELECT … LIMIT) page} 한 문장으로
+ * 했는데, QueryDSL-JPA 는 FROM 절 서브쿼리를 지원하지 않는다. 그래서 안쪽 질의가
+ * {@link #keys 키 문장}이 되고 바깥 질의가 {@link #rows 행 문장}이 된다.
+ * 왕복이 하나 늘지만 <b>인덱스가 정렬을 맡는 구간은 키 문장 하나에 그대로 남는다</b> —
+ * 판정 기준은 왕복 횟수가 아니라 실행계획이다.
+ *
+ * <p><b>두 문장은 한 스냅샷을 본다.</b> 호출자가 트랜잭션을 열어야 한다 —
+ * InnoDB 의 REPEATABLE READ 에서 첫 읽기가 스냅샷을 잡으므로, 키 문장과 행 문장 사이에
+ * 게시글이 지워지거나 인기 점수가 바뀌어도 행 문장이 키 문장과 다른 세상을 보지 않는다.
+ * 옛 한 문장에는 없던 전제라 {@link #findSlice} 가 진입 시점에 확인한다.
+ *
+ * <p><b>안쪽 질의는 활동 테이블에서 시작한다</b> (ADR-0036). {@code post} 에서 시작해
+ * {@code EXISTS} 로 좁히면 옵티마이저가 게시글 전체를 훑는다 — 내 활동은 전체 게시글의
+ * 극히 일부라 방향이 결정적이다. 세 유형이 갈리는 곳은 {@code FROM} 과 "활동 시각" 뿐이고,
+ * 그 분기를 {@code switch} 가 <b>문자열이 아니라 질의 객체로</b> 조립한다. 옛 코드는 SQL 본문을
+ * {@code formatted} 로 이어붙였고 "enum 만 들어오므로 안전하다" 는 방어가 호출자 규약에
+ * 의존했다 — 이제 그 방어는 타입에 있다.
+ *
+ * <p><b>왜 더는 네이티브 SQL 이 아닌가</b>
+ * <ul>
+ *   <li>{@code post.popularity_score} 를 읽기 전용으로 매핑했다(ADR-0041). JPQL 이 정렬·커서에
+ *       이 컬럼을 쓸 수 있다.</li>
+ *   <li>keyset 의 행 값 비교 {@code (a, b) < (?, ?)} 는 Hibernate 7 HQL 이 튜플 비교로
+ *       지원한다. 동률에서 행이 새지 않는 성질이 그대로다.</li>
+ *   <li>결과를 {@code Object} 배열 로 받아 컬럼 인덱스 상수로 꺼내던 구조가 사라진다 —
+ *       그 인덱스는 SELECT 절이 바뀌면 조용히 밀리고 런타임에야 깨졌다 (이슈 #130).</li>
+ * </ul>
+ *
+ * <p>package-private 이다. 바깥은 {@link app.pickple.activity.domain.ActivityQueryStore} 만 본다.
+ */
+@Repository
+@RequiredArgsConstructor
+class ActivityQuerydslRepository {
+
+    private static final QPostEntity POST = QPostEntity.postEntity;
+    private static final QVoteEntity VOTE = QVoteEntity.voteEntity;
+    private static final QPostCommenterEntity COMMENTER = QPostCommenterEntity.postCommenterEntity;
+    private static final QUserEntity USER = QUserEntity.userEntity;
+    private static final QPostProductEntity PRODUCT = QPostProductEntity.postProductEntity;
+    private static final QItemResourceEntity RESOURCE = QItemResourceEntity.itemResourceEntity;
+    /** 대표 사진 서브쿼리 안쪽의 두 번째 {@code item_resource}. 바깥 별칭과 겹치면 안 된다. */
+    private static final QItemResourceEntity CANDIDATE = new QItemResourceEntity("candidate");
+
+    /** 찬반은 상품이 하나뿐이고 A/B 는 A 상품이라 대표 사진은 둘 다 {@code display_order = 1} 이다 (§9.2). */
+    private static final byte REPRESENTATIVE_PRODUCT = 1;
+
+    private final JPAQueryFactory queryFactory;
+
+    /**
+     * 조회 결과 한 행. 화면용 뷰에 <b>커서에만 쓰는</b> 인기 점수를 곁들인다.
+     *
+     * <p>{@link ActivityPostView} 에 점수를 넣지 않는 이유는 그 타입이 화면 계약이기 때문이다 —
+     * 인기순 커서를 만들려고 응답에 없는 값을 도메인 뷰에 끼우면 어느 화면이 무엇을
+     * 쓰는지 타입이 말해주지 못한다. 점수는 이 패키지를 벗어나지 않는다.
+     *
+     * <p>{@code public} 인 이유는 QueryDSL 이 생성자를 {@code getConstructors()} 로 찾기 때문이다 —
+     * 레코드의 정규 생성자는 레코드와 접근 수준이 같아, package-private 이면 런타임에
+     * "No constructor found" 가 난다. 감싸는 클래스가 package-private 이라 바깥에는 안 보인다.
+     */
+    public record ActivityRow(ActivityPostView view, Long popularityScore) {
+    }
+
+    /**
+     * 한 조각. {@code hasNext} 는 <b>키 문장</b>이 정한다 — 행 문장의 행 수로 판정하면
+     * 두 문장 사이에 게시글이 지워졌을 때 "다음이 있다" 는 사실이 조용히 사라진다.
+     */
+    record ActivitySlice(List<ActivityRow> rows, boolean hasNext) {
+    }
+
+    /**
+     * 두 문장이 한 스냅샷을 보려면 트랜잭션 안이어야 한다 (ADR-0043). 호출자 {@code JpaActivityQueryStore}
+     * 의 {@code @Transactional(readOnly = true)} 가 그 트랜잭션이다 — 누가 애노테이션을 지우면
+     * 조용히 어긋나는 대신 여기서 즉시 깨진다.
+     */
+    private static void requireSnapshot() {
+        Assert.state(TransactionSynchronizationManager.isActualTransactionActive(),
+                "키 문장과 행 문장이 같은 스냅샷을 보려면 트랜잭션 안이어야 한다");
+    }
+
+    /**
+     * 키 문장 — 조각에 들어갈 게시글 id 를 확정한다. <b>활동 테이블에서 시작한다.</b>
+     *
+     * <p>세 유형이 갈리는 곳은 {@code FROM} 뿐이다. {@code POST} 만 활동 테이블이 게시글
+     * 자신이라 조인이 없다. <b>삭제된 게시글은 빼낸다</b> — 내가 투표한 글을 작성자가
+     * 지웠다면 그 카드는 탭했을 때 갈 곳이 없다.
+     *
+     * <p>{@code SELECT} 는 활동 테이블 쪽의 {@code post_id} 다. 값은 {@code p.id} 와 같지만
+     * 정렬 튜플과 같은 테이블에서 읽어야 인덱스 하나로 조회가 끝난다 (커버링).
+     * 같은 게시글이 두 번 나올 수 없다 — {@code uk_vote_post_user}·{@code uk_commenter_post_user}
+     * 가 한 사람의 활동을 게시글당 한 행으로 묶고, {@code POST} 는 기본 키다. 행 문장의
+     * {@code IN} 이 안전한 근거가 이것이다.
+     */
+    private JPAQuery<Long> keys(ActivityType type, Long userId) {
+        return switch (type) {
+            case VOTE -> queryFactory.select(VOTE.postId)
+                    .from(VOTE)
+                    .join(POST).on(POST.id.eq(VOTE.postId), POST.deletedAt.isNull())
+                    .where(VOTE.userId.eq(userId));
+            case COMMENT -> queryFactory.select(COMMENTER.postId)
+                    .from(COMMENTER)
+                    .join(POST).on(POST.id.eq(COMMENTER.postId), POST.deletedAt.isNull())
+                    .where(COMMENTER.userId.eq(userId));
+            case POST -> queryFactory.select(POST.id)
+                    .from(POST)
+                    .where(POST.userId.eq(userId), POST.deletedAt.isNull());
+        };
+    }
+
+    /**
+     * 행 문장 — 이미 확정된 몇 줄에만 게시글 본문·활동 시각·대표 사진을 붙인다.
+     *
+     * <p>키 문장과 반대로 <b>게시글에서 시작한다.</b> {@code post.id IN (…)} 이 기본 키 범위로
+     * 조각 크기만큼만 읽고, 활동 테이블은 {@code (post_id, user_id)} 유니크 키로 한 줄씩
+     * 붙는다({@code eq_ref}). 활동 테이블에서 시작하면 옵티마이저가 통계에 따라
+     * {@code idx_*_user_activity} 를 골라 내 활동 전체를 훑고 {@code IN} 으로 거를 수 있다.
+     * {@code FROM} 이 조인 순서를 강제하지는 않지만 기본 키 범위가 가장 싼 진입점이라는 근거를 주고,
+     * 실행계획 테스트가 그 접근 방식(기본 키 범위 + 유니크 키 단건 조회)을 고정한다.
+     *
+     * <p>조인 조건의 {@code user_id} 는 장식이 아니다. 빠지면 같은 글에 활동한 <b>다른 사람의</b>
+     * 행이 붙어 게시글 한 줄이 그 인원만큼 불어난다. {@code POST} 는 조인이 없어 id 만으로 충분하지만
+     * 세 갈래가 같은 조건("내 활동으로 좁힌 게시글")을 말하도록 같은 필터를 둔다 — 기본 키 범위 뒤의
+     * 필터라 비용이 없다.
+     */
+    private JPAQuery<ActivityRow> rows(ActivityType type, Long userId, List<Long> ids) {
+        return switch (type) {
+            case VOTE -> queryFactory.select(projection(VOTE.createdAt))
+                    .from(POST)
+                    .join(VOTE).on(VOTE.postId.eq(POST.id), VOTE.userId.eq(userId))
+                    .where(POST.id.in(ids));
+            case COMMENT -> queryFactory.select(projection(COMMENTER.createdAt))
+                    .from(POST)
+                    .join(COMMENTER).on(COMMENTER.postId.eq(POST.id), COMMENTER.userId.eq(userId))
+                    .where(POST.id.in(ids));
+            case POST -> queryFactory.select(projection(POST.createdAt))
+                    .from(POST)
+                    .where(POST.id.in(ids), POST.userId.eq(userId));
+        };
+    }
+
+    /**
+     * 행 문장의 프로젝션. 생성자 인자 순서가 {@link ActivityPostView} 와 어긋나면
+     * <b>애플리케이션 기동 시</b>가 아니라 첫 조회에서 {@code ExpressionException} 으로 드러난다 —
+     * 그래도 옛 컬럼 인덱스 상수처럼 엉뚱한 값이 조용히 들어가는 일은 없다.
+     *
+     * <p>카운터와 인기 점수는 스키마가 {@code INT UNSIGNED} 라 {@code Integer} 로 읽고
+     * 도메인 계약인 {@code long} 으로 넓힌다. 이 {@code longValue()} 는 SQL 에 {@code cast} 로
+     * 내려가므로 <b>정렬·커서에는 쓰지 않는다</b> — 거기서는 원래 경로
+     * {@link QPostEntity#popularityScore} 를 써야 인덱스가 산다.
+     */
+    private static Expression<ActivityRow> projection(DateTimePath<LocalDateTime> activityAt) {
+        return Projections.constructor(ActivityRow.class,
+                Projections.constructor(ActivityPostView.class,
+                        POST.id,
+                        POST.type,
+                        POST.category,
+                        POST.title,
+                        POST.description,
+                        POST.voteCount.longValue(),
+                        POST.commentCount.longValue(),
+                        POST.createdAt,
+                        thumbnailUrl(),
+                        activityAt),
+                POST.popularityScore.longValue());
+    }
+
+    /**
+     * 활동 시각 (R-32). 투표한 시각·처음 댓글을 단 시각·글을 올린 시각이다.
+     *
+     * <p>{@code POST} 의 활동 시각이 {@code post.created_at} 인 것은 우연이 아니다 —
+     * 내가 올린 글은 활동이 곧 작성이다.
+     */
+    private static DateTimePath<LocalDateTime> activityAtOf(ActivityType type) {
+        return switch (type) {
+            case VOTE -> VOTE.createdAt;
+            case COMMENT -> COMMENTER.createdAt;
+            case POST -> POST.createdAt;
+        };
+    }
+
+    /**
+     * 정렬 튜플의 두 번째 자리. <b>게시글 id 를 활동 테이블 쪽에서 읽는다.</b>
+     *
+     * <p>값은 {@code p.id} 와 같지만(조인 조건이 {@code p.id = v.post_id})
+     * <b>어느 테이블에서 읽느냐가 실행계획을 가른다.</b> {@code p.id} 로 쓰면
+     * 정렬 키 둘이 서로 다른 테이블에 있어 인덱스 하나로 정렬이 완결되지 않고,
+     * MySQL 이 내 활동 전체를 읽어 filesort 로 정렬한다 — 활동 500건 실측 4.29ms.
+     * 활동 테이블 쪽으로 맞추면 {@code idx_vote_user_activity} 가 정렬을 통째로
+     * 맡아 11행만 읽는다(0.070ms). 활동 5,000건에서도 읽는 행은 11이다.
+     *
+     * <p>이 한 글자가 Θ(내 활동 수) 와 Θ(조각 크기) 를 가른다.
+     */
+    private static NumberPath<Long> postIdOf(ActivityType type) {
+        return switch (type) {
+            case VOTE -> VOTE.postId;
+            case COMMENT -> COMMENTER.postId;
+            case POST -> POST.id;
+        };
+    }
+
+    /** 정렬 키. 활동 시각이거나 게시글의 인기 점수다. */
+    private static ComparableExpressionBase<?> sortKey(ActivityType type, ActivitySort sort) {
+        return sort.byActivityTime() ? activityAtOf(type) : POST.popularityScore;
+    }
+
+    /**
+     * keyset 조건. 커서가 없으면 {@code null} 을 돌려 조건에서 빠진다 — {@code where} 는 null 을 무시한다.
+     *
+     * <p><b>행 값 비교</b> {@code (정렬키, id) < (?, ?)} 다. 정렬키 하나로 자르면 같은 값을 가진
+     * 행이 조각 경계에서 사라진다 — 초 단위로 끊는 {@code Clock} 때문에 같은 시각은 실제로 생긴다.
+     * 오래된순은 부등호가 뒤집힌다.
+     *
+     * <p>템플릿인 이유는 QueryDSL 에 튜플 비교 API 가 없어서다. HQL 튜플 비교가 MySQL 에는
+     * 옛 네이티브 SQL 과 같은 행 값 비교 {@code (a, b) < (?, ?)} 로 내려가며, 풀어쓴
+     * {@code a < ? OR (a = ? AND b < ?)} 로 바뀌지 않는다 — 실행계획 테스트가 그 형태를 고정한다.
+     * 커서 값은 {@code Expressions.constant} 라 리터럴이 아니라 파라미터로 바인딩된다.
+     */
+    private static BooleanExpression after(
+            ComparableExpressionBase<?> sortKey, NumberPath<Long> postId, ActivitySort sort, ActivityListCursor cursor) {
+        if (cursor == null) {
+            return null;
+        }
+        return Expressions.booleanTemplate(
+                sort.ascending() ? "({0}, {1}) > ({2}, {3})" : "({0}, {1}) < ({2}, {3})",
+                sortKey, postId, Expressions.constant(cursor.sortValue()), Expressions.constant(cursor.id()));
+    }
+
+    /** 정렬 방향은 keyset 부등호와 함께 뒤집힌다. */
+    private static OrderSpecifier<?> order(ComparableExpressionBase<?> key, ActivitySort sort) {
+        return sort.ascending() ? key.asc() : key.desc();
+    }
+
+    /**
+     * 대표 사진 1장 (§9.2) — {@code PostListRepository} 와 같은 정의다.
+     *
+     * <p>스칼라 서브쿼리인 이유는 찬반 상품이 사진을 최대 3장 갖기 때문이다(R-03).
+     * 그냥 조인하면 게시글 한 줄이 사진 수만큼 불어나 조각 크기가 어긋난다.
+     * 옛 SQL 의 {@code ORDER BY ir.id ASC LIMIT 1} 을 {@code MIN(id)} 로 옮겼다 —
+     * "가장 처음 등록한 사진" 이라는 뜻이 같고, 서브쿼리 안의 {@code LIMIT} 은 JPQL 에 없다.
+     *
+     * <p>행 문장에만 붙으므로 조각 크기(최대 50)만큼만 돈다. 키 문장에 붙였다면 정렬이
+     * 남는 경로(인기순·내 글)에서 내 활동 전체에 대해 돌았을 것이다.
+     * 상관 조건 {@code pp.post_id = p.id} 의 {@code p} 는 행 문장의 루트 {@code post} 다.
+     */
+    private static Expression<String> thumbnailUrl() {
+        return JPAExpressions.select(RESOURCE.accessUrl)
+                .from(RESOURCE)
+                .where(RESOURCE.id.eq(
+                        JPAExpressions.select(CANDIDATE.id.min())
+                                .from(PRODUCT)
+                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))
+                                .where(PRODUCT.post.id.eq(POST.id),
+                                        PRODUCT.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
+    }
+}
