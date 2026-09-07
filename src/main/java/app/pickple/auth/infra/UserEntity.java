@@ -56,6 +56,33 @@ public class UserEntity {
     @Column(name = "profile_image_url", length = 500)
     private String profileImageUrl;
 
+    /**
+     * 배치가 매기는 순위. <b>읽기 전용이다</b> (ADR-0041).
+     *
+     * <p>{@code insertable = false, updatable = false} 라 Hibernate 가 INSERT·UPDATE 의
+     * 컬럼 목록에서 아예 제외한다. 그래서 프로필 저장 같은 평범한 쓰기가 배치 계산값을
+     * 덮어쓸 수 없다 — 매핑이 불변식("애플리케이션은 이 컬럼에 쓰지 않는다")을 깨는 것이
+     * 아니라 <b>강제</b>한다 (ADR-0028).
+     *
+     * <p>아직 산정되지 않았으면 {@code null} 이다. 0 으로 접지 않는다 —
+     * 지어낸 순위는 실제 꼴찌와 구분되지 않는다.
+     */
+    @Column(name = "ranking", insertable = false, updatable = false)
+    private Integer ranking;
+
+    /**
+     * 누적 포인트. 원장({@code point_history})에서 유도한 캐시이며 배치가 채운다 (R-14).
+     *
+     * <p>스키마가 {@code INT UNSIGNED} 라 {@code Integer} 다. 도메인 {@code RankingView} 는
+     * {@code long} 으로 받지만 그 변환은 프로젝션이 한다 — 엔티티는 DB 타입을 따른다.
+     */
+    @Column(name = "point", nullable = false, insertable = false, updatable = false)
+    private Integer point;
+
+    /** 누적 투표 횟수. 배치가 {@code vote} 에서 채운다. 등급 판정의 입력이다. */
+    @Column(name = "vote_count", nullable = false, insertable = false, updatable = false)
+    private Integer voteCount;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
