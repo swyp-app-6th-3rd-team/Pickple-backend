@@ -109,8 +109,9 @@ public class PostService {
     /**
      * 홈 랜덤 투표 카드 한 조각을 조회한다 (§2.1 · §2.2).
      * 첫 요청에서만 시드를 만들고 후속 요청은 커서에 담긴 시드와 정렬 경계를 이어간다.
+     * 목록과 같은 두 문장 경로라 격리 수준도 같이 선언한다 — 이 메서드가 가장 바깥 경계다.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Window<PostStore.RandomPostView> findRandomSlice(
             PostType type, String cursor, Long viewerId) {
         if (type == null || !type.hasVoting()) {

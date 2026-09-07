@@ -228,4 +228,19 @@ class JpaPostStoreIT {
                 .isInstanceOf(InvalidDataAccessApiUsageException.class)
                 .hasMessageContaining("REPEATABLE READ");
     }
+
+    /** 랜덤 카드도 같은 두 문장 경로다 (#139). 같은 전제를 같은 방식으로 단언한다. */
+    @Test
+    @DisplayName("READ COMMITTED 로 연 바깥 트랜잭션에서는 랜덤 카드 조회도 거부된다")
+    void randomRejectsLowerIsolation() {
+        TransactionTemplate readCommitted = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        readCommitted.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        readCommitted.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        readCommitted.setReadOnly(true);
+
+        assertThatThrownBy(() -> readCommitted.executeWithoutResult(status ->
+                postStore.findRandomSlice(PostType.AGREE, null, ScrollPosition.keyset(), 1, 1L)))
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasMessageContaining("REPEATABLE READ");
+    }
 }
