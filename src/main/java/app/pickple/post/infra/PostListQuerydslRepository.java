@@ -16,6 +16,7 @@ import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
@@ -98,7 +99,7 @@ class PostListQuerydslRepository {
      * 레코드의 정규 생성자는 레코드와 접근 수준이 같아, package-private 이면 런타임에
      * "No constructor found" 가 난다. 감싸는 클래스가 package-private 이라 바깥에는 안 보인다.
      */
-    public record PostListRow(PostListView view, Long popularityScore) {
+    public record PostListRow(PostListView view, Integer popularityScore) {
     }
 
     /**
@@ -138,13 +139,21 @@ class PostListQuerydslRepository {
     }
 
     /**
-     * 두 문장이 한 스냅샷을 보려면 트랜잭션 안이어야 한다 (ADR-0043·0045). 호출자 {@code JpaPostStore}
-     * 의 {@code @Transactional(readOnly = true)} 가 그 트랜잭션이다 — 누가 애노테이션을 지우면
+     * 두 문장이 한 스냅샷을 보려면 트랜잭션 안이어야 한다 (ADR-0043·0045). 누가 애노테이션을 지우면
      * 조용히 어긋나는 대신 여기서 즉시 깨진다.
+     *
+     * <p>격리 수준도 본다. Spring 은 참여 트랜잭션의 격리를 검증하지 않으므로 가장 바깥이 정한 값이
+     * 그대로 흘러온다 — 명시하지 않았으면({@code null}) MySQL 기본값 REPEATABLE READ 이고,
+     * 명시했다면 REPEATABLE READ 이상이어야 한다. 누가 바깥에서 READ COMMITTED 로 열면 여기서 깨진다.
      */
     private static void requireSnapshot() {
         Assert.state(TransactionSynchronizationManager.isActualTransactionActive(),
                 "키 문장과 행 문장이 같은 스냅샷을 보려면 트랜잭션 안이어야 한다");
+        Integer isolation = TransactionSynchronizationManager.getCurrentTransactionIsolationLevel();
+        Assert.state(isolation == null
+                        || isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ
+                        || isolation == TransactionDefinition.ISOLATION_SERIALIZABLE,
+                "키 문장과 행 문장이 같은 스냅샷을 보려면 REPEATABLE READ 이상이어야 한다: " + isolation);
     }
 
     /**
@@ -188,10 +197,11 @@ class PostListQuerydslRepository {
      * <b>애플리케이션 기동 시</b>가 아니라 첫 조회에서 {@code ExpressionException} 으로 드러난다 —
      * 그래도 옛 컬럼 인덱스 상수처럼 엉뚱한 값이 조용히 들어가는 일은 없다.
      *
-     * <p>카운터와 인기 점수는 스키마가 {@code INT UNSIGNED} 라 {@code Integer} 로 읽고
-     * 도메인 계약인 {@code long} 으로 넓힌다. 이 {@code longValue()} 는 SQL 에 {@code cast} 로
-     * 내려가므로 <b>정렬·커서에는 쓰지 않는다</b> — 거기서는 원래 경로
-     * {@link QPostEntity#popularityScore} 를 써야 인덱스가 산다.
+     * <p>카운터는 스키마가 {@code INT UNSIGNED} 라 {@code Integer} 로 읽고 도메인 계약인
+     * {@code long} 으로 넓힌다. 이 {@code longValue()} 는 SQL 에 {@code cast} 로 내려가므로
+     * <b>정렬·커서에는 쓰지 않는다</b>. 인기 점수는 커서에 실리는 값이라 <b>넓히지도 않는다</b> —
+     * 컬럼 매핑({@code Integer})과 같은 타입으로 커서를 만들어야 다음 요청의 튜플 비교에서 형이 어긋나지
+     * 않는다 ({@link PostListCursor} 가 같은 타입으로 되돌린다).
      *
      * <p>랭킹은 <b>없을 수 있다</b> — 가입 직후 다음 배치까지, 그리고 탈퇴 회원이 그렇다.
      * {@code Integer} 그대로 넘겨 미산정을 {@code null} 로 올려보내고 화면이 비운다. 0 으로 접으면
@@ -212,7 +222,7 @@ class PostListQuerydslRepository {
                         POST.userId,
                         authorNickname(),
                         USER.ranking),
-                POST.popularityScore.longValue());
+                POST.popularityScore);
     }
 
     /** 정렬 키. 작성 시각이거나 게시글의 인기 점수(생성 컬럼)다. */
@@ -247,8 +257,9 @@ class PostListQuerydslRepository {
      * 인기 점수는 작은 정수라 동률이 흔하다.
      *
      * <p>템플릿인 이유는 QueryDSL 에 튜플 비교 API 가 없어서다. 커서 값은 {@code Expressions.constant}
-     * 라 리터럴이 아니라 파라미터로 바인딩된다. 인기순 커서는 {@code Long} 이고 컬럼은
-     * {@code Integer} 인데, MySQL 이 정수끼리 비교하므로 형 변환이 인덱스를 막지 않는다.
+     * 라 리터럴이 아니라 파라미터로 바인딩된다. Hibernate 가 파라미터를 좌변 컬럼 타입으로 강제하므로
+     * 커서 값은 컬럼 매핑과 같은 타입이어야 한다 — 인기 점수가 {@code Integer} 인 이유다.
+     * 범위를 벗어난 값은 {@link PostListCursor} 가 400 으로 거른다.
      */
     private static BooleanExpression after(ComparableExpressionBase<?> sortKey, PostListCursor cursor) {
         if (cursor == null) {

@@ -12,6 +12,7 @@ import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
 import app.pickple.post.domain.PostProduct;
+import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.support.IntegrationTest;
@@ -24,7 +25,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.data.domain.ScrollPosition;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Set;
 
@@ -49,6 +54,9 @@ class JpaPostStoreIT {
 
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     private Long authorId;
 
@@ -197,5 +205,27 @@ class JpaPostStoreIT {
                 .addProduct(new PostProduct(containerId, "상품", 1000L, null, 1))
                 .addOption(PostOption.ofLabel("사자", 1))
                 .addOption(PostOption.ofLabel("말자", 2));
+    }
+
+    /**
+     * 두 문장이 한 스냅샷을 보려면 REPEATABLE READ 이상이어야 한다 (ADR-0045).
+     *
+     * <p>격리 수준은 가장 바깥 트랜잭션이 정하고 Spring 은 참여 트랜잭션의 격리를 검증하지 않는다.
+     * 누가 바깥에서 READ COMMITTED 로 열면 키 문장과 행 문장이 다른 세상을 볼 수 있으므로,
+     * 저장소가 조용히 어긋나는 대신 진입 시점에 깨져야 한다.
+     */
+    @Test
+    @DisplayName("READ COMMITTED 로 연 바깥 트랜잭션에서는 목록 조회가 거부된다")
+    void listRejectsLowerIsolation() {
+        TransactionTemplate readCommitted = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        readCommitted.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        readCommitted.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        readCommitted.setReadOnly(true);
+
+        assertThatThrownBy(() -> readCommitted.executeWithoutResult(status ->
+                postStore.findSlice(null, PostSort.LATEST, ScrollPosition.keyset(), 1)))
+                // 저장소의 IllegalStateException 은 @Repository 예외 번역을 지나 API 오용 예외가 된다.
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasMessageContaining("REPEATABLE READ");
     }
 }

@@ -698,6 +698,8 @@ class PostControllerIT {
             committed.executeWithoutResult(status -> {
                 jdbcTemplate.update("DELETE FROM post WHERE user_id IN (" + authorIds() + ")");
                 jdbcTemplate.update("DELETE FROM users WHERE id IN (" + authorIds() + ")");
+                // 바깥 setUp 의 작성자도 같은 커밋에 실려 남는다. 이 안에서는 글을 쓰지 않았다.
+                jdbcTemplate.update("DELETE FROM users WHERE id = ?", author.id());
             });
         }
 
@@ -809,9 +811,15 @@ class PostControllerIT {
 
             // 바인딩 순서는 문장 안의 위치다 — SELECT 절의 대표 사진 서브쿼리(display_order = 1),
             // 작성자 표시명 폴백의 빈 문자열 둘과 대체 문자열, 마지막이 IN 의 id 목록이다.
+            // 개수만으로는 같은 개수의 자리바꿈을 못 잡으므로 문장 안의 순서까지 본다.
+            String rows = rowsStatement(statements);
+            assertThat(rows)
+                    .as("행 문장의 파라미터 자리가 가정한 순서와 같아야 같은 값을 묶는다")
+                    .matches("(?s).*display_order=\\?.*nullif\\(\\w+\\.nickname,\\?\\),"
+                            + "nullif\\(\\w+\\.name,\\?\\),\\?\\).*in \\(\\?[?,]*\\).*");
             List<Object> rowsArgs = new ArrayList<>(List.of(1, "", "", "알 수 없음"));
             rowsArgs.addAll(ids);
-            return new Statements(keysStatement(statements), rowsStatement(statements), rowsArgs.toArray());
+            return new Statements(keysStatement(statements), rows, rowsArgs.toArray());
         }
     }
 

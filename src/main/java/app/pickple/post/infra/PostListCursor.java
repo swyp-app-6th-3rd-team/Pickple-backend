@@ -51,11 +51,24 @@ record PostListCursor(Object sortValue, long id) {
         return new PostListCursor(convertSortValue(rawSortValue, sort), toLong(rawId));
     }
 
+    /**
+     * 정렬 키를 <b>컬럼 매핑과 같은 타입</b>으로 되돌린다. 인기 점수는 {@code Integer} 다 —
+     * Hibernate 가 튜플 비교의 파라미터를 좌변 컬럼 타입으로 강제하므로, {@code Long} 으로 넘기면
+     * 범위 밖 값이 쿼리 안에서 산술 예외로 터진다. 조작된 커서는 400 이어야 하므로 여기서 거른다.
+     */
     private static Object convertSortValue(Object raw, PostSort sort) {
         return switch (sort) {
             case LATEST -> toLocalDateTime(raw);
-            case POPULAR -> toLong(raw);
+            case POPULAR -> toInt(raw);
         };
+    }
+
+    private static int toInt(Object raw) {
+        long value = toLong(raw);
+        if (value < 0 || value > Integer.MAX_VALUE) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "커서 형식이 올바르지 않습니다.");
+        }
+        return (int) value;
     }
 
     private static LocalDateTime toLocalDateTime(Object raw) {

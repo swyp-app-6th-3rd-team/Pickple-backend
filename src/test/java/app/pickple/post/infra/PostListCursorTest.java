@@ -59,16 +59,33 @@ class PostListCursorTest {
     }
 
     @Test
-    @DisplayName("인기순 커서는 왕복 후에도 수치로 되돌린다")
+    @DisplayName("인기순 커서는 왕복 후에도 컬럼과 같은 Integer 로 되돌린다")
     void restoresPopularityScore() {
-        // JSON 왕복 후 Integer 로 돌아오므로 Long 으로 맞춰야 튜플 비교가 선다.
-        KeysetScrollPosition made = PostListCursor.toPosition(PostSort.POPULAR, 15L, 3L);
+        // 인기 점수 컬럼은 Integer 매핑이다. 튜플 비교의 파라미터는 좌변 타입으로 강제되므로
+        // 같은 프로세스의 Integer 든 JSON 왕복 뒤의 값이든 Integer 하나로 모은다.
+        KeysetScrollPosition made = PostListCursor.toPosition(PostSort.POPULAR, 15, 3L);
 
         PostListCursor restored =
                 PostListCursor.from(CursorCodec.decode(CursorCodec.encode(made)), PostSort.POPULAR);
 
-        assertThat(restored.sortValue()).isEqualTo(15L);
+        assertThat(restored.sortValue()).isEqualTo(15);
         assertThat(restored.id()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("인기 점수가 Integer 범위를 벗어난 커서는 400 이다")
+    void rejectsOutOfRangePopularityScore() {
+        // INT UNSIGNED 상한(4,294,967,295)은 Java Integer 를 넘는다. 쿼리 안에서 강제 변환이
+        // 터지면 500 이 되므로, 조작된 커서로 보고 여기서 거른다. 음수도 점수가 아니다.
+        for (Object score : new Object[] {4_294_967_295L, (long) Integer.MAX_VALUE + 1, -1}) {
+            KeysetScrollPosition tampered = PostListCursor.toPosition(PostSort.POPULAR, score, 1L);
+
+            assertThatThrownBy(() -> PostListCursor.from(tampered, PostSort.POPULAR))
+                    .as("score=%s", score)
+                    .isInstanceOf(ApiException.class)
+                    .extracting(e -> ((ApiException) e).code())
+                    .isEqualTo(ResponseCode.INVALID_REQUEST);
+        }
     }
 
     @Test
