@@ -88,7 +88,7 @@ app/pickple/
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple은 로컬 탈퇴 완료 시 identity를 분리하고 token 누락 시 수동 해제 코드, Kakao unlink 실패는 503 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. **모든 provider에서 개인정보를 즉시 파기**하고(ADR-0040) Apple은 token 누락 시 수동 해제 코드, Kakao unlink 실패는 503 |
 | GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
 | GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
 | POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
@@ -528,6 +528,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V11__activity_list_indexes.sql` | `db/migration` | 항상 |
 | `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
+| `V14__erase_withdrawn_user_personal_data.sql` | `db/migration` | 항상 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -623,8 +624,22 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
   로컬 탈퇴와 identity 분리를 완료한 뒤 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
 - 탈퇴 뒤 같은 Apple `sub`로 로그인하면 과거 비활성 행을 되살리지 않고 새 `userId`를 만든다.
   과거 행과 콘텐츠는 보존하지만 프로필·포인트·뱃지·투표·댓글 등 이력은 새 회원에게 승계하지 않는다
-- V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다. 다른 provider의 재가입과
-  개인정보 익명화·삭제, 재가입 초기화 악용 정책은 이 변경 범위가 아니며 Issue #45에 남긴다
+- V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다
+- **회원 탈퇴는 provider와 무관하게 개인정보를 즉시 파기한다** — `email`·`name`·`nickname`·
+  `profile_image_url`·`provider_id` 다섯 컬럼을 `NULL`로 만든다. 개인정보처리방침 제3조
+  "회원 탈퇴 시 지체 없이 파기"(시행 2026-09-20)를 따른다. 파기 값이 sentinel 문자열이 아니라
+  `NULL`인 이유는 `uk_users_provider`가 살아 있어 고정 문자열이 두 번째 탈퇴자부터 유니크
+  위반이기 때문이다. 도메인 불변식도 `APPLE + INACTIVE` 한정에서 **`INACTIVE`면 provider 무관**
+  으로 넓혔다 — 넓히지 않으면 파기한 행을 복원할 때 생성자 가드에서 조회가 실패한다
+  ([ADR-0040](adr/0040-withdrawal-erases-personal-data.md))
+- 탈퇴 회원이 남긴 게시글·댓글은 보존하되 작성자는 **비식별 표기**로 나간다. 별도 구현이 아니라
+  목록 조회의 `COALESCE(NULLIF(u.nickname,''), NULLIF(u.name,''), '알 수 없음')` 폴백이 낸다.
+  이 폴백이 `JOIN users`(INNER) 위에 얹혀 있어 **행이 남아 있을 때만** 동작한다 — 행을 지우면
+  비식별이 아니라 그 사람의 글이 목록에서 통째로 빠진다
+- V14는 **이미 탈퇴한 회원의 잔존 개인정보를 소급 파기**한다. 제3조의 의무가 탈퇴 시점으로
+  나뉘지 않아 코드 변경만으로는 기존 탈퇴자가 시행일에 위반 상태로 남기 때문이다.
+  파기한 값은 DB만으로 복구할 수 없다
+- 식별자를 남기지 않으므로 **재가입 제한은 불가능하다**. 재가입 초기화 악용 정책은 Issue #45에 남긴다
 - 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
 - Kakao 사용자는 `(KAKAO, ID token의 sub)`로 식별한다. 네이티브 토큰은 Kakao JWKS의 RS256 서명과
   `iss`·네이티브 앱 키 `aud`·`exp`·`sub`·원문 `nonce`를 모두 검증한다
@@ -636,7 +651,8 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - authorization code·identity token·nonce·`.p8`·Admin 키·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
   [ADR-0016](adr/0016-refresh-token-rotation-cas.md), [ADR-0038](adr/0038-native-kakao-sign-in.md),
-  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md)
+  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md),
+  [ADR-0040](adr/0040-withdrawal-erases-personal-data.md)
 - 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md),
   [Kakao 로그인 Runbook](kakao-sign-in-runbook.md)
 
@@ -719,6 +735,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-06 | 회원 탈퇴가 provider 무관하게 개인정보를 즉시 파기한다(ADR-0040). 다섯 컬럼을 `NULL`로 비우고 도메인 불변식을 `APPLE + INACTIVE` 한정에서 `INACTIVE` 기준으로 넓혔다. V14가 기존 탈퇴자를 소급 파기한다 | Issue #111. 개인정보처리방침 제3조가 "회원 탈퇴 시 지체 없이 파기"를 규정하는데(시행 2026-09-20) `withdraw()`는 상태만 바꿔 이메일·이름·닉네임·프로필 이미지와 카카오 `provider_id`가 무기한 남았다. **원인은 버그가 아니라 도메인 모델 결손이다** — 규칙 표에 R-20("지우지 않는다")만 있어 코드가 표현할 파기 규칙이 없었다. R-27·R-28을 세우고 R-20의 대상을 "콘텐츠와 활동"으로 좁혔다 |
 | 2026-09-05 | `GET /posts/random` 추가. 시드 기반 임의 순서와 유형 포함 커서로 중복 없는 10건 순회를 제공하고, 기투표자에게만 선택·득표 결과를 노출 | Issue #22. 요청마다 다시 섞으면 커서 경계가 무너지므로 첫 시드를 끝까지 유지 |
 | 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |

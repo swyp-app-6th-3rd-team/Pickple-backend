@@ -3,6 +3,7 @@ package app.pickple.post.controller;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
+import app.pickple.auth.service.AccountWithdrawalPersistenceService;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.service.CommentService;
 import app.pickple.item.domain.AttachType;
@@ -84,6 +85,8 @@ class PostControllerIT {
     private EntityManagerFactory entityManagerFactory;
     @Autowired
     private RankingBatchService rankingBatch;
+    @Autowired
+    private AccountWithdrawalPersistenceService withdrawalPersistenceService;
 
     /**
      * 이 클래스만 쓰는 카테고리.
@@ -492,6 +495,37 @@ class PostControllerIT {
                 .andExpect(jsonPath("$.returnObject.content.length()").value(3));
 
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+    }
+
+    /**
+     * C-8 (PRD-023) — 탈퇴 회원의 게시글은 남고 작성자만 비식별 표기가 된다.
+     *
+     * <p>개인정보처리방침 제3조가 게시물을 보존 예외로 두면서 "작성자 정보는 비식별 처리" 를
+     * 조건으로 달았다. 두 요구가 동시에 성립하는지를 한 번에 본다 — 게시글이 목록에서
+     * 사라지면 보존 위반이고, 닉네임이 그대로 나오면 비식별 위반이다.
+     *
+     * <p>비식별 표기 자체는 신규 구현이 아니라 조회의 {@code COALESCE} 폴백이 낸다.
+     * 그 폴백이 {@code JOIN users}(INNER) 위에 얹혀 있어 <b>행이 남아 있을 때만</b>
+     * 동작한다는 사실이 이 테스트의 핵심이다 (ADR-0040).
+     */
+    @Test
+    @DisplayName("탈퇴한 작성자의 게시글은 목록에 남고 작성자만 '알 수 없음' 으로 나온다")
+    void withdrawnAuthorPostStaysListedWithMaskedNickname() throws Exception {
+        Long postId = saveGeneralPost("탈퇴자가 쓴 글", EMPTY_CATEGORY).id();
+        flush();
+
+        // 제품 코드가 실제로 쓰는 탈퇴 경로로 파기시킨다.
+        withdrawalPersistenceService.complete(author.id());
+        flush();
+
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                // 보존 — 게시글이 사라지면 INNER JOIN 회귀다.
+                .andExpect(jsonPath("$.returnObject.content.length()").value(1))
+                .andExpect(jsonPath("$.returnObject.content[0].id").value(postId))
+                .andExpect(jsonPath("$.returnObject.content[0].title").value("탈퇴자가 쓴 글"))
+                // 비식별 — 원본 닉네임이 남아 있으면 제3조 위반이다.
+                .andExpect(jsonPath("$.returnObject.content[0].authorNickname").value("알 수 없음"));
     }
 
     /** 저장된 작성자 닉네임. 픽스처가 유일성을 위해 붙인 일련번호까지 포함한다. */
