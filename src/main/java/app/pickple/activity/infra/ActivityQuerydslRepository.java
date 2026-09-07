@@ -180,13 +180,19 @@ class ActivityQuerydslRepository {
      * {@code vote} 는 {@code UNIQUE(post_id, user_id)} 라 재투표가 UPDATE 이고(R-22),
      * {@code post_commenter} 는 {@code UNIQUE(post_id, user_id)} 라 게시글당 한 행이다(R-25).
      * 여기서 다시 세면 정본이 둘이 되어 어긋날 자리를 만든다.
+     *
+     * <p><b>삭제된 게시글은 세 값 모두에서 뺀다.</b> 목록의 키 문장({@link #keys})이 삭제된 글을 빼므로
+     * 요약이 그것을 세면 "내가 투표한 글 12" 아래 카드 11장이 뜬다. 사용자가 보는 것은 카드이지 행이 아니다.
+     * 게시글 삭제(#31)가 생기기 전에는 닿지 않던 불일치다 (ADR-0047 결정 5).
      */
     ActivitySummary summarize(Long userId) {
         ActivitySummary summary = queryFactory
                 .select(Projections.constructor(ActivitySummary.class,
                         JPAExpressions.select(VOTE.count()).from(VOTE)
+                                .join(POST).on(POST.id.eq(VOTE.postId), POST.deletedAt.isNull())
                                 .where(VOTE.userId.eq(userId)),
                         JPAExpressions.select(COMMENTER.count()).from(COMMENTER)
+                                .join(POST).on(POST.id.eq(COMMENTER.postId), POST.deletedAt.isNull())
                                 .where(COMMENTER.userId.eq(userId)),
                         JPAExpressions.select(POST.count()).from(POST)
                                 .where(POST.userId.eq(userId), POST.deletedAt.isNull())))

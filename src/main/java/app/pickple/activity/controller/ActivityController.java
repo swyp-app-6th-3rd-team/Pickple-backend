@@ -98,9 +98,9 @@ public class ActivityController {
      * 조회 시점에 다시 세지 않는다.
      */
     public record ActivitySummaryResponse(
-            @Schema(description = "투표에 참여한 게시글 수. 재투표는 선택 변경이라 늘지 않는다(R-22)")
+            @Schema(description = "투표에 참여한 게시글 수. 재투표는 선택 변경이라 늘지 않는다(R-22). 삭제된 글은 세지 않는다")
             long voteCount,
-            @Schema(description = "댓글을 단 게시글 수. 한 글에 여러 개를 달아도 1이다(R-25)")
+            @Schema(description = "댓글을 단 게시글 수. 한 글에 여러 개를 달아도 1이다(R-25). 삭제된 글은 세지 않는다")
             long commentCount,
             @Schema(description = "올린 게시글 수. 삭제한 글은 세지 않는다")
             long postCount) {

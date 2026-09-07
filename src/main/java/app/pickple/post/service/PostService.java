@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 
-/** 게시글 작성과 목록·상세 조회 유스케이스를 제공한다. */
+/** 게시글 작성·수정·삭제와 목록·상세 조회 유스케이스를 제공한다. */
 @Service
 @RequiredArgsConstructor
 public class PostService {
@@ -75,6 +75,74 @@ public class PostService {
                     ResponseCode.ITEM_CONTAINER_ALREADY_IN_USE,
                     exception.getMessage(),
                     exception);
+        }
+    }
+
+    /**
+     * 게시글을 수정한다 (§6.1 `[더보기]` · R-33). 작성자만 할 수 있다.
+     *
+     * <p>순서는 댓글과 같다 — <b>잠금 조회 → 없거나 삭제됨 404 → 작성자 아님 403 → 도메인 전이 → 저장.</b>
+     * 404 가 403 보다 먼저인 것은 지운 글의 존재를 남에게 알리지 않기 위해서다.
+     *
+     * <p>잠그는 이유는 {@link PostStore#findByIdForUpdate} 참조 — 삭제와 경합한 수정이 지운 글을 되살리지 않게.
+     * 잠금은 이 트랜잭션이 끝날 때 풀리므로 조회와 저장이 한 트랜잭션 안에 있어야 한다.
+     *
+     * <p>바꿀 수 있는 것은 카테고리·제목·설명뿐이고 커맨드에 그 셋만 있다. 상품과 유형은 파라미터 자체가 없다
+     * (ADR-0047). 빈 설명은 작성과 같이 여기서 정규화한다 — {@code ""} 는 비움, {@code null} 은 유지.
+     */
+    @Transactional
+    public Post update(Long postId, Long requesterId, UpdateCommand command) {
+        if (requesterId == null) {
+            throw new ApiException(ResponseCode.UNAUTHORIZED);
+        }
+        Post post = findActiveForUpdate(postId);
+        requireAuthor(post, requesterId);
+
+        String description = command.description();
+        if (description != null && description.isBlank()) {
+            post.clearDescription();
+            description = null;
+        }
+        post.edit(command.title(), description, command.category());
+        return postStore.save(post);
+    }
+
+    /**
+     * 게시글을 지운다 (§6.1 `[더보기]`). 작성자만 할 수 있다.
+     *
+     * <p>소프트 삭제라 행·상품·선택지·투표·댓글은 남는다. 모든 조회가 {@code deleted_at IS NULL} 로 거르고
+     * 투표·댓글·원픽은 {@code ActivePostGuard} 를 지나므로 그 뒤로 새 상호작용이 생기지 않는다.
+     *
+     * <p><b>카운터를 줄이지 않는다.</b> 댓글 삭제와 다르다 — 게시글이 조회에서 빠지면 그 카운터를 읽을 곳이 없고,
+     * 복구 경로가 없어 되돌릴 일도 없다. 지운 글의 이미지 컨테이너도 풀지 않는다 — 재사용하지 않기로 했다
+     * (#31 코멘트, PR #76 리뷰).
+     */
+    @Transactional
+    public void delete(Long postId, Long requesterId) {
+        if (requesterId == null) {
+            throw new ApiException(ResponseCode.UNAUTHORIZED);
+        }
+        Post post = findActiveForUpdate(postId);
+        requireAuthor(post, requesterId);
+        post.delete();
+        postStore.save(post);
+    }
+
+    private Post findActiveForUpdate(Long postId) {
+        Post post = postStore.findByIdForUpdate(postId)
+                .orElseThrow(() -> new ApiException(
+                        ResponseCode.NOT_FOUND, "게시글을 찾을 수 없습니다: id=" + postId));
+        if (post.isDeleted()) {
+            throw new ApiException(ResponseCode.NOT_FOUND, "삭제된 게시글입니다: id=" + postId);
+        }
+        return post;
+    }
+
+    private static void requireAuthor(Post post, Long requesterId) {
+        if (!post.isOwnedBy(requesterId)) {
+            throw new ApiException(
+                    ResponseCode.FORBIDDEN,
+                    "게시글 작성자만 수정하거나 삭제할 수 있습니다: id=" + post.id());
         }
     }
 
@@ -321,6 +389,20 @@ public class PostService {
             String name,
             Long price,
             String linkUrl
+    ) {
+    }
+
+    /**
+     * 수정 커맨드 (R-33). 세 필드뿐이다 — 상품과 유형은 여기 없다 (ADR-0047).
+     *
+     * @param title       A/B 는 주제, 일반은 제목. 찬반은 상품명이라 바꿀 수 없다. {@code null} 이면 유지
+     * @param description {@code null} 이면 유지, 빈 문자열이면 비움
+     * @param category    {@code null} 이면 유지
+     */
+    public record UpdateCommand(
+            PostCategory category,
+            String title,
+            String description
     ) {
     }
 }

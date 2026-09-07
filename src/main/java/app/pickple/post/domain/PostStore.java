@@ -29,6 +29,16 @@ public interface PostStore {
 
     Optional<Post> findById(Long id);
 
+    /**
+     * 수정·삭제 경합을 직렬화하기 위해 비관적 쓰기 잠금으로 조회한다.
+     *
+     * <p>{@code deleted_at} 은 보통의 갱신 가능 컬럼이라, 잠그지 않으면 삭제와 경합한 수정이
+     * 스냅샷의 낡은 {@code NULL} 을 되써 <b>지운 글이 되살아난다</b>. {@code SELECT … FOR UPDATE} 는
+     * 현재 읽기라 커밋된 삭제를 본다 (ADR-0047 결정 4). {@code CommentStore.findByIdForUpdate} 와 같은 장치다.
+     * 호출자의 트랜잭션 안에서만 뜻이 있다 — 잠금은 그 트랜잭션이 끝날 때 풀린다.
+     */
+    Optional<Post> findByIdForUpdate(Long id);
+
     /** 삭제되지 않은 게시글의 존재 여부. 상호작용 전 가벼운 유효성 검사에 쓴다. */
     boolean existsActiveById(Long id);
 
