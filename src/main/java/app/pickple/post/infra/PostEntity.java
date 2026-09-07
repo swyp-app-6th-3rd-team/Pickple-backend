@@ -27,9 +27,12 @@ import java.util.Objects;
 /**
  * {@code post} 한 행과 그에 딸린 상품·선택지.
  *
- * <p>{@code popularity_score} 는 DB 생성 컬럼이라 매핑하지 않는다 —
- * 매핑하면 하이버네이트가 쓰기를 시도해 {@code ERROR 3105} 가 난다.
- * 정렬은 인덱스가 걸린 그 컬럼으로 하고, 값이 필요하면 두 카운터를 더해 읽는다.
+ * <p>{@code popularity_score} 는 DB 생성 컬럼이지만 <b>읽기 전용으로 매핑한다</b> (ADR-0041).
+ * 기본 매핑이면 하이버네이트가 쓰기를 시도해 {@code ERROR 3105} 가 나지만,
+ * {@code insertable = false, updatable = false} 는 INSERT·UPDATE 의 컬럼 목록에서
+ * 아예 빼므로 그 경로가 없다. 조회 계층이 인덱스가 걸린 이 컬럼으로 정렬하고
+ * 커서 값으로 읽기 위해서다 — 매핑이 없으면 JPQL 이 이 컬럼에 닿지 못해
+ * 네이티브 SQL 과 {@code Object[]} 로 되돌아간다 (이슈 #130).
  */
 @Getter
 @Entity
@@ -69,6 +72,14 @@ public class PostEntity {
 
     @Column(name = "comment_count", nullable = false, insertable = false, updatable = false)
     private Integer commentCount;
+
+    /**
+     * 인기 점수 {@code vote_count + commenter_count} (R-24). DB 가 {@code GENERATED ALWAYS … STORED}
+     * 로 계산하므로 애플리케이션은 읽기만 한다 — 인기순 정렬 키이자 커서 값이다.
+     * 스키마가 {@code INT UNSIGNED} 라 {@code Integer} 다.
+     */
+    @Column(name = "popularity_score", insertable = false, updatable = false)
+    private Integer popularityScore;
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
