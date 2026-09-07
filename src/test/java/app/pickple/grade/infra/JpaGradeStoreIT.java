@@ -28,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -63,6 +64,9 @@ class JpaGradeStoreIT {
 
     @Autowired
     private UserStore userStore;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private Long userId;
     private Long otherId;
@@ -182,6 +186,37 @@ class JpaGradeStoreIT {
 
         assertThat(gradeStore.raiseHighestGrade(userId, Grade.LV5)).isTrue();
         assertThat(gradeStore.readHighestGrade(userId)).isEqualTo(Grade.LV5);
+    }
+
+    /**
+     * 판정 입력값 조회가 두 서브쿼리 모두 인덱스를 타는지 실행 계획으로 확인한다.
+     *
+     * <p><b>왜 결과 단언으로는 부족한가.</b> 인덱스를 못 타도 결과는 똑같이 옳다 —
+     * {@code point_history} 와 {@code vote} 를 전량 읽어 더하면 된다. 등급 조회는
+     * 마이페이지 진입마다 불리므로 그 회귀는 정확성 테스트가 아니라 여기서만 드러난다.
+     *
+     * <p>SQL 을 여기 베끼지 않고 {@link GradeRepository#READ_INPUTS} 를 그대로 쓴다.
+     * 베껴 두면 리포지토리가 바뀌어도 테스트는 옛 문장을 검사한다.
+     */
+    @Test
+    @DisplayName("판정 입력값 조회는 두 서브쿼리 모두 user_id 선행 인덱스를 탄다")
+    void readInputsUsesUserIndexes() {
+        // 실제 경로를 한 번 태운다 — 프로젝션 별칭이 어긋나면 EXPLAIN 이전에 여기서 깨진다.
+        gradeStore.readInputs(userId);
+
+        String plan = String.join(" ", jdbcTemplate.queryForList(
+                "EXPLAIN FORMAT=TREE " + GradeRepository.READ_INPUTS.replace(":userId", String.valueOf(userId)),
+                String.class));
+
+        assertThat(plan)
+                .as("포인트 합계는 idx_point_user_created 로 좁혀져야 한다")
+                .contains("Index lookup on ph using idx_point_user_created");
+        assertThat(plan)
+                .as("투표 횟수는 idx_vote_user_created 커버링 조회여야 한다")
+                .contains("Covering index lookup on v using idx_vote_user_created");
+        assertThat(plan)
+                .as("테이블 스캔이 보이면 인덱스가 조건을 맡지 못한 것이다")
+                .doesNotContain("Table scan");
     }
 
     /** 원픽 한 건을 만들어 이 회원에게 사유별 포인트를 적립한다. */
