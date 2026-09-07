@@ -166,6 +166,37 @@ class ActivityQuerydslRepository {
     }
 
     /**
+     * 활동 갯수 요약 (§7.2). 세 값을 <b>한 문장</b>으로 읽는다.
+     *
+     * <p>세 번 나눠 물으면 왕복이 셋이 되는데, 세 값은 언제나 함께 쓰이고
+     * 각각이 인덱스 한 범위를 세는 가벼운 질의라 합치는 편이 낫다.
+     *
+     * <p><b>회원 행에 얹는다.</b> JPQL 은 {@code FROM} 없는 문장을 허용하지 않으므로
+     * 스칼라 서브쿼리 셋을 붙일 한 행이 필요하다. 회원의 기본 키 조회는 {@code const} 로
+     * 끝나 비용이 없고, "요약은 회원의 것" 이라는 뜻과도 맞는다. 회원 행이 없으면
+     * 세 값 모두 0 이다 — 인증을 지난 요청이라 실제로는 닿지 않는 경로다.
+     *
+     * <p><b>세 값 모두 {@code DISTINCT} 가 없다.</b> 스키마가 이미 인원으로 세고 있다 —
+     * {@code vote} 는 {@code UNIQUE(post_id, user_id)} 라 재투표가 UPDATE 이고(R-22),
+     * {@code post_commenter} 는 {@code UNIQUE(post_id, user_id)} 라 게시글당 한 행이다(R-25).
+     * 여기서 다시 세면 정본이 둘이 되어 어긋날 자리를 만든다.
+     */
+    ActivitySummary summarize(Long userId) {
+        ActivitySummary summary = queryFactory
+                .select(Projections.constructor(ActivitySummary.class,
+                        JPAExpressions.select(VOTE.count()).from(VOTE)
+                                .where(VOTE.userId.eq(userId)),
+                        JPAExpressions.select(COMMENTER.count()).from(COMMENTER)
+                                .where(COMMENTER.userId.eq(userId)),
+                        JPAExpressions.select(POST.count()).from(POST)
+                                .where(POST.userId.eq(userId), POST.deletedAt.isNull())))
+                .from(USER)
+                .where(USER.id.eq(userId))
+                .fetchOne();
+        return Optional.ofNullable(summary).orElseGet(() -> new ActivitySummary(0, 0, 0));
+    }
+
+    /**
      * 두 문장이 한 스냅샷을 보려면 트랜잭션 안이어야 한다 (ADR-0043). 호출자 {@code JpaActivityQueryStore}
      * 의 {@code @Transactional(readOnly = true)} 가 그 트랜잭션이다 — 누가 애노테이션을 지우면
      * 조용히 어긋나는 대신 여기서 즉시 깨진다.
