@@ -2,7 +2,6 @@ package app.pickple.grade.infra;
 
 import app.pickple.grade.domain.Grade;
 import app.pickple.grade.domain.GradeStore;
-import jakarta.persistence.NoResultException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,19 +57,18 @@ public class JpaGradeStore implements GradeStore {
     /**
      * 저장된 도달 등급.
      *
-     * <p>사용자가 없으면 {@code NoResultException} 이 올라간다. 여기서 LV.1 로
+     * <p>사용자가 없으면 {@link GradePersistenceException} 이 올라간다. 여기서 LV.1 로
      * 대신 답하면 없는 사용자의 등급을 지어내는 것이 되고, 그 판단은 저장소의 몫이 아니다
-     * (ADR-0019). 존재 여부는 인증이 이미 보장한다.
-     *
-     * <p>Spring Data 는 단건 조회가 비면 예외 대신 빈 값을 돌려주므로, 이전에
-     * {@code EntityManager} 가 던지던 예외를 여기서 그대로 이어 붙인다 — 이 리팩터링이
-     * 호출자에게 보이는 동작을 바꾸지 않기 위해서다.
+     * (ADR-0019). 존재 여부는 인증이 이미 보장하므로, 행이 없다는 것은 요청이 아니라
+     * 영속 상태의 모순이다 — 각 기능 {@code infra} 의 {@code *PersistenceException} 으로
+     * 표현하고 500 으로 흘려보낸다 (ADR-0039). 이전 구현이 던지던
+     * {@code NoResultException} 도 같은 경로로 500 이었으므로 응답은 바뀌지 않는다.
      */
     @Override
     @Transactional(readOnly = true)
     public Grade readHighestGrade(Long userId) {
         int level = repository.readHighestGrade(userId)
-                .orElseThrow(() -> new NoResultException("등급을 읽을 사용자가 없습니다: " + userId));
+                .orElseThrow(() -> new GradePersistenceException("등급을 읽을 사용자가 없습니다: userId=" + userId));
         return Grade.ofLevel(level);
     }
 

@@ -31,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 승급 판정 입력값을 원장에서 읽는다 (ADR-0030).
@@ -186,6 +187,16 @@ class JpaGradeStoreIT {
 
         assertThat(gradeStore.raiseHighestGrade(userId, Grade.LV5)).isTrue();
         assertThat(gradeStore.readHighestGrade(userId)).isEqualTo(Grade.LV5);
+    }
+
+    @Test
+    @DisplayName("없는 사용자의 도달 등급은 지어내지 않고 영속화 예외로 알린다 (ADR-0019 · ADR-0039)")
+    void missingUserIsAPersistenceContradiction() {
+        // 인증이 존재를 보장하는 경로에서 행이 없다는 것은 요청 오류가 아니라 내부 모순이다.
+        // LV.1 로 답하면 없는 사용자의 등급을 만들어 내는 것이 된다.
+        assertThatThrownBy(() -> gradeStore.readHighestGrade(Long.MAX_VALUE))
+                .isInstanceOf(GradePersistenceException.class)
+                .hasMessageContaining("userId=" + Long.MAX_VALUE);
     }
 
     /**
