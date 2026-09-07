@@ -15,6 +15,7 @@ import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.service.PostService.CreateCommand;
 import app.pickple.post.service.PostService.ProductCommand;
+import app.pickple.post.service.PostService.UpdateCommand;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,6 +28,7 @@ import org.springframework.data.domain.Window;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 
@@ -316,5 +318,101 @@ class PostServiceTest {
 
     private Window<PostStore.PostListView> emptyWindow() {
         return Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+    }
+
+    // --- 수정·삭제 (R-33 · ADR-0047) ------------------------------------------
+
+    private static Post storedGeneral(Long id, Long authorId, boolean deleted) {
+        return Post.restore(id, authorId, PostType.GENERAL, PostCategory.ETC, "제목", "설명",
+                List.of(), List.of(), 0L, 0L, 0L, deleted);
+    }
+
+    @Test
+    @DisplayName("수정은 잠금 조회 뒤 카테고리·제목·설명만 바꾸고 저장한다")
+    void updatesWhitelistedFieldsAfterLockingRead() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+        given(postStore.save(stored)).willReturn(stored);
+
+        Post result = service.update(10L, 7L, new UpdateCommand(PostCategory.LIVING, "새 제목", "새 설명"));
+
+        assertThat(result.category()).isEqualTo(PostCategory.LIVING);
+        assertThat(result.title()).isEqualTo("새 제목");
+        assertThat(result.description()).isEqualTo("새 설명");
+        assertThat(result.type()).isEqualTo(PostType.GENERAL);
+        verify(postStore).findByIdForUpdate(10L);
+        verify(postStore, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("빈 설명은 비움, null 은 유지다")
+    void blankDescriptionClearsAndNullKeeps() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+        given(postStore.save(stored)).willReturn(stored);
+
+        service.update(10L, 7L, new UpdateCommand(null, null, null));
+        assertThat(stored.description()).isEqualTo("설명");
+
+        service.update(10L, 7L, new UpdateCommand(null, null, "   "));
+        assertThat(stored.description()).isNull();
+    }
+
+    @Test
+    @DisplayName("작성자가 아니면 403 이고 아무것도 저장하지 않는다")
+    void rejectsNonAuthorWithForbidden() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+
+        assertThatThrownBy(() -> service.update(10L, 8L, new UpdateCommand(null, "남이 수정", null)))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.FORBIDDEN);
+        assertThatThrownBy(() -> service.delete(10L, 8L))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.FORBIDDEN);
+
+        assertThat(stored.title()).isEqualTo("제목");
+        assertThat(stored.isDeleted()).isFalse();
+        verify(postStore, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("없거나 삭제된 게시글은 작성자 판정보다 먼저 404 다")
+    void missingOrDeletedPostIsNotFoundBeforeAuthorCheck() {
+        given(postStore.findByIdForUpdate(1L)).willReturn(Optional.empty());
+        given(postStore.findByIdForUpdate(2L)).willReturn(Optional.of(storedGeneral(2L, 7L, true)));
+
+        // 남(8L)이 요청해도 404 — 지운 글의 존재를 알리지 않는다.
+        assertThatThrownBy(() -> service.update(1L, 8L, new UpdateCommand(null, "x", null)))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.NOT_FOUND);
+        assertThatThrownBy(() -> service.delete(2L, 8L))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.NOT_FOUND);
+        assertThatThrownBy(() -> service.delete(2L, 7L))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.NOT_FOUND);
+        verify(postStore, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("삭제는 소프트 삭제로 저장하고 카운터·컨테이너는 건드리지 않는다")
+    void deleteMarksAndSaves() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+        given(postStore.save(stored)).willReturn(stored);
+
+        service.delete(10L, 7L);
+
+        assertThat(stored.isDeleted()).isTrue();
+        verify(postStore).save(stored);
+        verifyNoInteractions(itemContainerStore);
+    }
+
+    @Test
+    @DisplayName("요청자가 없으면 조회 전에 401 이다")
+    void rejectsAnonymousBeforeLookup() {
+        assertThatThrownBy(() -> service.update(10L, null, new UpdateCommand(null, "x", null)))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.UNAUTHORIZED);
+        assertThatThrownBy(() -> service.delete(10L, null))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.UNAUTHORIZED);
+        verifyNoInteractions(postStore);
     }
 }
