@@ -104,6 +104,27 @@ jobs:
           COMPOSE_B64="$(base64 -w0 docker/docker-compose-ec2.yml)"
           CADDY_B64="$(base64 -w0 docker/Caddyfile)"
 
+          # ⚠️ `up -d` 뒤의 두 줄은 순서와 이유가 있다 (#135).
+          #   1. 대기: `caddy reload` 는 컨테이너 안 admin API(:2019)에 설정을 POST 한다. compose 의
+          #      `Started` 는 프로세스가 떴다는 뜻이지 리스너가 열렸다는 뜻이 아니라서, 갓 재생성된
+          #      직후에 바로 reload 하면 connection refused 로 배포가 거짓 실패한다(런 34132858477).
+          #      2019 는 호스트에 노출돼 있지 않으므로 컨테이너 안에서 busybox wget 으로 확인한다
+          #      (alpine 기반이라 이미지 버전과 무관하게 있다. curl 은 2.7/2.8-alpine 에 없고 최근
+          #      이미지에만 있다 — 실측). 주소는 localhost 가 아니라 127.0.0.1 로 적는다 — admin 리스너는
+          #      127.0.0.1 에만 열리는데 busybox wget 은 localhost 를 ::1 로 먼저 풀고 폴백하지 않아
+          #      영원히 실패한다(로컬 실측).
+          #      상한은 busybox `timeout 60` 의 벽시계 60초다. 시도 횟수로 상한을 두면 연결은 되는데
+          #      응답이 없는 경우 시도마다 -T 2 가 붙어 실제 상한이 두 배가 된다(이종 리뷰에서 잡힘).
+          #      정상 기동은 50ms 안에 열리므로(로컬 5회 실측) 보통 첫 회에 빠져나간다. 상한이 짧으면
+          #      부하 상황에서 이 이슈의 거짓 실패가 재발하므로 넉넉히 둔다 — 초과 대기 비용은 이미
+          #      망가진 배포에서만 낸다. 넘기면 stderr 에 메시지를 남기고 실패한다(`|| { ...; exit 1; }`).
+          #      루프를 exec 한 번 안에서 돌리는 이유: 호스트 루프면 `set -x` 가 시도마다 trace 를
+          #      남겨 SSM 이 자르는 출력을 잡아먹는다. 컨테이너가 running 이 아니면(기동 크래시 루프)
+          #      exec 자체가 docker 메시지와 함께 즉시 실패하는데, 그건 기다려도 낫지 않으니 의도된 것.
+          #   2. reload: Caddyfile 은 bind mount(docker-compose-ec2.yml)라 내용만 바뀐 배포에서는
+          #      `up -d` 가 컨테이너를 재생성하지 않는다. reload 가 그 경로를 메운다. 지우면 회귀.
+          #   `|| true` 로 감싸지 않는다 — 문법이 틀린 Caddyfile 이 조용히 무시되면 배포는 초록인데
+          #   옛 설정이 계속 도는 최악이 된다. 대기는 "아직 안 떴다" 만 흡수하고 설정 오류는 실패로 남긴다.
           COMMAND_ID="$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
@@ -119,6 +140,7 @@ jobs:
               \"aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}\",
               \"docker compose -f docker-compose-ec2.yml pull\",
               \"docker compose -f docker-compose-ec2.yml up -d --remove-orphans\",
+              \"docker compose -f docker-compose-ec2.yml exec -T caddy timeout 60 sh -c 'until wget -qO- -T 2 http://127.0.0.1:2019/config/ >/dev/null 2>&1; do sleep 2; done' || { echo caddy admin API :2019 not ready after 60s, reload skipped >&2; exit 1; }\",
               \"docker compose -f docker-compose-ec2.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile\",
               \"docker image prune -f\"
             ]" \
