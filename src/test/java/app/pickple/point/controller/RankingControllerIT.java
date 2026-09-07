@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.ScrollPosition;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
@@ -70,6 +71,10 @@ class RankingControllerIT {
     private RankingBatchService rankingBatch;
     @Autowired
     private JwtService jwtService;
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired
+    private app.pickple.point.domain.RankingQueryStore rankingQueryStore;
     @Autowired
     private EntityManager entityManager;
     @Autowired
@@ -398,5 +403,44 @@ class RankingControllerIT {
 
     private String bearer(User user) {
         return "Bearer " + jwtService.createAccessToken(user);
+    }
+
+    /**
+     * 커서 조회가 정렬 인덱스를 타는지 실행 계획으로 확인한다.
+     *
+     * <p><b>왜 결과 단언으로는 부족한가.</b> 인덱스를 못 타도 결과는 똑같이 옳다 —
+     * MySQL 이 전량을 읽어 정렬한 뒤 21건을 잘라내면 된다. 200k 회원에서 그 차이가
+     * 33ms 대 0.060ms 였다(V10 마이그레이션 주석). 정확성 테스트는 이 회귀를 못 잡는다.
+     *
+     * <p>QueryDSL 전환(#130)에서 이 단언이 특히 필요하다. 손으로 쓴 SQL 과 달리
+     * 생성된 SQL 은 사람이 읽지 않으므로, 계획이 조용히 바뀌어도 드러나지 않는다.
+     */
+    @Test
+    @DisplayName("랭킹 조각 조회가 ranking 인덱스를 range scan 으로 탄다")
+    void sliceUsesRankingIndex() {
+        // 조회 경로를 실제로 한 번 태운다. 아래 EXPLAIN 이 검사하는 조건·정렬이
+        // 살아 있는 코드와 같은지 확인하는 최소한의 장치다 — 리포지토리가 바뀌어
+        // 여기에 반영되지 않으면 이 호출이 먼저 깨진다.
+        rankingQueryStore.findSlice(ScrollPosition.keyset(), 20);
+
+        // SELECT 절은 프로젝션과 같은 컬럼을 나열한다(닉네임 폴백 포함).
+        // 인덱스 선택은 WHERE·ORDER BY 가 정하지만, 커버링 여부는 SELECT 도 보므로
+        // 실제 프로젝션과 어긋나면 계획이 달라질 수 있다.
+        String plan = String.join(" ", jdbcTemplate.queryForList("""
+                EXPLAIN FORMAT=TREE
+                SELECT u.id,
+                       COALESCE(NULLIF(u.nickname, ''), NULLIF(u.name, ''), '알 수 없음'),
+                       u.profile_image_url, u.ranking, u.point, u.vote_count
+                  FROM users u
+                 WHERE u.ranking IS NOT NULL AND u.ranking > 10
+                 ORDER BY u.ranking ASC LIMIT 21
+                """, String.class));
+
+        assertThat(plan)
+                .as("정렬 인덱스를 타야 한다 — 못 타면 전량 스캔 후 정렬이 된다")
+                .contains("idx_users_ranking_order");
+        assertThat(plan)
+                .as("filesort 가 보이면 인덱스가 정렬을 맡지 못한 것이다")
+                .doesNotContain("Sort:");
     }
 }
