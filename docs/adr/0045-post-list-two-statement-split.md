@@ -111,8 +111,9 @@ Java 로 옮기면 저장소가 닉네임·이름 두 값을 따로 내고 `JpaP
 ## 결과
 
 - `PostListRepository`(158줄 네이티브 SQL 조립)가 QueryDSL 저장소로 바뀐다. `Object[]` 0건 · 컬럼 상수 0개 ·
-  `.append(sortColumn` · `.formatted(` · `.substring(2)` 0건. `toLocalDateTime`/`toCreatedAt` 이 사라진다 —
-  #130 의 중복 방어 함수 중 마지막이었다.
+  `.append(sortColumn` · `.formatted(` · `.substring(2)` 0건. 저장소·스토어의 드라이버 타입 방어
+  `PostListRepository.toLocalDateTime`/`JpaPostStore.toCreatedAt`/`toRanking` 이 사라진다 — #130 의 중복 방어 함수 중
+  마지막이었다. 커서 복원의 `PostListCursor.toLocalDateTime`(JSON 문자열 → 시각)은 다른 일을 하는 함수라 남는다.
 - 요청당 SQL 이 1 → 2. 행 수에 비례하는 문장은 여전히 없다.
 - 호출자가 트랜잭션을 열어야 한다는 전제가 생겼다. 격리 수준은 **가장 바깥 트랜잭션**이 정하고 Spring 은 참여
   트랜잭션의 격리를 검증하지 않으므로, `REPEATABLE_READ` 선언은 실제 경계인 `PostService.findSlice`·`findPopularTop`
