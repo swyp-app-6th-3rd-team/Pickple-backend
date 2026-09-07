@@ -106,6 +106,66 @@ class ActivityQuerydslRepository {
     }
 
     /**
+     * 조각을 읽는다. 다음 조각의 존재를 알기 위해 키 문장이 <b>{@code size + 1} 건</b>을 읽고,
+     * 넘치는 한 건은 행 문장에 넘기지 않는다 — 대표 사진 서브쿼리를 한 번 아낀다.
+     */
+    ActivitySlice findSlice(
+            Long userId, ActivityType type, ActivitySort sort, ActivityListCursor cursor, int size) {
+
+        requireSnapshot();
+
+        ComparableExpressionBase<?> sortKey = sortKey(type, sort);
+        NumberPath<Long> postId = postIdOf(type);
+
+        List<Long> ids = keys(type, userId)
+                .where(after(sortKey, postId, sort, cursor))
+                .orderBy(order(sortKey, sort), order(postId, sort))
+                .limit(size + 1L)
+                .fetch();
+        boolean hasNext = ids.size() > size;
+        List<Long> page = hasNext ? ids.subList(0, size) : ids;
+        if (page.isEmpty()) {
+            return new ActivitySlice(List.of(), false);
+        }
+        List<ActivityRow> rows = rows(type, userId, page)
+                .orderBy(order(sortKey, sort), order(postId, sort))
+                .fetch();
+        return new ActivitySlice(rows, hasNext);
+    }
+
+    /**
+     * 최근에 올린 투표 게시글 (§7.4). 커서가 없는 고정 개수 목록이다.
+     *
+     * <p>경계는 <b>반열린 구간</b> {@code created_at > since} 이다. 기준 시각을
+     * 서비스가 정해 넘기므로 이 자리는 비교만 한다 — {@code NOW()} 를 쓰면
+     * DB 세션 타임존이 하루를 정해 애플리케이션이 보는 시각과 갈린다(SPEC §5.1 과 같은 이유).
+     *
+     * <p>여기도 두 문장이다. 옛 네이티브 SQL 도 파생 테이블로 먼저 자른 뒤 대표 사진을 붙였으므로
+     * 이 분할은 그 구조를 옮긴 것이지 새 비용이 아니다. JPQL 한 문장으로 쓰려면 대표 사진
+     * 서브쿼리를 정렬·LIMIT 과 같은 문장에 두어야 하는데, 이 정렬은 {@code Sort} 가 남는 경로라
+     * (ADR-0036 "POST 최신순") 그 서브쿼리가 잘리기 전의 행 전체에 대해 돌 위험이 있다.
+     * 두 문장이므로 {@link #findSlice} 와 같은 스냅샷 전제가 있다.
+     */
+    List<ActivityPostView> findRecentVotePosts(Long userId, LocalDateTime since, int limit) {
+        requireSnapshot();
+
+        List<Long> ids = keys(ActivityType.POST, userId)
+                .where(POST.type.ne(PostType.GENERAL), POST.createdAt.gt(since))
+                .orderBy(POST.createdAt.desc(), POST.id.desc())
+                .limit(limit)
+                .fetch();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return rows(ActivityType.POST, userId, ids)
+                .orderBy(POST.createdAt.desc(), POST.id.desc())
+                .fetch()
+                .stream()
+                .map(ActivityRow::view)
+                .toList();
+    }
+
+    /**
      * 두 문장이 한 스냅샷을 보려면 트랜잭션 안이어야 한다 (ADR-0043). 호출자 {@code JpaActivityQueryStore}
      * 의 {@code @Transactional(readOnly = true)} 가 그 트랜잭션이다 — 누가 애노테이션을 지우면
      * 조용히 어긋나는 대신 여기서 즉시 깨진다.
