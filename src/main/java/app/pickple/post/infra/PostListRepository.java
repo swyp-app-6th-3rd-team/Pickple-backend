@@ -45,7 +45,7 @@ import java.util.List;
  * "먼저 자르고 나중에 붙인다" 가 여기서 배당금을 낸다: 조인은 이미 11행으로
  * 좁혀진 뒤에 일어나므로 붙는 컬럼의 비용이 조각 크기에만 비례한다.
  *
- * <p>package-private 이다. 바깥은 {@link app.pickple.post.domain.PostQueryStore} 만 본다.
+ * <p>package-private 이다. 바깥은 {@link app.pickple.post.domain.PostStore} 만 본다.
  */
 @Repository
 @RequiredArgsConstructor
