@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.ScrollPosition;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
@@ -72,6 +73,8 @@ class RankingControllerIT {
     private JwtService jwtService;
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired
+    private app.pickple.point.domain.RankingQueryStore rankingQueryStore;
     @Autowired
     private EntityManager entityManager;
     @Autowired
@@ -415,9 +418,19 @@ class RankingControllerIT {
     @Test
     @DisplayName("랭킹 조각 조회가 ranking 인덱스를 range scan 으로 탄다")
     void sliceUsesRankingIndex() {
+        // 조회 경로를 실제로 한 번 태운다. 아래 EXPLAIN 이 검사하는 조건·정렬이
+        // 살아 있는 코드와 같은지 확인하는 최소한의 장치다 — 리포지토리가 바뀌어
+        // 여기에 반영되지 않으면 이 호출이 먼저 깨진다.
+        rankingQueryStore.findSlice(ScrollPosition.keyset(), 20);
+
+        // SELECT 절은 프로젝션과 같은 컬럼을 나열한다(닉네임 폴백 포함).
+        // 인덱스 선택은 WHERE·ORDER BY 가 정하지만, 커버링 여부는 SELECT 도 보므로
+        // 실제 프로젝션과 어긋나면 계획이 달라질 수 있다.
         String plan = String.join(" ", jdbcTemplate.queryForList("""
                 EXPLAIN FORMAT=TREE
-                SELECT u.id, u.ranking, u.point, u.vote_count
+                SELECT u.id,
+                       COALESCE(NULLIF(u.nickname, ''), NULLIF(u.name, ''), '알 수 없음'),
+                       u.profile_image_url, u.ranking, u.point, u.vote_count
                   FROM users u
                  WHERE u.ranking IS NOT NULL AND u.ranking > 10
                  ORDER BY u.ranking ASC LIMIT 21

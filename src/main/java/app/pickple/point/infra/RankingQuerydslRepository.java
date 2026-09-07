@@ -101,8 +101,11 @@ class RankingQuerydslRepository {
     /**
      * 표시용 닉네임은 {@code nickname → name → "알 수 없음"} 순으로 고른다.
      *
-     * <p>빈 문자열도 없는 것으로 친다 — {@code NULLIF} 가 그 일을 한다. 탈퇴 회원의 닉네임이
-     * 비워지므로(ADR-0040) 폴백이 실제로 쓰인다.
+     * <p>빈 문자열도 없는 것으로 친다 — {@code NULLIF} 가 그 일을 한다. 폴백이 장식이 아닌
+     * 이유는 닉네임이 실제로 비는 경로가 있기 때문이다 — 가입 직후 프로필 등록 전이 그렇고,
+     * 탈퇴 처리도 닉네임을 비운다.
+     *
+     * <p>옛 네이티브 SQL 의 표현식을 그대로 옮겼다. 바꾸면 표시 이름이 달라진다.
      */
     private static StringExpression displayNickname() {
         return Expressions.stringTemplate(
