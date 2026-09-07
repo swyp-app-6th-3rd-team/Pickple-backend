@@ -21,10 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
  * 프로젝션으로 바꿨다 — 타입 없는 배열 행과 인덱스 리터럴, 드라이버 타입 방어 함수가
  * 사라진다. 방식 선택의 근거는 {@link GradeRepository} 에 있다.
  *
- * <p><b>{@code UserEntity} 에 {@code highest_grade} 를 매핑하지 않는다.</b>
- * 매핑하면 프로필 저장 같은 평범한 쓰기가 도달 등급을 옛 스냅샷으로 덮어쓴다 —
- * V7 의 {@code ranking} 이 매핑되지 않은 것과 같은 이유다 (ADR-0028).
- * 유도 컬럼은 유도하는 쪽만 만진다.
+ * <p><b>{@code UserEntity} 의 {@code highest_grade} 매핑은 읽기 전용이다</b> (ADR-0041 · #20).
+ * {@code insertable = false, updatable = false} 라 프로필 저장 같은 평범한 쓰기가 도달 등급을
+ * 옛 스냅샷으로 덮어쓸 수 없다 — {@code ranking} 과 같은 장치다. 이 컬럼에 쓰는 경로는 여전히
+ * {@code GradeRepository} 의 원자적 UPDATE 하나뿐이다. 유도 컬럼은 유도하는 쪽만 만진다.
  */
 @Component
 @RequiredArgsConstructor

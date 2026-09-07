@@ -243,4 +243,22 @@ class JpaPostStoreIT {
                 .isInstanceOf(InvalidDataAccessApiUsageException.class)
                 .hasMessageContaining("REPEATABLE READ");
     }
+
+    /**
+     * 상세는 세 문장 경로다 (#20). 총 투표 인원과 선택지별 득표가 다른 스냅샷을 보면 게이지의 합이
+     * 어긋나므로 같은 전제를 같은 방식으로 단언한다.
+     */
+    @Test
+    @DisplayName("READ COMMITTED 로 연 바깥 트랜잭션에서는 상세 조회도 거부된다")
+    void detailRejectsLowerIsolation() {
+        TransactionTemplate readCommitted = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        readCommitted.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        readCommitted.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        readCommitted.setReadOnly(true);
+
+        assertThatThrownBy(() -> readCommitted.executeWithoutResult(status ->
+                postStore.findDetail(1L, null)))
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasMessageContaining("REPEATABLE READ");
+    }
 }
