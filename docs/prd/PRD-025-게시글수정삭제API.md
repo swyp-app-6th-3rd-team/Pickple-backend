@@ -74,7 +74,7 @@
 | 8 | 삭제된 글은 다시 수정·삭제할 수 없다 | 삭제 후 PATCH·DELETE → 404 | `PostMutationIT.deletedPostCannotBeEditedOrDeletedAgain` |
 | 9 | 미인증 요청은 401 | 토큰 없이 PATCH·DELETE | `PostMutationIT.rejectsUnauthenticated` |
 | 10 | 문서 표면: 두 엔드포인트에 `security` 가 있고 공개 목록은 그대로 | `OpenApiSurfaceIT`·`ArchitectureTest` 의 공개 목록 대조 통과(개수 포함) | 기존 테스트 |
-| 11 | 삭제와 경합한 수정이 삭제를 되돌리지 않는다 | 한 트랜잭션이 잠금을 쥔 채 삭제하는 동안 다른 스레드가 수정 → 수정은 404, `deleted_at` 유지 | `PostMutationConcurrencyIT.editRacingDeleteDoesNotResurrect` |
+| 11 | 삭제와 경합한 수정이 삭제를 되돌리지 않고, 수정과 경합한 삭제가 그 수정을 잃지 않는다 | 한 트랜잭션이 잠금을 쥔 동안 실제 서비스 경로가 `innodb_trx` 에서 LOCK WAIT 로 관측된 뒤 풀어 줌 → 수정은 404·`deleted_at` 유지 / 삭제 뒤 제목은 먼저 고친 값. `@Lock` 을 지우면 두 케이스 모두 실패함을 주입으로 확인 | `PostMutationConcurrencyIT.editRacingDeleteDoesNotResurrect`, `deleteRacingEditKeepsTheEdit` |
 | 12 | 내 활동 요약이 삭제된 글을 빼 목록과 일치한다 | 투표·댓글한 글을 삭제한 뒤 `GET /users/me/activities` 요약 대조 | `ActivityControllerIT` (추가) |
 | 13 | 같은 제목을 다시 보내는 찬반 수정은 200 이다 (멱등) | 찬반 게시글에 현재 상품명을 `title` 로 PATCH | `PostMutationIT.agreeTitleIsProductNameAndImmutable` |
 | 14 | `description: ""` 는 설명을 비운다 | PATCH 후 재조회에서 `description` 이 null | `PostMutationIT.editsCategoryTitleAndDescription` |
