@@ -72,4 +72,34 @@ interface UserRepository extends JpaRepository<UserEntity, Long> {
                       @Param("nickname") String nickname,
                       @Param("profileImageUrl") String profileImageUrl,
                       @Param("updatedAt") LocalDateTime updatedAt);
+
+    /**
+     * 로그인이 갱신하는 값만 쓴다. <b>활성 회원일 때만</b> 쓴다.
+     *
+     * <p><b>왜 변경 감지가 아니라 조건부 UPDATE 인가.</b> 로그인은 회원을 읽고
+     * 활성인지 본 뒤 저장한다. 그 사이에 탈퇴가 커밋되면 읽어둔 옛 값이 그대로 쓰여
+     * <b>파기한 개인정보와 {@code ACTIVE} 상태가 되살아난다</b>(개인정보처리방침 제3조,
+     * [ADR-0040]). 확인과 쓰기 사이의 틈이라 응용 계층 검사로는 막을 수 없다.
+     *
+     * <p>엔티티에 가드를 두는 것으로도 부족하다 — 영속성 컨텍스트가 <b>읽은 시점</b>의
+     * 엔티티를 1차 캐시로 돌려주므로, 엔티티의 {@code state} 를 봐도 여전히 옛 값이다.
+     * 판정은 쓰기 시점의 <b>행</b>이 해야 하고, 그것을 아는 것은 DB 뿐이다.
+     * {@code updateProfile} 이 같은 이유로 같은 조건을 건다.
+     *
+     * <p>반환값 0 은 "활성 회원이 아니어서 쓰지 않았다" 는 사실이다. 그 사실을 정책으로
+     * 해석하는 것은 위층의 몫이다 (ADR-0019).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE users
+               SET email = :email,
+                   name = :name,
+                   updated_at = :updatedAt
+             WHERE id = :id
+               AND state = 'ACTIVE'
+            """, nativeQuery = true)
+    int syncActiveProfile(@Param("id") Long id,
+                          @Param("email") String email,
+                          @Param("name") String name,
+                          @Param("updatedAt") LocalDateTime updatedAt);
 }

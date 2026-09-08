@@ -27,9 +27,12 @@ import java.util.Objects;
 /**
  * {@code post} 한 행과 그에 딸린 상품·선택지.
  *
- * <p>{@code popularity_score} 는 DB 생성 컬럼이라 매핑하지 않는다 —
- * 매핑하면 하이버네이트가 쓰기를 시도해 {@code ERROR 3105} 가 난다.
- * 정렬은 인덱스가 걸린 그 컬럼으로 하고, 값이 필요하면 두 카운터를 더해 읽는다.
+ * <p>{@code popularity_score} 는 DB 생성 컬럼이지만 <b>읽기 전용으로 매핑한다</b> (ADR-0041).
+ * 기본 매핑이면 하이버네이트가 쓰기를 시도해 {@code ERROR 3105} 가 나지만,
+ * {@code insertable = false, updatable = false} 는 INSERT·UPDATE 의 컬럼 목록에서
+ * 아예 빼므로 그 경로가 없다. 조회 계층이 인덱스가 걸린 이 컬럼으로 정렬하고
+ * 커서 값으로 읽기 위해서다 — 매핑이 없으면 JPQL 이 이 컬럼에 닿지 못해
+ * 네이티브 SQL 과 {@code Object[]} 로 되돌아간다 (이슈 #130).
  */
 @Getter
 @Entity
@@ -69,6 +72,14 @@ public class PostEntity {
 
     @Column(name = "comment_count", nullable = false, insertable = false, updatable = false)
     private Integer commentCount;
+
+    /**
+     * 인기 점수 {@code vote_count + commenter_count} (R-24). DB 가 {@code GENERATED ALWAYS … STORED}
+     * 로 계산하므로 애플리케이션은 읽기만 한다 — 인기순 정렬 키이자 커서 값이다.
+     * 스키마가 {@code INT UNSIGNED} 라 {@code Integer} 다.
+     */
+    @Column(name = "popularity_score", insertable = false, updatable = false)
+    private Integer popularityScore;
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
@@ -159,8 +170,9 @@ public class PostEntity {
      * 그 선택지를 참조하고 있어(CASCADE 없음) <b>투표가 달린 게시글은 제목조차 수정할 수 없다.</b>
      * 지우지 않으면 선택지 id 도 유지돼 외부 참조가 안정적이다.
      *
-     * <p>기존 자식의 수정·삭제는 다루지 않는다 — 투표가 시작된 뒤 상품을 바꾸는 것은
-     * 이미 받은 표의 의미를 바꾸는 일이라 정책이 정해지지 않았다(도메인 모델 "아직 결정하지 않은 것").
+     * <p>기존 자식의 수정·삭제는 다루지 않는다 — 상품은 투표 유무와 무관하게 불변이다 (R-33).
+     * 바꾸면 이미 받은 표가 어떤 질문의 답이었는지 추적할 수 없다. 이 메서드가 새 자식만 넣는 것은
+     * 그 규칙과 맞물린 우연이 아니라 결과다 (ADR-0047).
      */
     private void syncChildren(Post post, LocalDateTime now) {
         post.products().stream()

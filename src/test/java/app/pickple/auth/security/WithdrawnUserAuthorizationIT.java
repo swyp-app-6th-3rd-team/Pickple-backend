@@ -208,8 +208,8 @@ class WithdrawnUserAuthorizationIT {
     }
 
     @Nested
-    @DisplayName("공개 경로 — 관문이 막아서는 안 되는 곳")
-    class PublicPaths {
+    @DisplayName("조회 경로 — 공개 목록과 인증이 필요한 댓글")
+    class ReadPaths {
 
         @Test
         @DisplayName("C-5 게스트의 공개 목록은 그대로 200 이다")
@@ -227,6 +227,17 @@ class WithdrawnUserAuthorizationIT {
             mockMvc.perform(get("/posts/popular")
                             .header("Authorization", bearer(withdrawnToken)))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("탈퇴 전 발급한 토큰으로 댓글을 열람할 수 없다 (#100)")
+        void withdrawnUserCannotReadComments() throws Exception {
+            mockMvc.perform(get("/posts/{postId}/comments", post.id())
+                            .header("Authorization", bearer(withdrawnToken)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                    .andExpect(jsonPath("$.message").value("인증이 필요합니다."))
+                    .andExpect(jsonPath("$.returnObject").isEmpty());
         }
     }
 

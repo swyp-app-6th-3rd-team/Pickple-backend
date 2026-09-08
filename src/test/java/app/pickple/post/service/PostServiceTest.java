@@ -1,5 +1,6 @@
 package app.pickple.post.service;
 
+import app.pickple.common.CursorCodec;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
@@ -9,24 +10,27 @@ import app.pickple.item.domain.ItemResource;
 import app.pickple.post.domain.ItemContainerAlreadyAttachedException;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
-import app.pickple.post.domain.PostQueryStore;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.service.PostService.CreateCommand;
 import app.pickple.post.service.PostService.ProductCommand;
+import app.pickple.post.service.PostService.UpdateCommand;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.KeysetScrollPosition;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.random.RandomGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +41,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class PostServiceTest {
@@ -46,9 +51,54 @@ class PostServiceTest {
     @Mock
     private ItemContainerStore itemContainerStore;
     @Mock
-    private PostQueryStore postQueryStore;
+    private RandomGenerator randomGenerator;
     @InjectMocks
     private PostService service;
+
+    @Test
+    @DisplayName("랜덤 카드 첫 요청은 새 시드와 유형·사용자·10건 크기를 전달한다")
+    void startsRandomSliceWithNewSeed() {
+        given(randomGenerator.nextLong()).willReturn(314L);
+        Window<PostStore.RandomPostView> empty =
+                Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+        given(postStore.findRandomSlice(PostType.AGREE, 7L, ScrollPosition.keyset(), 10, 314L))
+                .willReturn(empty);
+
+        assertThat(service.findRandomSlice(PostType.AGREE, null, 7L)).isSameAs(empty);
+        verify(randomGenerator).nextLong();
+    }
+
+    @Test
+    @DisplayName("랜덤 카드 후속 요청은 시드를 다시 만들지 않고 커서를 전달한다")
+    void continuesRandomSliceWithoutReseeding() {
+        KeysetScrollPosition position = ScrollPosition.forward(Map.of(
+                "randomSeed", 314, "postType", "A_B", "randomKey", 123, "id", 45));
+
+        service.findRandomSlice(PostType.A_B, CursorCodec.encode(position), null);
+
+        verify(postStore).findRandomSlice(PostType.A_B, null, position, 10, 0L);
+        verifyNoInteractions(randomGenerator);
+    }
+
+    @Test
+    @DisplayName("투표 유형이 없거나 일반 유형이면 랜덤 조회 전에 400으로 거부한다")
+    void rejectsInvalidRandomType() {
+        for (PostType type : new PostType[]{null, PostType.GENERAL}) {
+            assertThatThrownBy(() -> service.findRandomSlice(type, null, null))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        }
+        verifyNoInteractions(postStore, randomGenerator);
+    }
+
+    @Test
+    @DisplayName("깨진 랜덤 커서는 DB 조회나 시드 생성 전에 400으로 거부한다")
+    void rejectsMalformedRandomCursorBeforeQuery() {
+        assertThatThrownBy(() -> service.findRandomSlice(PostType.AGREE, "not-a-cursor", null))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo(ResponseCode.INVALID_REQUEST));
+        verifyNoInteractions(postStore, randomGenerator);
+    }
 
     @Test
     @DisplayName("찬반 게시글은 상품명을 제목으로 쓰고 서버가 선택지 둘을 만든다")
@@ -184,7 +234,7 @@ class PostServiceTest {
     void appliesQueryDefaults() {
         service.findSlice(null, null, null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), any(ScrollPosition.class), eq(PostService.DEFAULT_SIZE));
     }
 
@@ -193,7 +243,7 @@ class PostServiceTest {
     void passesQueryFiltersDown() {
         service.findSlice(PostCategory.BEAUTY, "POPULAR", null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 eq(PostCategory.BEAUTY), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
     }
 
@@ -205,11 +255,11 @@ class PostServiceTest {
         service.findSlice(null, null, null, 100_000);
         service.findSlice(null, null, null, 25);
 
-        verify(postQueryStore, times(2)).findSlice(
+        verify(postStore, times(2)).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(50));
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(25));
     }
 
@@ -218,27 +268,27 @@ class PostServiceTest {
     void decodesAbsentCursorAsFirstSlice() {
         service.findSlice(null, null, null, null);
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.LATEST), eq(ScrollPosition.keyset()), eq(PostService.DEFAULT_SIZE));
     }
 
     @Test
     @DisplayName("인기 Top 10 은 전체·인기순·첫 조각·10건으로 조회한다")
     void popularTopFixesEveryParameter() {
-        given(postQueryStore.findSlice(
+        given(postStore.findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
                 .willReturn(emptyWindow());
 
         service.findPopularTop();
 
-        verify(postQueryStore).findSlice(
+        verify(postStore).findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10));
     }
 
     @Test
     @DisplayName("인기 Top 10 은 게시글이 없으면 빈 목록이다")
     void popularTopReturnsEmptyList() {
-        given(postQueryStore.findSlice(
+        given(postStore.findSlice(
                 isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
                 .willReturn(emptyWindow());
 
@@ -266,7 +316,103 @@ class PostServiceTest {
         return container;
     }
 
-    private Window<PostQueryStore.PostListView> emptyWindow() {
+    private Window<PostStore.PostListView> emptyWindow() {
         return Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+    }
+
+    // --- 수정·삭제 (R-33 · ADR-0047) ------------------------------------------
+
+    private static Post storedGeneral(Long id, Long authorId, boolean deleted) {
+        return Post.restore(id, authorId, PostType.GENERAL, PostCategory.ETC, "제목", "설명",
+                List.of(), List.of(), 0L, 0L, 0L, deleted);
+    }
+
+    @Test
+    @DisplayName("수정은 잠금 조회 뒤 카테고리·제목·설명만 바꾸고 저장한다")
+    void updatesWhitelistedFieldsAfterLockingRead() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+        given(postStore.save(stored)).willReturn(stored);
+
+        Post result = service.update(10L, 7L, new UpdateCommand(PostCategory.LIVING, "새 제목", "새 설명"));
+
+        assertThat(result.category()).isEqualTo(PostCategory.LIVING);
+        assertThat(result.title()).isEqualTo("새 제목");
+        assertThat(result.description()).isEqualTo("새 설명");
+        assertThat(result.type()).isEqualTo(PostType.GENERAL);
+        verify(postStore).findByIdForUpdate(10L);
+        verify(postStore, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("빈 설명은 비움, null 은 유지다")
+    void blankDescriptionClearsAndNullKeeps() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+        given(postStore.save(stored)).willReturn(stored);
+
+        service.update(10L, 7L, new UpdateCommand(null, null, null));
+        assertThat(stored.description()).isEqualTo("설명");
+
+        service.update(10L, 7L, new UpdateCommand(null, null, "   "));
+        assertThat(stored.description()).isNull();
+    }
+
+    @Test
+    @DisplayName("작성자가 아니면 403 이고 아무것도 저장하지 않는다")
+    void rejectsNonAuthorWithForbidden() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+
+        assertThatThrownBy(() -> service.update(10L, 8L, new UpdateCommand(null, "남이 수정", null)))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.FORBIDDEN);
+        assertThatThrownBy(() -> service.delete(10L, 8L))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.FORBIDDEN);
+
+        assertThat(stored.title()).isEqualTo("제목");
+        assertThat(stored.isDeleted()).isFalse();
+        verify(postStore, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("없거나 삭제된 게시글은 작성자 판정보다 먼저 404 다")
+    void missingOrDeletedPostIsNotFoundBeforeAuthorCheck() {
+        given(postStore.findByIdForUpdate(1L)).willReturn(Optional.empty());
+        given(postStore.findByIdForUpdate(2L)).willReturn(Optional.of(storedGeneral(2L, 7L, true)));
+
+        // 남(8L)이 요청해도 404 — 지운 글의 존재를 알리지 않는다.
+        assertThatThrownBy(() -> service.update(1L, 8L, new UpdateCommand(null, "x", null)))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.NOT_FOUND);
+        assertThatThrownBy(() -> service.delete(2L, 8L))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.NOT_FOUND);
+        assertThatThrownBy(() -> service.delete(2L, 7L))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.NOT_FOUND);
+        verify(postStore, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("삭제는 소프트 삭제로 저장하고 카운터·컨테이너는 건드리지 않는다")
+    void deleteMarksAndSaves() {
+        Post stored = storedGeneral(10L, 7L, false);
+        given(postStore.findByIdForUpdate(10L)).willReturn(Optional.of(stored));
+        given(postStore.save(stored)).willReturn(stored);
+
+        service.delete(10L, 7L);
+
+        assertThat(stored.isDeleted()).isTrue();
+        verify(postStore).save(stored);
+        verifyNoInteractions(itemContainerStore);
+    }
+
+    @Test
+    @DisplayName("요청자가 없으면 조회 전에 401 이다")
+    void rejectsAnonymousBeforeLookup() {
+        assertThatThrownBy(() -> service.update(10L, null, new UpdateCommand(null, "x", null)))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.UNAUTHORIZED);
+        assertThatThrownBy(() -> service.delete(10L, null))
+                .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.UNAUTHORIZED);
+        verifyNoInteractions(postStore);
     }
 }

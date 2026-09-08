@@ -44,11 +44,14 @@ class JpaUserStoreTest {
         store = new JpaUserStore(repository, FIXED_CLOCK, transactionTemplate);
     }
 
+    /**
+     * 활성 회원 갱신은 조건부 UPDATE 를 지난다 — 행이 없거나 이미 탈퇴했으면 0건이다.
+     * 두 원인을 가르지 않는 이유는 어느 쪽이든 이 저장이 성립하지 않기 때문이다 (ADR-0040).
+     */
     @Test
-    @DisplayName("존재하지 않는 사용자 갱신은 영속화 오류로 분류한다")
-    void missingUserOnUpdateIsPersistenceFailure() {
+    @DisplayName("갱신 대상 활성 사용자가 없으면 영속화 오류로 분류한다")
+    void missingActiveUserOnUpdateIsPersistenceFailure() {
         User user = savedUser(null);
-        given(repository.findById(17L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> store.save(user))
                 .isInstanceOf(UserPersistenceException.class)

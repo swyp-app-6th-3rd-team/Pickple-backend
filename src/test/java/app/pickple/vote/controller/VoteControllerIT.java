@@ -123,12 +123,15 @@ class VoteControllerIT {
     @DisplayName("게스트는 투표할 수 없다")
     void guestCannotVote() throws Exception {
         // R-11. 인증이 없으면 도메인까지 가지 않고 401 이다.
+        long before = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vote", Long.class);
         mockMvc.perform(post("/posts/{postId}/votes", post.id())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(buyOptionId)))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("인증이 필요합니다."));
 
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vote", Long.class)).isEqualTo(before);
         assertThat(voterCountOf(post.id())).isZero();
     }
 

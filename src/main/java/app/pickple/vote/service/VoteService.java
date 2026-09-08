@@ -7,6 +7,7 @@ import app.pickple.post.domain.PostStore;
 import app.pickple.post.service.ActivePostGuard;
 import app.pickple.vote.domain.Vote;
 import app.pickple.vote.domain.VoteActivityRecorder;
+import app.pickple.vote.domain.VotePercentage;
 import app.pickple.vote.domain.VoteStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -183,16 +184,7 @@ public class VoteService {
                     option.label(),
                     option.displayOrder(),
                     option.voteCount(),
-                    percentageOf(option.voteCount(), voterCount));
-        }
-
-        private static int percentageOf(long voteCount, long voterCount) {
-            if (voterCount <= 0) {
-                return 0;
-            }
-            // 정수만으로 반올림한다. double 로 나누면 1/3 같은 값이 이진수로 딱 떨어지지 않아
-            // 경계(x.5)에서 어느 쪽으로 갈지가 값마다 달라진다.
-            return (int) ((voteCount * 200 + voterCount) / (voterCount * 2));
+                    VotePercentage.calculate(option.voteCount(), voterCount));
         }
     }
 }

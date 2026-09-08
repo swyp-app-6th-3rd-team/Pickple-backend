@@ -29,7 +29,7 @@ import java.io.IOException;
  *   <tr><td>보호 경로</td><td>익명이 {@link ActiveAccountAuthorizationManager} 에 걸린다</td>
  *       <td><b>401</b></td></tr>
  *   <tr><td>{@code permitAll} 경로</td><td>익명이 그대로 통과한다</td>
- *       <td><b>200</b>, 개인화만 사라짐({@code mine=false})</td></tr>
+ *       <td>익명으로 조회</td></tr>
  * </table>
  *
  * <p><b>왜 강등이 401 을 만드는가.</b> 관문이 "인증된 사용자를 거부" 하면 Spring Security 는
@@ -41,13 +41,16 @@ import java.io.IOException;
  *
  * <p><b>공개 경로에도 필요한 이유.</b> {@code permitAll} 은 필터를 우회하지 <b>않는다</b>.
  * {@link JwtAuthenticationFilter} 가 토큰이 붙은 모든 요청을 파싱하므로, 강등이 없으면
- * 공개 경로에서 탈퇴자가 여전히 "본인" 으로 식별된다. 실측:
+ * 공개 경로에서 탈퇴자가 여전히 "본인" 으로 식별된다. 댓글 목록이 공개였던 #106 당시의 실측:
  *
  * <pre>
  * GET /posts/{id}/comments
  *   게스트(토큰 없음)  → comments[0].mine = false
  *   탈퇴자 토큰 첨부   → comments[0].mine = true    ← 강등이 없을 때
  * </pre>
+ *
+ * <p>현재 댓글 목록은 인증이 필요하므로 게스트와 탈퇴자 모두 401을 받는다(#100).
+ * 게시글·랭킹 등 공개 목록에서는 익명으로 조회할 수 있다.
  *
  * <p>거부가 아니라 강등인 이유는, 거부하면 토큰을 지우지 않은 탈퇴자가 공개 목록조차 보지
  * 못하기 때문이다. R-20(탈퇴자의 글은 계속 보인다)은 <b>글의 가시성</b>을 말하는 것이지
