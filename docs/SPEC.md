@@ -88,7 +88,7 @@ app/pickple/
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
 | POST | `/auth/logout` | 선택 | 리프레시 폐기 + 쿠키 만료 |
-| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. Apple은 로컬 탈퇴 완료 시 identity를 분리하고 token 누락 시 수동 해제 코드, Kakao unlink 실패는 503 |
+| DELETE | `/auth/me` | 필요 | provider 연결 해제 + 회원 탈퇴. **모든 provider에서 개인정보를 즉시 파기**하고(ADR-0040) Apple은 token 누락 시 수동 해제 코드, Kakao unlink 실패는 503 |
 | GET | `/users/nickname/availability?value=` | — | 닉네임 사용 가능 여부. 형식 위반은 400 |
 | GET | `/users/me` | 필요 | 내 프로필 (닉네임·프로필 이미지) |
 | POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
@@ -130,6 +130,10 @@ app/pickple/
 | POST | `/posts` | 필요 | 게시글 작성 |
 | GET | `/posts?category=&sort=&cursor=&size=` | 선택 (게스트 허용) | 게시글 목록 |
 | GET | `/posts/popular` | 선택 (게스트 허용) | 인기 게시글 Top 10 (홈 화면) |
+| GET | `/posts/random?type=&cursor=` | 선택 (게스트 허용) | 랜덤 투표 카드 (홈 화면) |
+| GET | `/posts/{id}` | 선택 (게스트 허용) | 게시글 상세 |
+| PATCH | `/posts/{id}` | 필요 (작성자) | 게시글 수정 — 카테고리·주제/제목·설명만 (R-33) |
+| DELETE | `/posts/{id}` | 필요 (작성자) | 게시글 삭제 (소프트) |
 
 - 작성 요청은 `type`, `category`, `title`, `description`, `products[]`를 사용한다.
   `products[]`의 각 항목은 `itemContainerId`, `name`, `price`, `linkUrl`을 가진다.
@@ -188,6 +192,121 @@ app/pickple/
   서버 응답이 아니다 — 서버가 지어내면 그 카드를 탭했을 때 갈 곳이 없다(위 목록과 같은 판단).
 - 실행 계획으로 확인한 정렬 경로: `idx_post_popular_all` / `Using where; Using index`.
   `Using filesort` 가 없다 — 조회 시점에 집계하지 않는다는 증거다.
+
+**`GET /posts/random` — 랜덤 투표 카드 (홈 화면, §2.1 · §2.2)**
+
+- 게시글 저장·조회 계약과 읽기 모델은 `post.domain.PostStore`, JPA 저장과 조각 변환은
+  `post.infra.JpaPostStore`에 둔다. `PostService`는 같은 Store로 작성·목록·인기·랜덤 조회를 제공한다.
+  조회는 화면용 읽기 모델을 사용하며, SQL과 커서 검증은 기존 목록 조회처럼 infra에 분리한다.
+
+- `type` 은 필수이며 `AGREE`(찬반) · `A_B`만 받는다. `GENERAL`, 누락, 모르는 값은
+  `INVALID_REQUEST`(400)다. 유형 필터와 소프트 삭제 필터는 조각을 자르기 전 SQL `WHERE`에 둔다.
+- 조각은 **10건 고정**이다. `size`는 받지 않고 기존 `ScrollResponse`의 `content`,
+  `nextCursor`, `hasNext`를 쓴다.
+- 첫 요청은 임의 시드를 하나 만들고 `CRC32(seed + ':' + post.id), post.id` 오름차순으로
+  전순서를 정한다. 후속 커서는 시드·유형·마지막 정렬 키·게시글 id를 함께 보존한다.
+  따라서 같은 순회의 정적인 후보 집합은 CRC32 충돌이 있어도 id가 동률을 가르고,
+  끝까지 조회할 때 카드가 중복되거나 누락되지 않는다. 찬반 커서를 A/B에 재사용하면 400이다.
+- 순회 중 새 글은 랜덤 키가 아직 지나지 않은 위치면 이번 순회에 포함되고, 이미 지난 위치면
+  다음 순회로 미뤄질 수 있다. 삭제된 글은 즉시 빠진다. 요청 시작 시점 전체를 고정하는
+  DB 스냅샷 계약은 아니지만, 이미 반환한 글이 다시 나타나지는 않는다. 마지막 조각은
+  `hasNext=false`, `nextCursor=null`이다. 목록 끝 이후 새 순회를 시작할 때만 커서를 빼며,
+  새 순회에서는 이전 순회에서 본 카드가 다시 나타날 수 있다.
+- 게시글 `size + 1`건을 먼저 정한 뒤 상품·선택지·현재 사용자의 투표를 붙인다.
+  찬반은 상품 한 개의 최초 등록 사진, A/B는 두 상품 각각의 최초 등록 사진을 주며
+  최초 사진은 같은 업로드의 시각 동률을 피하도록 `item_resource.id`가 작은 순서로 정한다.
+  카드 조회 SQL은 게시글을 확정하는 키 문장과 그 몇 장에 선택지·상품·내 투표를 붙이는 행 문장의
+  **두 문장**이며 카드 수와 관계없이 고정이다(ADR-0043 의 분할, #139). 액세스 토큰을 보낸 요청은 중앙 인증 필터의
+  활성 계정 확인 1회가 추가되어 총 2회다. 탈퇴한 사용자의 토큰은 게스트로 처리한다.
+- 응답 카드에는 `id`, `type`, `title`, `description`, `voterCount`, `products`, `options`가 있다.
+  `title`의 정본은 찬반이면 첫 상품의 `name`, A/B면 게시글 주제다.
+  찬반 선택지는 `label`, A/B 선택지는 대응하는 `productId`를 쓴다.
+  로그인 사용자가 이미 투표한 카드에만 `selectedOptionId`와 선택지별 `voteCount`,
+  `percentage`가 존재한다. 미투표 사용자와 게스트에게 결과를 미리 노출하지 않는다.
+- 게스트도 카드를 조회하지만 서버의 투표 API는 계속 인증을 요구한다(R-11).
+  게스트 3회 체험 제한과 화면 전환은 서버에 투표를 저장하지 않는 클라이언트 로컬 상태다.
+- **0건이면 빈 `content`를 반환한다.** 기능명세의 더미 카드 2개는 탭할 실제 게시글 id가 없는
+  화면용 empty state이므로 서버가 가짜 게시글을 만들지 않는다.
+- 시드 해시는 동적 계산이라 현재 인덱스로 정렬을 맡길 수 없고 후보 행의 해시 계산과 filesort가
+  필요하다. 이번 범위는 별도 스키마 없이 페이징 일관성을 우선한다. 후보 규모가 커져 병목이
+  측정되면 사전 계산 랜덤 키와 인덱스, 랜덤 시작점 방식으로 바꾼다.
+
+**`GET /posts/{id}` — 게시글 상세 (§6.2·§6.3)**
+
+응답 계약은 [ADR-0046](adr/0046-post-detail-single-type-with-nested-vote-section.md) 이 정한다.
+
+- **게스트 허용.** 목록이 공개인데 상세가 막히면 카드를 눌러 갈 곳이 없다. 다만 인증을
+  **선택적으로** 받아, 토큰이 있으면 "이미 투표했는가" 와 "내 글인가" 를 개인화한다.
+  같은 경로의 댓글 조회(`GET /posts/{id}/comments`)는 인증이 필요하다 — 공개 여부는
+  경로 접두사가 아니라 엔드포인트마다 갈린다. `PathPattern` 은 세그먼트 수가 정확히 맞아야
+  하므로 `/posts` 등록이 `/posts/{id}` 를 덮지 않는다 — `SecurityConfig` 에 따로 등록한다.
+- **세 유형이 한 스키마를 공유한다.** 유형별로 응답 타입을 쪼개지 않는다. 클라이언트 분기는
+  `vote == null`(투표 영역을 그리는가)과 `vote.voted`(버튼인가 게이지인가) 두 불리언뿐이다.
+  유형은 불변이라(R-01) 이 판정이 나중에 뒤집히지 않는다.
+- **작성자는 평면, 투표만 중첩이다.** 작성자(`authorId`·`authorNickname`·
+  `authorProfileImageUrl`·`authorGradeLevel`·`authorGradeName`·`authorRanking`)는 항상 있고
+  내부 컬렉션이 없어 목록·댓글·랭킹과 같은 평면 표기를 쓴다. 투표(`vote`)는 유형에 따라
+  **통째로 사라지고** 안에 컬렉션 둘을 가지므로 중첩 객체다.
+- **일반 게시글은 `vote: null`** 이다 (R-04). 상품·선택지가 "빈 배열" 로도 나오지 않는다 —
+  일반 게시글에는 투표라는 기능 자체가 없기 때문이다. `products` 를 `vote` 안에 둔 이유도
+  같다: 상품을 갖는 조건과 투표를 갖는 조건이 완전히 일치한다.
+- **작성 시간은 `createdAt`(시각)과 `createdAgo`(`"3시간 전"`)를 함께** 준다. §6.2 와 §6.4 가
+  한 화면에서 같은 문구를 요구하므로 계산 정본을 `common.RelativeTime` 하나로 둔다 — 댓글의
+  `relativeTime` 도 그리로 위임한다. 복제하면 경계값(59분→1시간, 364일→1년)에서 갈라진다.
+- **미투표자와 게스트에게는 선택지별 `voteCount` 와 `percentage` 가 둘 다 없다.**
+  하나만 빼면 선택지가 정확히 둘이고(R-04) 1인 1표라(R-09)
+  `나머지 = voterCount − 준 값` 으로 완전히 복원되므로 감춤이 무의미해진다.
+  0 으로 채우지도 않는다 — "아직 볼 수 없음" 과 "정말 0표" 가 구분되지 않는다(ADR-0028 과 같은 판정).
+  총 인원 `voterCount` 는 준다: 총계만으로는 선택지별 비율이 나오지 않고, §6.3 이
+  미투표 화면의 조회 데이터로 "투표 인원 수" 를 명시한다.
+  - 부재는 `@JsonInclude(NON_NULL)` 을 필드에 명시해 만든다. 전역
+    `default-property-inclusion` 설정이 없어 붙이지 않으면 `null` 이 그대로 실려 나간다.
+- **게스트는 R-11 로 투표 이력을 가질 수 없다.** `voted: false` 는 기능 저하가 아니라
+  정확한 답이다. §6.3 의 게스트 3표는 클라이언트 로컬 예산이고 서버에 남지 않는다. 탈퇴 전 발급한
+  토큰은 중앙 관문이 익명으로 강등하므로(ADR-0035) 게스트와 같은 응답을 받는다.
+- **탈퇴한 작성자의 글은 남는다** (R-20). 작성자만 목록과 같은 비식별 표기다 — `authorNickname` 은
+  `"알 수 없음"`, `authorProfileImageUrl` 은 `null` (ADR-0040). 등급은 활동의 결과라 그대로 실린다.
+  `authorRanking` 은 배치의 `CLEAR_INACTIVE` 가 비우므로 탈퇴 직후 최대 한 주기 동안 남을 수 있다.
+- `vote.options[]` 는 `POST /posts/{id}/votes` 응답과 **같은 모양**이되 `productId` 하나가
+  더 있다. 같은 게이지를 두 경로가 그리므로 득표율 계산식도 같은 것(`VotePercentage`)을 쓴다 —
+  반올림이 다르면 투표하자마자 게이지 폭이 미세하게 달라진다.
+- **없거나 삭제된 게시글은 404** `NOT_FOUND` 다. 소프트 삭제라 행은 남지만 화면에는 없는
+  글이므로 목록과 같은 `deleted_at IS NULL` 기준을 쓴다.
+- **읽기는 고정된 세 문장이다** — ①게시글+작성자+내 투표 ②상품+대표 사진 ③선택지. QueryDSL
+  `Projections.constructor` 로 타입이 잡히며(#130 표준, PRD-024 작업 단위 6) 단건이라 목록·활동·랜덤의
+  두 문장 분할(ADR-0043·0045)은 필요 없다. 유형·상품 수·사진 수가 달라져도 문장 수가 변하지 않는다
+  (일반 게시글은 ②③을 건너뛰어 1문장). 세 문장은 한 스냅샷을 본다 — 서비스가 REPEATABLE READ 를
+  선언하고 저장소가 진입 시점에 단언한다. 상품 사진은 스칼라 서브쿼리라 찬반의 사진 3장이 행을 불리지 않는다.
+  - 인증 요청은 게스트보다 문장이 하나 많다. 그 하나는 이 API 가 아니라 탈퇴 신원 강등
+    관문이 계정 상태를 확인하는 비용이다(ADR-0035). 요청당 상수이고 데이터 수와 무관하다.
+  - 작성자 등급은 `users.highest_grade` 를 `UserEntity` 에 읽기 전용으로 매핑해 읽는다(ADR-0041 의 장치).
+    쓰기 경로는 여전히 등급 저장소의 원자적 UPDATE 하나뿐이다.
+
+**`PATCH /posts/{id}` · `DELETE /posts/{id}` — 게시글 수정·삭제 (§6.1 `[더보기]`, #31)**
+
+수정 범위는 R-33, 요청 스키마의 근거는 [ADR-0047](adr/0047-post-update-whitelist-schema.md) 이다.
+기획문서 갱신본 미반영 상태에서 [#32 기획 담당자 코멘트](https://github.com/swyp-app-6th-3rd-team/Pickple-backend/issues/32#issuecomment-5570120403)를 근거로 구현했다.
+
+- **작성자만.** 없거나 삭제된 글은 `NOT_FOUND`(404), 남의 글은 `FORBIDDEN`(403). 순서는 404 → 403 으로
+  댓글(`CommentService`)과 같다 — 지운 글의 존재를 남에게 알리지 않는다.
+- **수정 요청은 `category` · `title` · `description` 셋만 받는다.** 상품(상품명·가격·URL·사진)과 `type` 은
+  **스키마에 없다** — 보내도 바인딩되지 않고 저장 값이 바뀌지 않는다. 투표 유무를 보지 않는다(R-33).
+  유형은 만들 때 정해지고 바뀌지 않는다(R-01). 요청 DTO 를 셋으로 좁혀 두 규칙이 스키마 수준에서 보장된다.
+- **찬반 게시글은 `title` 을 바꿀 수 없다.** 찬반의 제목은 상품명이라(작성 시 `resolveTitle` 이 상품명을 제목으로 쓴다)
+  상품 필드에 속한다. 보내면 `INVALID_REQUEST`(400). A/B 의 주제와 일반의 제목은 30자 이내로 바꾼다.
+- **부분 갱신이다.** 필드가 없거나 `null` 이면 그대로 둔다. `description` 을 빈 문자열로 보내면 **비운다**
+  (설명은 선택 입력이라 지우는 길이 있어야 한다). `title` 의 빈 문자열은 무시한다(제목은 필수라 비울 수 없다).
+- 응답은 `{ postId, type, category, title, description }` — 저장된 값을 되돌려 준다. `type` 을 함께 주는 것은
+  바뀌지 않았음을 클라이언트가 확인하게 하려는 것이다.
+- **삭제는 소프트 삭제다.** `post.deleted_at` 을 찍고 행·상품·선택지·투표·댓글은 남긴다.
+  - 모든 조회(목록·인기·랜덤·상세·내 활동)가 `deleted_at IS NULL` 로 거르므로 즉시 사라진다.
+  - 투표·댓글·원픽은 `ActivePostGuard` 를 지나 `INVALID_REQUEST`(400)로 거절된다 — 새 장치가 아니라 기존 관문이다.
+  - 지운 글의 이미지 컨테이너는 `post_product` 행이 남아 `uk_product_container` 에 계속 잡힌다.
+    **다른 게시글에서 재사용할 수 없다**(PR #76 리뷰 합의).
+  - 다시 지우거나 수정하면 404 다. 두 삭제가 동시에 들어오면 둘 다 `deleted_at` 을 같은 값으로 두므로 결과는 하나다.
+  - 응답은 `200 OK`, `returnObject: null` — 댓글 삭제와 같은 모양이다.
+- 카운터(`vote_count`·`commenter_count`·`comment_count`)는 건드리지 않는다. 삭제된 글은 조회에서 빠지므로
+  인기순에 영향이 없고, 복구 경로가 없어 되돌릴 일도 없다.
 
 ### 3.4 댓글
 
@@ -493,6 +612,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V11__activity_list_indexes.sql` | `db/migration` | 항상 |
 | `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
+| `V14__erase_withdrawn_user_personal_data.sql` | `db/migration` | 항상 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -588,8 +708,22 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
   로컬 탈퇴와 identity 분리를 완료한 뒤 `APPLE_MANUAL_REVOCATION_REQUIRED`로 수동 연결 해제를 안내한다
 - 탈퇴 뒤 같은 Apple `sub`로 로그인하면 과거 비활성 행을 되살리지 않고 새 `userId`를 만든다.
   과거 행과 콘텐츠는 보존하지만 프로필·포인트·뱃지·투표·댓글 등 이력은 새 회원에게 승계하지 않는다
-- V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다. 다른 provider의 재가입과
-  개인정보 익명화·삭제, 재가입 초기화 악용 정책은 이 변경 범위가 아니며 Issue #45에 남긴다
+- V12는 기존 `APPLE + INACTIVE` 행의 `provider_id`만 `NULL`로 백필한다
+- **회원 탈퇴는 provider와 무관하게 개인정보를 즉시 파기한다** — `email`·`name`·`nickname`·
+  `profile_image_url`·`provider_id` 다섯 컬럼을 `NULL`로 만든다. 개인정보처리방침 제3조
+  "회원 탈퇴 시 지체 없이 파기"(시행 2026-09-20)를 따른다. 파기 값이 sentinel 문자열이 아니라
+  `NULL`인 이유는 `uk_users_provider`가 살아 있어 고정 문자열이 두 번째 탈퇴자부터 유니크
+  위반이기 때문이다. 도메인 불변식도 `APPLE + INACTIVE` 한정에서 **`INACTIVE`면 provider 무관**
+  으로 넓혔다 — 넓히지 않으면 파기한 행을 복원할 때 생성자 가드에서 조회가 실패한다
+  ([ADR-0040](adr/0040-withdrawal-erases-personal-data.md))
+- 탈퇴 회원이 남긴 게시글·댓글은 보존하되 작성자는 **비식별 표기**로 나간다. 별도 구현이 아니라
+  목록 조회의 `COALESCE(NULLIF(u.nickname,''), NULLIF(u.name,''), '알 수 없음')` 폴백이 낸다.
+  이 폴백이 `JOIN users`(INNER) 위에 얹혀 있어 **행이 남아 있을 때만** 동작한다 — 행을 지우면
+  비식별이 아니라 그 사람의 글이 목록에서 통째로 빠진다
+- V14는 **이미 탈퇴한 회원의 잔존 개인정보를 소급 파기**한다. 제3조의 의무가 탈퇴 시점으로
+  나뉘지 않아 코드 변경만으로는 기존 탈퇴자가 시행일에 위반 상태로 남기 때문이다.
+  파기한 값은 DB만으로 복구할 수 없다
+- 식별자를 남기지 않으므로 **재가입 제한은 불가능하다**. 재가입 초기화 악용 정책은 Issue #45에 남긴다
 - 로그인 보상 revoke 실패는 counter와 `correlationId` WARN으로 관측한다. 자동 복구 outbox는 후속 범위다
 - Kakao 사용자는 `(KAKAO, ID token의 sub)`로 식별한다. 네이티브 토큰은 Kakao JWKS의 RS256 서명과
   `iss`·네이티브 앱 키 `aud`·`exp`·`sub`·원문 `nonce`를 모두 검증한다
@@ -601,7 +735,8 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - authorization code·identity token·nonce·`.p8`·Admin 키·access/refresh token은 로그에 남기지 않는다
 - 근거: [ADR-0006](adr/0006-auth-hardening.md), [ADR-0015](adr/0015-native-sign-in-with-apple.md),
   [ADR-0016](adr/0016-refresh-token-rotation-cas.md), [ADR-0038](adr/0038-native-kakao-sign-in.md),
-  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md)
+  [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md),
+  [ADR-0040](adr/0040-withdrawal-erases-personal-data.md)
 - 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md),
   [Kakao 로그인 Runbook](kakao-sign-in-runbook.md)
 
@@ -684,6 +819,9 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-08 | `GET /posts/{id}` 추가(ADR-0046). 단일 응답 타입에 투표 섹션만 nullable 중첩, 미투표자·게스트에게 선택지별 집계를 부재로 감춤, 탈퇴 작성자는 비식별 표기. 읽기는 QueryDSL 세 문장 | Issue #20. 첫 판 PR #128 은 `Object[]` + 인덱스 상수 25개라 #130 의 표준으로 다시 구현(PRD-024 작업 단위 6). `users.highest_grade` 를 읽기 전용으로 매핑 |
+| 2026-09-06 | 회원 탈퇴가 provider 무관하게 개인정보를 즉시 파기한다(ADR-0040). 다섯 컬럼을 `NULL`로 비우고 도메인 불변식을 `APPLE + INACTIVE` 한정에서 `INACTIVE` 기준으로 넓혔다. V14가 기존 탈퇴자를 소급 파기한다 | Issue #111. 개인정보처리방침 제3조가 "회원 탈퇴 시 지체 없이 파기"를 규정하는데(시행 2026-09-20) `withdraw()`는 상태만 바꿔 이메일·이름·닉네임·프로필 이미지와 카카오 `provider_id`가 무기한 남았다. **원인은 버그가 아니라 도메인 모델 결손이다** — 규칙 표에 R-20("지우지 않는다")만 있어 코드가 표현할 파기 규칙이 없었다. R-27·R-28을 세우고 R-20의 대상을 "콘텐츠와 활동"으로 좁혔다 |
+| 2026-09-05 | `GET /posts/random` 추가. 시드 기반 임의 순서와 유형 포함 커서로 중복 없는 10건 순회를 제공하고, 기투표자에게만 선택·득표 결과를 노출 | Issue #22. 요청마다 다시 섞으면 커서 경계가 무너지므로 첫 시드를 끝까지 유지 |
 | 2026-09-05 | 게스트 접근 정책의 HTTP·OpenAPI 회귀 검증 보완. 댓글 401 응답·인증 조회·공개 목록·투표 미저장 계약 확인 | Issue #100. 최신 develop에 반영된 댓글 인증 정책의 완료 조건 정합화 |
 | 2026-09-05 | Kakao unlink HTTP Interface 구성을 루트 `config`의 `KakaoUnlinkClientConfig`로 이동 | PR #105 리뷰 정정. 루트 이외 `config` 패키지 금지 규칙 유지 |
 | 2026-09-05 | 탈퇴 회원 차단을 인가 계층 한 곳으로 집중(ADR-0035). 액세스 토큰 경로에 계정 상태 확인 1회를 더하고, 비활성 신원은 어디서든 익명으로 강등한다. 상태 확인 불가는 401 이 아니라 503 | Issue #106. 탈퇴 전 발급 토큰(TTL 30분)으로 댓글 201·투표 200·원픽 201 이 실서버에서 재현됐다. 확인 지점이 `vote`·`comment`·`point` 에 하나도 없어 **탈퇴자가 게스트보다 권한이 많았다.** 원픽은 포인트를 지급하므로 랭킹 원장까지 오염됐다 |
@@ -723,3 +861,5 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 2026-09-04 | 뱃지 현황·미션 계약 추가. 판정을 `user_daily_activity` 집계로 (V9) | Issue #27. `vote` 직접 조회는 연속 판정이 회원의 투표 전체를 훑고 그 판정이 투표마다 일어난다(ADR-0031). 뱃지 이름은 정책이 변경을 예고해 데이터로 뒀다 |
 | 2026-09-04 | 내 활동 조회 계약 추가(§3.10). 목록 항목을 활동이 아니라 게시글로 확정하고 활동 인덱스 추가(V11) | Issue #30. 정렬 튜플의 두 번째 자리를 `p.id` 로 두면 인덱스가 정렬을 못 맡아 내 활동 전체를 읽는다(500건 4.29ms). 활동 테이블 쪽 `post_id` 로 맞추고 인덱스를 넓혀 11행 고정(ADR-0036) |
 | 2026-09-04 | `/api` prefix 를 실제로 제거하고 문서 노출을 `paths-to-exclude` 로 전환 | Issue #91. 프론트 합의가 닫혀 착수. 브릿지는 불필요로 확인돼 두지 않았다(ADR-0033 이 ADR-0029 대체) |
+| 2026-09-08 | 랜덤 카드 조회를 키·행 두 문장으로 분할(§3.3) | Issue #139. QueryDSL 전환 — 파생 테이블 `FROM (SELECT … LIMIT)` 을 QueryDSL-JPA 가 지원하지 않아 ADR-0043 의 분할을 적용. 응답·커서 계약은 같고 요청당 문장 수만 1 → 2 |
+| 2026-09-08 | 게시글 수정·삭제 계약 추가(§3.3). 수정은 카테고리·주제/제목·설명 화이트리스트, 삭제는 소프트 | Issue #31. #32 가 "투표 유무와 무관하게 상품 불변" 으로 닫혀 요청 스키마를 세 필드로 좁혔다(ADR-0047). 찬반의 제목은 상품명이라 도메인이 거절한다 |

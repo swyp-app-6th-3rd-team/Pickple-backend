@@ -28,11 +28,41 @@ public class JpaUserStore implements UserStore {
      */
     private final TransactionTemplate transactionTemplate;
 
+    /**
+     * 도메인 상태를 저장한다.
+     *
+     * <p><b>활성 상태를 쓰는 경우와 탈퇴를 쓰는 경우를 가른다.</b> 로그인이 회원을 읽고
+     * 활성인지 확인한 뒤 저장하기까지의 사이에 탈퇴가 커밋되면, 읽어둔 옛 값이 그대로 쓰여
+     * <b>파기한 개인정보와 {@code ACTIVE} 상태가 되살아난다</b>(ADR-0040).
+     * 그래서 활성 상태를 쓸 때는 <b>행이 아직 활성일 때만</b> 쓰는 조건부 UPDATE 를 쓴다.
+     *
+     * <p>변경 감지에 맡기지 않는 이유는 영속성 컨텍스트가 <b>읽은 시점</b>의 엔티티를
+     * 1차 캐시로 돌려주기 때문이다 — 엔티티의 {@code state} 를 봐도 옛 값이라
+     * 자바 쪽 가드로는 이 틈을 막지 못한다. 쓰기 시점의 행을 아는 것은 DB 뿐이다.
+     *
+     * <p>탈퇴({@code INACTIVE} 쓰기)는 조건을 걸지 않는다. 그것이 이 전이의 목적이고,
+     * 중복 호출은 {@code AccountWithdrawalPersistenceService} 가 이미 막는다.
+     */
     @Override
     public User save(User user) {
         LocalDateTime now = LocalDateTime.now(clock);
         if (user.id() == null) {
             return repository.save(UserEntity.from(user, now)).toDomain();
+        }
+        if (user.state() == User.State.ACTIVE) {
+            int updated = repository.syncActiveProfile(
+                    user.id(), user.email(), user.name(), now);
+            if (updated == 0) {
+                // 활성 회원이 없다 — 행이 사라졌거나 탈퇴가 먼저 커밋됐다.
+                // 두 원인을 가르려면 조회를 한 번 더 해야 하는데, 어느 쪽이든
+                // "이 저장은 성립하지 않는다" 는 같은 결론이라 나누지 않는다.
+                throw new UserPersistenceException(
+                        "활성 사용자를 찾을 수 없습니다: userId=" + user.id());
+            }
+            return repository.findById(user.id())
+                    .map(UserEntity::toDomain)
+                    .orElseThrow(() -> new UserPersistenceException(
+                            "저장 뒤 사용자를 찾을 수 없습니다: userId=" + user.id()));
         }
         UserEntity entity = repository.findById(user.id())
                 .orElseThrow(() -> new UserPersistenceException("사용자를 찾을 수 없습니다: userId=" + user.id()));

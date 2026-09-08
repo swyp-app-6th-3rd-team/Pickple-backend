@@ -52,11 +52,15 @@ class AppleWithdrawalReloginIT {
 
         withdrawalPersistenceService.complete(oldUserId);
 
+        // 이전에는 nickname·profileImageUrl 보존을 단언했다. 개인정보처리방침 제3조가
+        // 그 계약을 뒤집어 이제 파기 대상이다 (R-27, ADR-0040).
         User withdrawn = userStore.findById(oldUserId).orElseThrow();
         assertThat(withdrawn.state()).isEqualTo(User.State.INACTIVE);
         assertThat(withdrawn.providerId()).isNull();
-        assertThat(withdrawn.nickname()).isEqualTo(new Nickname("옛피클"));
-        assertThat(withdrawn.profileImageUrl()).isEqualTo("https://cdn.example.com/old-profile.png");
+        assertThat(withdrawn.email()).isNull();
+        assertThat(withdrawn.name()).isNull();
+        assertThat(withdrawn.nickname()).isNull();
+        assertThat(withdrawn.profileImageUrl()).isNull();
         assertThat(userStore.findByProviderAndProviderId(
                 SocialProvider.APPLE, "apple-sub-rejoin")).isEmpty();
 

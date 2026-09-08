@@ -213,9 +213,27 @@ public class Post {
         this.deleted = true;
     }
 
+    /**
+     * 수정 가능한 것만 바꾼다 (R-33). {@code null} 은 "그대로 둔다" 이다.
+     *
+     * <p>유형은 파라미터 자체가 없다 (R-01) — 바꾸면 상품 수와 선택지 구성이 어긋난다.
+     * 상품(상품명·가격·URL·사진)도 여기 없다 — 투표 유무와 무관하게 불변이다.
+     *
+     * <p><b>찬반 게시글의 제목은 상품명이다.</b> 세 유형이 제목 컬럼을 공유하지만
+     * 찬반은 작성 시 상품명을 제목으로 쓰므로, 제목을 바꾸는 것은 상품을 바꾸는 것이다.
+     * 판정에 필요한 것이 자기 유형뿐이라 서비스가 아니라 여기서 막는다 (ADR-0047).
+     * 같은 값을 다시 보내는 것은 변경이 아니다 — 상세로 채운 편집 폼이 상품명을
+     * 그대로 되돌려 보내므로 "있으면 거절" 로 하면 아무것도 안 바꾼 저장이 실패한다.
+     *
+     * <p>설명을 비우는 것은 {@link #clearDescription()} 이다. 한 파라미터에
+     * "유지" 와 "비움" 두 뜻을 싣지 않는다.
+     */
     public void edit(String title, String description, PostCategory category) {
-        // 유형은 바꾸지 않는다 (R-01). 바꾸면 상품 수와 선택지 구성이 어긋난다.
-        if (title != null && !title.isBlank()) {
+        requireNotDeleted();
+        if (title != null && !title.isBlank() && !title.equals(this.title)) {
+            if (type == PostType.AGREE) {
+                throw new IllegalArgumentException("찬반 게시글의 제목은 상품명이라 바꿀 수 없습니다.");
+            }
             if (title.length() > MAX_TITLE_LENGTH) {
                 throw new IllegalArgumentException("제목은 %d자 이내여야 합니다.".formatted(MAX_TITLE_LENGTH));
             }
@@ -229,6 +247,19 @@ public class Post {
         }
         if (category != null) {
             this.category = category;
+        }
+    }
+
+    /** 설명을 비운다. 설명은 선택 입력이라 지우는 길이 있어야 한다 (R-33). 제목은 필수라 이런 동사가 없다. */
+    public void clearDescription() {
+        requireNotDeleted();
+        this.description = null;
+    }
+
+    /** 삭제된 글은 바꾸지 않는다. 서비스가 먼저 404 를 내므로 여기는 호출을 잊어도 안전하게 하는 방어선이다. */
+    private void requireNotDeleted() {
+        if (deleted) {
+            throw new IllegalStateException("삭제된 게시글은 수정할 수 없습니다.");
         }
     }
 

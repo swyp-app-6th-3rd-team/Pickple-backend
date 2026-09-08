@@ -16,6 +16,7 @@ import app.pickple.item.domain.ItemContainer;
 import app.pickple.item.domain.ItemContainerStore;
 import app.pickple.item.domain.ItemResource;
 import app.pickple.support.IntegrationTest;
+import app.pickple.support.SqlCapture;
 import app.pickple.vote.service.VoteService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
@@ -59,6 +61,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @IntegrationTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
+@Import(SqlCapture.Config.class)
 class PopularPostsIT {
 
     private static final String POPULAR = "/posts/popular";
@@ -84,6 +87,8 @@ class PopularPostsIT {
     private EntityManager entityManager;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Autowired
+    private SqlCapture sqlCapture;
 
     private MockMvc mockMvc;
     private User author;
@@ -210,35 +215,36 @@ class PopularPostsIT {
         }
         flush();
 
-        // 실측 결과: "idx_post_popular_all Using where; Using index".
         // filesort 가 없다는 것이 핵심이다 — 조회 시점에 세거나 임시 테이블로 정렬하면
-        // 여기에 "Using filesort" 가 뜬다.
+        // 여기에 "Sort:" 가 뜬다. 손으로 베낀 SQL 이 아니라 방금 실제로 나간 키 문장을 EXPLAIN 한다.
         assertThat(explainPopular())
                 .contains("idx_post_popular_all")
-                .doesNotContain("Using filesort");
+                .doesNotContain("Sort:");
     }
 
     @Test
-    @DisplayName("응답이 몇 건이든 쿼리는 한 번이다")
-    void staysOneQuery() throws Exception {
+    @DisplayName("응답이 4건이든 10건이든 SQL 횟수는 그대로다 — N+1 이 없다")
+    void statementCountDoesNotGrowWithResultSize() throws Exception {
         // 목록 조회 경로를 그대로 타므로 "먼저 자르고 나중에 붙인다" 가 여기도 적용된다.
         // 작성자·랭킹·대표 사진이 행마다 붙으면(N+1) 건수에 비례해 늘어난다.
         // 유형을 섞는다 — 상품이 있는 글에서만 추가 조회가 붙는 경우를 잡기 위해서다.
-        for (int i = 0; i < 4; i++) {
+        // Top 10 은 크기가 고정이라 요청으로 변주할 수 없으니 심는 건수를 변주한다.
+        for (int i = 0; i < 2; i++) {
             saveGeneralPost("일반 " + i);
             saveAgreePost("찬반 " + i);
         }
-        flush();
+        long fourRows = countStatements(4);
 
-        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
-        statistics.setStatisticsEnabled(true);
-        statistics.clear();
+        for (int i = 2; i < 5; i++) {
+            saveGeneralPost("일반 " + i);
+            saveAgreePost("찬반 " + i);
+        }
+        long tenRows = countStatements(10);
 
-        mockMvc.perform(get(POPULAR))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath(CONTENT + ".length()").value(8));
-
-        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+        // 지키려는 성질은 "1회" 라는 숫자가 아니라 행 수에 비례하지 않는다는 것이다.
+        assertThat(tenRows).isEqualTo(fourRows);
+        // 그 상수는 키 문장과 행 문장 둘이다 (ADR-0045). 늘어나면 이유를 대야 한다.
+        assertThat(fourRows).isEqualTo(2L);
     }
 
     @Test
@@ -299,18 +305,37 @@ class PopularPostsIT {
         jdbcTemplate.update("UPDATE post SET deleted_at = NOW() WHERE id = ?", postId);
     }
 
-    /** 인기순 조회가 실제로 어떤 인덱스를 타는지 본다. */
-    private String explainPopular() {
-        List<String> plan = jdbcTemplate.query(
-                """
-                EXPLAIN SELECT p.id
-                  FROM post p
-                 WHERE p.deleted_at IS NULL
-                 ORDER BY p.popularity_score DESC, p.id DESC
-                 LIMIT 11
-                """,
-                (rs, rowNum) -> rs.getString("key") + " " + rs.getString("Extra"));
-        return String.join(" | ", plan);
+    /**
+     * 인기순 조회가 실제로 어떤 인덱스를 타는지 본다.
+     *
+     * <p>Hibernate 가 실제로 내보낸 키 문장({@link SqlCapture})에 같은 값(LIMIT 11)을 바인딩해
+     * {@code EXPLAIN FORMAT=TREE} 한다. 베껴 둔 문장을 쓰면 저장소가 바뀌어도 테스트가 초록색으로 남는다.
+     */
+    private String explainPopular() throws Exception {
+        List<String> statements = sqlCapture.record(() -> {
+            try {
+                mockMvc.perform(get(POPULAR)).andExpect(status().isOk());
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+        String keys = statements.stream().filter(sql -> sql.contains("limit ?")).findFirst().orElseThrow();
+        assertThat(keys.chars().filter(c -> c == '?').count()).isEqualTo(1);
+        return String.join(" ", jdbcTemplate.queryForList("EXPLAIN FORMAT=TREE " + keys, String.class, 11));
+    }
+
+    /** 방금 심은 글을 흘려보내고 Top 10 한 번이 내는 prepared statement 수를 센다. */
+    private long countStatements(int expectedRows) throws Exception {
+        flush();
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        mockMvc.perform(get(POPULAR))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(CONTENT + ".length()").value(expectedRows));
+
+        return statistics.getPrepareStatementCount();
     }
 
     private int popularityScore(Long postId) {

@@ -6,8 +6,9 @@ import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -27,10 +28,12 @@ class AccountWithdrawalPersistenceServiceTest {
     @Mock
     private AppleProviderTokenStore appleProviderTokenStore;
 
-    @Test
-    void marksUserInactiveDetachesAppleIdentityAndDeletesBothTokenTypes() {
-        User user = User.restore(7L, SocialProvider.APPLE, "apple-sub", "user@example.com", "사용자",
-                Role.ROLE_USER, User.State.ACTIVE, null, null);
+    /** provider 를 가리지 않고 개인정보를 파기한다 (R-27). 이전에는 APPLE 만 식별자를 놓았다. */
+    @ParameterizedTest
+    @EnumSource(SocialProvider.class)
+    void erasesPersonalDataMarksUserInactiveAndDeletesBothTokenTypes(SocialProvider provider) {
+        User user = User.restore(7L, provider, "provider-sub", "user@example.com", "사용자",
+                Role.ROLE_USER, User.State.ACTIVE, "피클", "https://cdn.example.com/p.png");
         given(userStore.findById(7L)).willReturn(Optional.of(user));
         given(userStore.save(user)).willReturn(user);
         AccountWithdrawalPersistenceService service = new AccountWithdrawalPersistenceService(
@@ -40,6 +43,10 @@ class AccountWithdrawalPersistenceServiceTest {
 
         assertThat(user.state()).isEqualTo(User.State.INACTIVE);
         assertThat(user.providerId()).isNull();
+        assertThat(user.email()).isNull();
+        assertThat(user.name()).isNull();
+        assertThat(user.nickname()).isNull();
+        assertThat(user.profileImageUrl()).isNull();
         verify(userStore).save(user);
         verify(refreshTokenStore).deleteByUserId(7L);
         verify(appleProviderTokenStore).deleteByUserId(7L);

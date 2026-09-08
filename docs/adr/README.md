@@ -47,3 +47,9 @@
 | [0037](0037-apple-withdrawal-detaches-provider-identity.md) | Apple 탈퇴는 provider identity를 분리하고 재로그인은 새 회원으로 만든다 | Accepted |
 | [0038](0038-native-kakao-sign-in.md) | Kakao 네이티브 ID token을 서버에서 검증하고 탈퇴도 서버가 조율한다 | Accepted |
 | [0039](0039-explicit-http-exception-boundary.md) | HTTP 예외 경계를 요청 오류와 내부 오류로 명시한다 | Accepted |
+| [0040](0040-withdrawal-erases-personal-data.md) | 탈퇴는 모든 provider에서 개인정보를 즉시 파기한다 | Accepted |
+| [0041](0041-read-only-mapping-for-derived-columns.md) | 유도·생성 컬럼은 엔티티에 읽기 전용으로 매핑한다 | Accepted |
+| [0043](0043-activity-list-two-statement-split.md) | 내 활동 목록은 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
+| [0045](0045-post-list-two-statement-split.md) | 게시글 목록도 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
+| [0046](0046-post-detail-single-type-with-nested-vote-section.md) | 게시글 상세는 단일 응답 타입에 투표 섹션만 중첩하고, 미투표자에게는 집계를 감춘다 | Accepted |
+| [0047](0047-post-update-whitelist-schema.md) | 게시글 수정 요청은 수정 가능한 세 필드만 받는 화이트리스트 스키마이고, 수정·삭제는 행을 잠그고 한다 | Accepted |

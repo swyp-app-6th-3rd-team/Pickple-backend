@@ -119,6 +119,23 @@ public class SecurityConfig {
                                 // 홈 화면의 인기 게시글 Top 10. /posts 패턴은 이 경로를 덮지 않는다 —
                                 // PathPattern 은 세그먼트가 정확히 맞아야 하므로 따로 적어야 한다.
                                 mvc.matcher(HttpMethod.GET, "/posts/popular"),
+                                // 랜덤 투표 카드. 게스트도 보고, 토큰이 있으면 내 투표 결과도 붙인다.
+                                mvc.matcher(HttpMethod.GET, "/posts/random"),
+                                // 목록에서 카드를 탭해 들어오는 상세 (§6.2). 목록이 공개인데
+                                // 상세가 막히면 게스트가 카드를 눌러 갈 곳이 없다.
+                                //
+                                // ⚠️ 같은 경로의 댓글(GET /posts/{id}/comments)은 인증이 필요하다 —
+                                // 명세 §6.4 가 게스트에게 "로그인 후 열람할 수 있어요" 로 바뀌었다.
+                                // 공개 여부는 경로 접두사가 아니라 엔드포인트마다 판단한다.
+                                //
+                                // PathPattern 은 세그먼트 수가 정확히 맞아야 한다 — 위의 /posts 는
+                                // /posts/{id} 를 덮지 않으므로 따로 등록한다. 반대로 이 변수 패턴은
+                                // /posts/popular·/posts/random 을 함께 삼킨다. 여기서는 셋 다 permitAll
+                                // 이라 결과가 같지만, 이 인가 체인의 매칭 규칙은 선언 순서다(먼저 걸리는
+                                // matcher 가 이긴다) — 리터럴을 변수보다 우선하는 것은 Spring MVC 의
+                                // 핸들러 매핑이지 여기가 아니다. 나중에 /posts/{id} 만 인증으로 돌리려면
+                                // 순서에 기대지 말고 리터럴 경로를 이 줄보다 위에 두어야 한다.
+                                mvc.matcher(HttpMethod.GET, "/posts/{id}"),
                                 // 가입 화면에서 로그인 전에 부른다. 조회만 하고 아무것도 남기지 않는다.
                                 mvc.matcher(HttpMethod.GET, "/users/nickname/availability"),
                                 // 홈 화면의 인기 피커와 그 [더보기] 목록이라 로그인 전에 부른다 (§2.5·§3.1).
