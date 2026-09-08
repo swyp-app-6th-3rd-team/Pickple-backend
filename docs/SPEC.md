@@ -117,7 +117,7 @@ app/pickple/
 - `/auth/login`에는 `dev`·`prod` 같은 환경명을 넣지 않는다. 노출 여부는
   `dev & !prod & !production` 프로필과 `QA_LOGIN_ENABLED=true`로 결정한다. 비밀번호 원문은
   코드·DB·설정에 저장하지 않고 `QA_LOGIN_PASSWORD_HASH`로만 주입한다.
-- 상세 설정과 호출 방법: [QA 로그인 Runbook](qa-login-runbook.md).
+- 상세 설정과 호출 방법은 Git에 포함하지 않는 로컬 QA 로그인 runbook으로 관리한다.
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
@@ -753,8 +753,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
   [ADR-0016](adr/0016-refresh-token-rotation-cas.md), [ADR-0038](adr/0038-native-kakao-sign-in.md),
   [ADR-0037](adr/0037-apple-withdrawal-detaches-provider-identity.md),
   [ADR-0040](adr/0040-withdrawal-erases-personal-data.md)
-- 적용·키 교체·iOS 계약: [Apple 로그인 Runbook](apple-sign-in-runbook.md),
-  [Kakao 로그인 Runbook](kakao-sign-in-runbook.md)
+- 적용·키 교체·iOS 계약은 Git에 포함하지 않는 로컬 Apple·Kakao 로그인 runbook으로 관리한다.
 
 ### 5.5 로깅
 
