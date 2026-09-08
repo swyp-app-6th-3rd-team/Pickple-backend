@@ -169,7 +169,7 @@ APPLE_TOKEN_AES_KEY="$(openssl rand -base64 32 | tr -d '\n')"
 # oauth_apple_token_active_key_id = "k1" 형태로 병합한다.
 ```
 
-PowerShell은 [Apple 로그인 Runbook](../docs/apple-sign-in-runbook.md)의 생성 명령을 사용한다.
+PowerShell은 Git에 포함하지 않는 로컬 Apple 로그인 runbook의 생성 명령을 사용한다.
 
 #### Apple 키를 받은 뒤
 

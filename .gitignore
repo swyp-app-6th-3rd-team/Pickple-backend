@@ -44,3 +44,6 @@ crash.log
 .claude/worktrees
 
 .codex/HANDOFF.md
+
+### 로컬 운영 문서 ###
+docs/**/*runbook*.md
