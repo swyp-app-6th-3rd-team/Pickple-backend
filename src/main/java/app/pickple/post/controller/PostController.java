@@ -19,7 +19,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDateTime;
 import java.util.List;
 
-@Tag(name = "Post", description = "게시글 작성 · 목록 · 상세")
+@Tag(name = "Post", description = "게시글 작성 · 수정 · 삭제 · 목록 · 상세")
 @RestController
 @RequiredArgsConstructor
 public class PostController {
@@ -48,6 +50,47 @@ public class PostController {
             @Valid @RequestBody PostCreateRequest request) {
         Post post = postService.create(userId, request.toCommand());
         return ApiResponse.of(ResponseCode.CREATED, PostCreateResponse.from(post));
+    }
+
+    /**
+     * 게시글 수정 (§6.1 `[더보기]` · R-33). 작성자만.
+     *
+     * <p>요청 스키마가 카테고리·제목·설명 셋뿐이다. 상품과 유형은 <b>계약에 없다</b> — 편집 화면이
+     * 작성 폼을 재사용해 폼 전체를 보내더라도 그 값은 바인딩되지 않고 저장 값이 바뀌지 않는다 (ADR-0047).
+     * 응답이 저장된 값을 되돌려 주므로 클라이언트가 결과를 확인한다.
+     */
+    @Operation(summary = "게시글 수정",
+            description = "작성자만. 카테고리·주제/제목·설명만 바꿀 수 있다(R-33). "
+                    + "상품 정보(상품명·가격·URL·사진)와 유형은 이 API 로 바꿀 수 없으며, 함께 보내도 무시된다. "
+                    + "찬반 게시글의 제목은 상품명이라 다른 값을 보내면 400. "
+                    + "없는 필드는 유지, 설명의 빈 문자열은 비움. "
+                    + "없거나 삭제된 게시글은 404, 남의 글은 403.")
+    @SecurityRequirement(name = "bearerAuth")
+    @PatchMapping("/posts/{id}")
+    public ApiResponse<PostUpdateResponse> update(
+            @Parameter(description = "게시글 식별자") @PathVariable Long id,
+            @Parameter(hidden = true) @CurrentUser Long userId,
+            @Valid @RequestBody PostUpdateRequest request) {
+        return ApiResponse.success(
+                PostUpdateResponse.from(postService.update(id, userId, request.toCommand())));
+    }
+
+    /**
+     * 게시글 삭제 (§6.1 `[더보기]`). 작성자만.
+     *
+     * <p>소프트 삭제다. 행과 상품·선택지·투표·댓글은 남고 조회에서만 사라진다. 그 뒤의 투표·댓글은
+     * {@code ActivePostGuard} 가 막는다. 응답 모양은 댓글 삭제와 같다.
+     */
+    @Operation(summary = "게시글 삭제",
+            description = "작성자만. 소프트 삭제라 이후 조회에서 404 이고 투표·댓글이 거절된다. "
+                    + "지운 글의 이미지는 다른 게시글에 재사용할 수 없다. 없거나 이미 삭제된 게시글은 404, 남의 글은 403.")
+    @SecurityRequirement(name = "bearerAuth")
+    @DeleteMapping("/posts/{id}")
+    public ApiResponse<Void> delete(
+            @Parameter(description = "게시글 식별자") @PathVariable Long id,
+            @Parameter(hidden = true) @CurrentUser Long userId) {
+        postService.delete(id, userId);
+        return ApiResponse.success(null);
     }
 
     /**

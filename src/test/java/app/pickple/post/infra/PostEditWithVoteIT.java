@@ -37,8 +37,10 @@ class PostEditWithVoteIT {
     }
 
     @Test
-    @DisplayName("투표가 달린 게시글의 제목을 수정할 수 있다")
+    @DisplayName("투표가 달린 게시글의 설명을 수정할 수 있다")
     void canEditPostThatHasVotes() {
+        // 설명을 고치는 이유: 찬반의 제목은 상품명이라 바꿀 수 없다 (R-33). 여기서 보려는 것은
+        // "투표가 있어도 수정이 되는가" 와 선택지 id 보존이지 제목이 아니다.
         Long c = containerStore.save(new ItemContainer(authorId, AttachType.PRODUCT)
                 .add(new ItemResource(1L, "p.jpg", "s3/" + System.nanoTime(), "https://cdn/x"))).id();
         Post post = postStore.save(new Post(authorId, PostType.AGREE, PostCategory.ETC, "원래 제목", null)
@@ -49,11 +51,12 @@ class PostEditWithVoteIT {
         voteService.castOrChange(post.id(), optionId, voterId);
 
         Post loaded = postStore.findById(post.id()).orElseThrow();
-        loaded.edit("바뀐 제목", null, null);
+        loaded.edit(null, "바뀐 설명", null);
         postStore.save(loaded);
 
         Post reloaded = postStore.findById(post.id()).orElseThrow();
-        assertThat(reloaded.title()).isEqualTo("바뀐 제목");
+        assertThat(reloaded.description()).isEqualTo("바뀐 설명");
+        assertThat(reloaded.title()).as("찬반의 제목(=상품명)은 그대로다").isEqualTo("원래 제목");
         // 선택지 id 가 유지돼야 투표가 가리키는 대상이 안 깨진다
         assertThat(reloaded.options().getFirst().id()).isEqualTo(optionId);
     }

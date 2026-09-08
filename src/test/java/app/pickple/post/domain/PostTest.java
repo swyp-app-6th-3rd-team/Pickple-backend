@@ -277,13 +277,82 @@ class PostTest {
         @DisplayName("수정해도 유형은 그대로다")
         void editDoesNotChangeType() {
             // edit 에 유형 파라미터 자체가 없다. 바꿀 방법을 두지 않는 것이 규칙이다.
-            Post post = agree();
+            // A/B 를 쓰는 이유: 찬반의 제목은 상품명이라 바꿀 수 없다 (R-33). 여기서 보려는 것은 유형이다.
+            Post post = ab();
 
             post.edit("바뀐 제목", "설명", PostCategory.LIVING);
 
-            assertThat(post.type()).isEqualTo(PostType.AGREE);
+            assertThat(post.type()).isEqualTo(PostType.A_B);
             assertThat(post.title()).isEqualTo("바뀐 제목");
             assertThat(post.category()).isEqualTo(PostCategory.LIVING);
+        }
+    }
+
+    @Nested
+    @DisplayName("수정 범위 (R-33)")
+    class EditScope {
+
+        @Test
+        @DisplayName("찬반 게시글의 제목은 상품명이라 바꿀 수 없다")
+        void agreeTitleIsImmutable() {
+            Post post = agree();
+
+            assertThatThrownBy(() -> post.edit("다른 상품명", null, null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("상품명");
+            assertThat(post.title()).isEqualTo("이거 살까?");
+        }
+
+        @Test
+        @DisplayName("찬반 게시글에 같은 제목을 다시 보내는 것은 변경이 아니다")
+        void agreeAcceptsUnchangedTitle() {
+            // 상세로 채운 편집 폼은 상품명을 그대로 되돌려 보낸다. 그 저장이 실패하면 안 된다.
+            Post post = agree();
+
+            post.edit("이거 살까?", "설명만 바꿈", PostCategory.BEAUTY);
+
+            assertThat(post.title()).isEqualTo("이거 살까?");
+            assertThat(post.description()).isEqualTo("설명만 바꿈");
+            assertThat(post.category()).isEqualTo(PostCategory.BEAUTY);
+        }
+
+        @Test
+        @DisplayName("A/B 의 주제와 일반의 제목은 바꿀 수 있다")
+        void abAndGeneralTitlesAreEditable() {
+            Post ab = ab();
+            Post general = general();
+
+            ab.edit("새 주제", null, null);
+            general.edit("새 제목", null, null);
+
+            assertThat(ab.title()).isEqualTo("새 주제");
+            assertThat(general.title()).isEqualTo("새 제목");
+        }
+
+        @Test
+        @DisplayName("null 은 그대로 두고, 설명 비우기는 별도 동사다")
+        void nullKeepsAndClearIsExplicit() {
+            Post post = new Post(1L, PostType.GENERAL, PostCategory.ETC, "제목", "설명");
+
+            post.edit(null, null, null);
+            assertThat(post.title()).isEqualTo("제목");
+            assertThat(post.description()).isEqualTo("설명");
+            assertThat(post.category()).isEqualTo(PostCategory.ETC);
+
+            post.clearDescription();
+            assertThat(post.description()).isNull();
+        }
+
+        @Test
+        @DisplayName("삭제된 게시글은 수정할 수 없다")
+        void deletedPostRejectsEdit() {
+            Post post = general();
+            post.delete();
+
+            assertThatThrownBy(() -> post.edit("제목", null, null))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(post::clearDescription)
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 

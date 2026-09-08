@@ -84,6 +84,17 @@ public class JpaPostStore implements PostStore {
         return repository.findById(id).map(PostEntity::toDomain);
     }
 
+    /**
+     * 잠금은 호출자의 트랜잭션에 참여할 때만 뜻이 있다. 여기의 {@code @Transactional} 은 트랜잭션이 없으면
+     * 열어 주는 것이지 잠금을 유지해 주는 것이 아니다 — 새로 열면 반환과 함께 커밋되어 잠금이 풀린다.
+     * 그래서 {@code PostService} 의 수정·삭제가 자기 트랜잭션 안에서 이 메서드와 {@link #save} 를 함께 부른다.
+     */
+    @Override
+    @Transactional
+    public Optional<Post> findByIdForUpdate(Long id) {
+        return repository.findByIdForUpdate(id).map(PostEntity::toDomain);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public boolean existsActiveById(Long id) {

@@ -210,6 +210,25 @@ class ActivityControllerIT {
         }
 
         @Test
+        @DisplayName("삭제된 게시글은 투표·댓글 갯수에서도 빠진다 — 목록과 같은 숫자여야 한다")
+        void deletedPostIsNotCountedInVoteAndComment() throws Exception {
+            // 목록의 키 문장은 삭제된 글을 빼므로, 요약이 세면 "12" 아래 카드 11장이 뜬다 (ADR-0047).
+            Post alive = saveAgreePost("남는 글");
+            Post removed = saveAgreePost("지워질 글");
+            voteOn(alive);
+            voteOn(removed);
+            assertThat(commenterStore.recordIfFirst(alive.id(), me.id())).isTrue();
+            assertThat(commenterStore.recordIfFirst(removed.id(), me.id())).isTrue();
+            softDelete(removed);
+
+            mockMvc.perform(get(SUMMARY).header("Authorization", bearer(me)))
+                    .andExpect(jsonPath("$.returnObject.voteCount").value(1))
+                    .andExpect(jsonPath("$.returnObject.commentCount").value(1));
+            assertThat(idsOf(ACTIVITIES + "?type=VOTE")).hasSize(1);
+            assertThat(idsOf(ACTIVITIES + "?type=COMMENT")).hasSize(1);
+        }
+
+        @Test
         @DisplayName("남의 활동은 내 요약에 섞이지 않는다")
         void othersActivityIsNotMine() throws Exception {
             Post post = saveAgreePost("남의 투표");
