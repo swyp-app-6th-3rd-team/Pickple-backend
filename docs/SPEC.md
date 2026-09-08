@@ -84,6 +84,7 @@ app/pickple/
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
 | POST | `/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
 | POST | `/auth/kakao` | — | iOS Kakao ID token·nonce 검증 + 서비스 JWT 발급 |
+| POST | `/auth/login` | QA ID·비밀번호 | dev에서 별도 활성화한 경우에만 기존 QA 계정의 서비스 JWT 발급 |
 | GET | `/auth/me` | 필요 | 내 정보 |
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
@@ -102,6 +103,21 @@ app/pickple/
   `false`면 `/users/profile`을 통한 프로필 설정 화면으로 이동한다.
 - 완료 여부는 서비스 닉네임 등록으로 판정한다. Kakao ID token의 선택적 `nickname` claim이나
   기본 프로필 이미지 존재 여부만으로 `true`가 되지 않는다.
+
+**로그인 경계**
+
+- 모바일 제품의 사용자 로그인은 Kakao·Apple OAuth2/OIDC를 사용한다. 이와 별도로 자동화·수동 QA가
+  소셜 로그인 화면을 거치지 않도록 dev에서만 QA 아이디·비밀번호 로그인을 명시적으로 활성화할 수 있다.
+- `/auth/kakao`는 Kakao ID token·nonce를, `/auth/apple`은 Apple authorization code·ID token·
+  raw nonce를 검증한 뒤 Pickple access/refresh JWT를 발급한다. Pickple JWT는 소셜 로그인 완료 뒤
+  보호 API에서 사용하는 서비스 인증 토큰이지, 소셜 신원 검증을 대신하는 로그인 자격증명이 아니다.
+- QA 로그인은 `{"loginId":"...","password":"..."}`를 받으며 내부 `userId`나 공유 헤더 키를
+  요청 자격증명으로 사용하지 않는다. 서버 설정의 BCrypt 해시와 일치하고 연결된 기존 계정이
+  `ACTIVE`·`ROLE_USER`일 때만 기존 access/refresh JWT 발급 흐름으로 진입한다.
+- `/auth/login`에는 `dev`·`prod` 같은 환경명을 넣지 않는다. 노출 여부는
+  `dev & !prod & !production` 프로필과 `QA_LOGIN_ENABLED=true`로 결정한다. 비밀번호 원문은
+  코드·DB·설정에 저장하지 않고 `QA_LOGIN_PASSWORD_HASH`로만 주입한다.
+- 상세 설정과 호출 방법: [QA 로그인 Runbook](qa-login-runbook.md).
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
@@ -820,6 +836,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 날짜 | 변경 | 계기 |
 |---|---|---|
 | 2026-09-08 | `GET /posts/{id}` 추가(ADR-0046). 단일 응답 타입에 투표 섹션만 nullable 중첩, 미투표자·게스트에게 선택지별 집계를 부재로 감춤, 탈퇴 작성자는 비식별 표기. 읽기는 QueryDSL 세 문장 | Issue #20. 첫 판 PR #128 은 `Object[]` + 인덱스 상수 25개라 #130 의 표준으로 다시 구현(PRD-024 작업 단위 6). `users.highest_grade` 를 읽기 전용으로 매핑 |
+| 2026-09-06 | dev QA 아이디·비밀번호 로그인 `/auth/login` 추가. URI에서 환경명을 분리하고 BCrypt 설정 자격증명을 기존 활성 계정에 연결 | Issue #117·PR #120 리뷰 반영. 내부 ID·공유 헤더 키 방식 철회 |
 | 2026-09-06 | 회원 탈퇴가 provider 무관하게 개인정보를 즉시 파기한다(ADR-0040). 다섯 컬럼을 `NULL`로 비우고 도메인 불변식을 `APPLE + INACTIVE` 한정에서 `INACTIVE` 기준으로 넓혔다. V14가 기존 탈퇴자를 소급 파기한다 | Issue #111. 개인정보처리방침 제3조가 "회원 탈퇴 시 지체 없이 파기"를 규정하는데(시행 2026-09-20) `withdraw()`는 상태만 바꿔 이메일·이름·닉네임·프로필 이미지와 카카오 `provider_id`가 무기한 남았다. **원인은 버그가 아니라 도메인 모델 결손이다** — 규칙 표에 R-20("지우지 않는다")만 있어 코드가 표현할 파기 규칙이 없었다. R-27·R-28을 세우고 R-20의 대상을 "콘텐츠와 활동"으로 좁혔다 |
 | 2026-09-05 | `GET /posts/random` 추가. 시드 기반 임의 순서와 유형 포함 커서로 중복 없는 10건 순회를 제공하고, 기투표자에게만 선택·득표 결과를 노출 | Issue #22. 요청마다 다시 섞으면 커서 경계가 무너지므로 첫 시드를 끝까지 유지 |
 | 2026-09-05 | 게스트 접근 정책의 HTTP·OpenAPI 회귀 검증 보완. 댓글 401 응답·인증 조회·공개 목록·투표 미저장 계약 확인 | Issue #100. 최신 develop에 반영된 댓글 인증 정책의 완료 조건 정합화 |

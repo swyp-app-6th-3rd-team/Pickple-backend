@@ -1,0 +1,8 @@
+# QA 로그인은 dev 프로필을 명시해도 기본 비활성이다. prod/production 혼합은 코드에서 차단한다.
+app:
+  auth:
+    qa-login:
+      enabled: ${QA_LOGIN_ENABLED:false}
+      login-id: ${QA_LOGIN_ID:}
+      password-hash: ${QA_LOGIN_PASSWORD_HASH:}
+      user-id: ${QA_LOGIN_USER_ID:}
