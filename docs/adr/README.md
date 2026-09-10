@@ -53,4 +53,5 @@
 | [0045](0045-post-list-two-statement-split.md) | 게시글 목록도 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
 | [0046](0046-post-detail-single-type-with-nested-vote-section.md) | 게시글 상세는 단일 응답 타입에 투표 섹션만 중첩하고, 미투표자에게는 집계를 감춘다 | Accepted |
 | [0047](0047-post-update-whitelist-schema.md) | 게시글 수정 요청은 수정 가능한 세 필드만 받는 화이트리스트 스키마이고, 수정·삭제는 행을 잠그고 한다 | Accepted |
-| [0048](0048-versioned-terms-and-user-agreement.md) | 약관 본문은 버전별로, 사용자 동의는 버전의 최초 수락으로 저장한다 | Accepted (DB 기반 구조, 0003·0040 보완) |
+| [0048](0048-versioned-terms-and-user-agreement.md) | 약관 본문은 버전별로, 사용자 동의는 버전의 최초 수락으로 저장한다 | Accepted (DB 기반 구조, 0003·0040 보완; 정본 등록은 0049) |
+| [0049](0049-initial-terms-content-and-links.md) | 최초 약관은 열람 URL과 승인 전문을 함께 등록한다 | Accepted (0048 보완) |

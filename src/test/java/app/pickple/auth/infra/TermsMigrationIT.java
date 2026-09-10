@@ -43,7 +43,15 @@ class TermsMigrationIT {
     // 정책 시행일이 아니라 테스트의 고정 시각이다.
     private static final LocalDateTime V1_START = LocalDateTime.of(2026, 1, 1, 0, 0);
     private static final LocalDateTime V2_START = V1_START.plusMonths(1);
+    private static final LocalDateTime INITIAL_TERMS_START = LocalDateTime.of(2026, 9, 20, 0, 0);
     private static final String BODY = "# 이용약관\n\n회원의 '동의'를 보존합니다. ✅\n| 항목 | 내용 |\n|---|---|\n| 한글 | 본문 |";
+    private static final String TEST_CONTENT_URL = "https://example.com/terms";
+    private static final String TERMS_URL = "https://super-albatross-219.notion.site/"
+            + "PickPle-3c8eab9bfff480b1ad6ef0fe62c21b42";
+    private static final String PRIVACY_URL = "https://super-albatross-219.notion.site/"
+            + "PickPle-3c8eab9bfff480a5810deaa3a8d902f8";
+    private static final String APP_UPDATE_URL = "https://super-albatross-219.notion.site/"
+            + "3c8eab9bfff480fa8cc6f5e127d72d15";
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -65,6 +73,47 @@ class TermsMigrationIT {
             assertThat(count(isolated, "user_agreement")).isZero();
             assertThat(migration.migrate().migrationsExecuted).isZero();
             migration.validate();
+        });
+    }
+
+    @Test
+    @DisplayName("#150 빈 DB에 V16까지 적용하면 승인된 필수 약관 두 건과 열람 URL을 등록한다")
+    void registersApprovedInitialTermsOnFreshSchema() {
+        withIsolatedSchema(dataSource -> {
+            Flyway migration = migrations(dataSource, "16");
+            assertThat(migration.migrate().migrationsExecuted).isPositive();
+            JdbcTemplate isolated = new JdbcTemplate(dataSource);
+
+            assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("16");
+            assertThat(count(isolated, "terms")).isEqualTo(2);
+            assertThat(count(isolated, "user_agreement")).isZero();
+            assertInitialTerms(isolated);
+            assertThat(migration.migrate().migrationsExecuted).isZero();
+            migration.validate();
+        });
+    }
+
+    @Test
+    @DisplayName("#150 V15에서 V16으로 올리면 기존 회원과 V15 체크섬을 보존한다")
+    void upgradesV15AndRegistersInitialTermsWithoutChangingExistingUsers() {
+        withIsolatedSchema(dataSource -> {
+            Flyway migration = migrations(dataSource, "15");
+            migration.migrate();
+            JdbcTemplate isolated = new JdbcTemplate(dataSource);
+            long userId = insertUser(isolated);
+            var userBefore = isolated.queryForMap("SELECT * FROM users WHERE id = ?", userId);
+            Integer v15Checksum = isolated.queryForObject(
+                    "SELECT checksum FROM flyway_schema_history WHERE version = '15'", Integer.class);
+
+            Flyway upgrade = migrations(dataSource, "16");
+            assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
+
+            assertThat(isolated.queryForMap("SELECT * FROM users WHERE id = ?", userId)).isEqualTo(userBefore);
+            assertThat(isolated.queryForObject(
+                    "SELECT checksum FROM flyway_schema_history WHERE version = '15'", Integer.class))
+                    .isEqualTo(v15Checksum);
+            assertInitialTerms(isolated);
+            upgrade.validate();
         });
     }
 
@@ -194,7 +243,7 @@ class TermsMigrationIT {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"type", "version", "title", "content", "is_required", "effective_at", "created_at"})
+    @ValueSource(strings = {"type", "version", "title", "content_url", "content", "is_required", "effective_at", "created_at"})
     @DisplayName("T-05 약관 필수 데이터의 NULL을 거부한다")
     void rejectsNullTermsFields(String column) {
         long terms = insertTerms(jdbc, uniqueType(), "v1", V1_START, BODY);
@@ -215,6 +264,26 @@ class TermsMigrationIT {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "http://example.com/terms", "not-a-url"})
+    @DisplayName("#150 약관 열람 URL은 비어 있지 않은 HTTPS 주소여야 한다")
+    void rejectsInvalidContentUrl(String contentUrl) {
+        long terms = insertTerms(jdbc, uniqueType(), "v1", V1_START, BODY);
+
+        assertDatabaseError(() -> jdbc.update(
+                "UPDATE terms SET content_url = ? WHERE id = ?", contentUrl, terms),
+                3819, "ck_terms_content_url_https");
+    }
+
+    @Test
+    @DisplayName("#150 약관 열람 URL을 생략하면 거부한다")
+    void rejectsOmittedContentUrl() {
+        assertDatabaseError(() -> jdbc.update("""
+                INSERT INTO terms (type, version, title, content, is_required, effective_at, created_at)
+                VALUES (?, 'v1', '테스트 약관', ?, TRUE, ?, ?)
+                """, uniqueType(), BODY, V1_START, V1_START), 1364, "content_url");
+    }
+
     @Test
     @DisplayName("T-05 필수 여부는 명시적인 0/1이어야 한다")
     void rejectsInvalidRequiredFlagAndAllowsOptionalTerms() {
@@ -229,9 +298,9 @@ class TermsMigrationIT {
     @DisplayName("필수 여부를 생략하면 기본값으로 추정하지 않고 거부한다")
     void rejectsOmittedRequiredFlag() {
         assertDatabaseError(() -> jdbc.update("""
-                INSERT INTO terms (type, version, title, content, effective_at, created_at)
-                VALUES (?, 'v1', '테스트 약관', ?, ?, ?)
-                """, uniqueType(), BODY, V1_START, V1_START), 1364, "is_required");
+                INSERT INTO terms (type, version, title, content_url, content, effective_at, created_at)
+                VALUES (?, 'v1', '테스트 약관', ?, ?, ?, ?)
+                """, uniqueType(), TEST_CONTENT_URL, BODY, V1_START, V1_START), 1364, "is_required");
     }
 
     @Test
@@ -300,7 +369,7 @@ class TermsMigrationIT {
     @DisplayName("T-07 별도 연결의 동시 동의 INSERT는 하나만 커밋된다")
     void concurrentDuplicateAgreementHasExactlyOneWinner() {
         withIsolatedSchema(dataSource -> {
-            migrations(dataSource, "15").migrate();
+            migrations(dataSource, "16").migrate();
             JdbcTemplate isolated = new JdbcTemplate(dataSource);
             long user = insertUser(isolated);
             long terms = insertTerms(isolated, uniqueType(), "v1", V1_START, BODY);
@@ -409,10 +478,54 @@ class TermsMigrationIT {
     private long insertTerms(JdbcTemplate target, String type, String version,
                              LocalDateTime effectiveAt, String content) {
         target.update("""
-                INSERT INTO terms (type, version, title, content, is_required, effective_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, type, version, "테스트 약관", content, true, effectiveAt, V2_START.plusDays(1));
+                INSERT INTO terms
+                    (type, version, title, content_url, content, is_required, effective_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, type, version, "테스트 약관", TEST_CONTENT_URL, content, true,
+                effectiveAt, V2_START.plusDays(1));
         return target.queryForObject("SELECT id FROM terms WHERE type = ? AND version = ?", Long.class, type, version);
+    }
+
+    private void assertInitialTerms(JdbcTemplate target) {
+        assertThat(target.queryForList("SELECT type FROM terms ORDER BY type", String.class))
+                .containsExactly("PRIVACY_POLICY", "TERMS_OF_SERVICE");
+        assertInitialTermsRow(target, "TERMS_OF_SERVICE", "PickPle 이용약관", TERMS_URL,
+                20_454, "### 제5조(이용계약의 성립)", "본 약관은 [ 2026년 09월 20일 ]부터 시행합니다.");
+        assertInitialTermsRow(target, "PRIVACY_POLICY", "PickPle 개인정보처리방침", PRIVACY_URL,
+                22_328, "## 제1조 개인정보의 수집·이용 목적 및 항목",
+                "본 방침은 [ 2026년 09월 20일 ]부터 적용됩니다.");
+        assertThat(target.queryForObject(
+                "SELECT COUNT(*) FROM terms WHERE content_url = ?", Long.class, APP_UPDATE_URL)).isZero();
+    }
+
+    private void assertInitialTermsRow(JdbcTemplate target, String type, String title, String contentUrl,
+                                       int contentBytes, String middle, String ending) {
+        InitialTermsRow row = target.queryForObject("""
+                SELECT version, title, content_url, content, is_required, effective_at, created_at,
+                       OCTET_LENGTH(content) AS content_bytes
+                FROM terms WHERE type = ?
+                """, (result, index) -> new InitialTermsRow(
+                result.getString("version"),
+                result.getString("title"),
+                result.getString("content_url"),
+                result.getString("content"),
+                result.getBoolean("is_required"),
+                result.getObject("effective_at", LocalDateTime.class),
+                result.getObject("created_at", LocalDateTime.class),
+                result.getInt("content_bytes")), type);
+        assertThat(row.version()).isEqualTo("2026-09-20");
+        assertThat(row.title()).isEqualTo(title);
+        assertThat(row.contentUrl()).isEqualTo(contentUrl);
+        assertThat(row.content()).contains(middle).endsWith(ending + "\n");
+        assertThat(row.required()).isTrue();
+        assertThat(row.effectiveAt()).isEqualTo(INITIAL_TERMS_START);
+        assertThat(row.createdAt()).isNotNull();
+        assertThat(row.contentBytes()).isEqualTo(contentBytes);
+    }
+
+    private record InitialTermsRow(String version, String title, String contentUrl, String content,
+                                   boolean required, LocalDateTime effectiveAt, LocalDateTime createdAt,
+                                   int contentBytes) {
     }
 
     private long insertUser(JdbcTemplate target) {
