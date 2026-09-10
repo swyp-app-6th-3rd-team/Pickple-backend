@@ -26,6 +26,11 @@ import org.springframework.data.domain.KeysetScrollPosition;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,8 +57,59 @@ class PostServiceTest {
     private ItemContainerStore itemContainerStore;
     @Mock
     private RandomGenerator randomGenerator;
+    @Mock
+    private Clock clock;
     @InjectMocks
     private PostService service;
+
+    @Test
+    @DisplayName("검색어는 Unicode 양끝 공백만 제거하고 내부 공백과 고정 10건을 보존한다")
+    void normalizesSearchKeyword() {
+        PostStore.PostSearchResult stored = emptySearchResult();
+        given(postStore.search("에어  팟", ScrollPosition.keyset(), 10))
+                .willReturn(stored);
+        given(clock.instant()).willReturn(Instant.parse("2026-09-10T03:00:00Z"));
+        given(clock.getZone()).willReturn(ZoneId.of("Asia/Seoul"));
+
+        PostService.PostSearchResult result =
+                service.search("\u00a0\u3000에어  팟\u3000\u00a0", " ");
+
+        assertThat(result.totalCount()).isZero();
+        verify(postStore).search("에어  팟", ScrollPosition.keyset(), 10);
+    }
+
+    @Test
+    @DisplayName("누락·빈 값·31 code point·제어문자 검색어는 DB 조회 전에 400이다")
+    void rejectsInvalidSearchKeywordBeforeQuery() {
+        for (String keyword : new String[] {
+                null, "", " \u00a0 ", "가".repeat(31), "😀".repeat(31), "가\u0000나"
+        }) {
+            assertThatThrownBy(() -> service.search(keyword, null))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code())
+                                    .isEqualTo(ResponseCode.INVALID_REQUEST));
+        }
+
+        verifyNoInteractions(postStore);
+    }
+
+    @Test
+    @DisplayName("과대·빈 JSON·깨진 검색 커서는 DB 조회 전에 400이다")
+    void rejectsInvalidSearchCursorBeforeQuery() {
+        String emptyJsonCursor = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("{}".getBytes(StandardCharsets.UTF_8));
+
+        for (String cursor : new String[] {
+                "a".repeat(1_025), emptyJsonCursor, "not-a-cursor"
+        }) {
+            assertThatThrownBy(() -> service.search("검색", cursor))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code())
+                                    .isEqualTo(ResponseCode.INVALID_REQUEST));
+        }
+
+        verifyNoInteractions(postStore);
+    }
 
     @Test
     @DisplayName("랜덤 카드 첫 요청은 새 시드와 유형·사용자·10건 크기를 전달한다")
@@ -414,5 +470,11 @@ class PostServiceTest {
         assertThatThrownBy(() -> service.delete(10L, null))
                 .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.UNAUTHORIZED);
         verifyNoInteractions(postStore);
+    }
+
+    private static PostStore.PostSearchResult emptySearchResult() {
+        Window<PostStore.PostSearchView> window =
+                Window.from(List.of(), index -> ScrollPosition.keyset(), false);
+        return new PostStore.PostSearchResult(0L, window);
     }
 }

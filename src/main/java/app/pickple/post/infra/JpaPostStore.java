@@ -8,6 +8,7 @@ import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.infra.PostListQuerydslRepository.PostListRow;
 import app.pickple.post.infra.PostListQuerydslRepository.PostListSlice;
+import app.pickple.post.infra.PostSearchQuerydslRepository.PostSearchSlice;
 import app.pickple.post.infra.RandomPostQuerydslRepository.RandomCardEntry;
 import app.pickple.post.infra.RandomPostQuerydslRepository.RandomPostSlice;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class JpaPostStore implements PostStore {
     private final PostRepository repository;
     private final PostProductRepository productRepository;
     private final PostListQuerydslRepository listRepository;
+    private final PostSearchQuerydslRepository searchRepository;
     private final RandomPostQuerydslRepository randomRepository;
     private final PostDetailQuerydslRepository detailRepository;
     private final Clock clock;
@@ -139,6 +141,25 @@ public class JpaPostStore implements PostStore {
 
         List<PostListView> content = slice.rows().stream().map(PostListRow::view).toList();
         return Window.from(content, positionFunction(sort, slice.rows()), slice.hasNext());
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PostSearchResult search(
+            String keyword, ScrollPosition position, int size) {
+
+        PostSearchCursor cursor = PostSearchCursor.from(position, keyword);
+        PostSearchSlice slice = searchRepository.search(keyword, cursor, size);
+        return new PostSearchResult(
+                slice.totalCount(),
+                Window.from(
+                        slice.rows(),
+                        index -> {
+                            PostSearchView row = slice.rows().get(index);
+                            return PostSearchCursor.toPosition(
+                                    keyword, row.createdAt(), row.id());
+                        },
+                        slice.hasNext()));
     }
 
     /**

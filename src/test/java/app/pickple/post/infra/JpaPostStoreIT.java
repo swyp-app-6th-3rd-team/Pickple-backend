@@ -244,6 +244,21 @@ class JpaPostStoreIT {
                 .hasMessageContaining("REPEATABLE READ");
     }
 
+    @Test
+    @DisplayName("검색도 READ COMMITTED 트랜잭션이면 count·key·row 실행 전에 거부한다")
+    void searchRejectsLowerIsolation() {
+        TransactionTemplate readCommitted =
+                new TransactionTemplate(transactionTemplate.getTransactionManager());
+        readCommitted.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        readCommitted.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        readCommitted.setReadOnly(true);
+
+        assertThatThrownBy(() -> readCommitted.executeWithoutResult(status ->
+                postStore.search("검색", ScrollPosition.keyset(), 10)))
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasMessageContaining("REPEATABLE READ");
+    }
+
     /**
      * 상세는 세 문장 경로다 (#20). 총 투표 인원과 선택지별 득표가 다른 스냅샷을 보면 게이지의 합이
      * 어긋나므로 같은 전제를 같은 방식으로 단언한다.
