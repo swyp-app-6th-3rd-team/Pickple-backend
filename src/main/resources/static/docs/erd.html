@@ -4840,7 +4840,7 @@
       </div>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"post-flow","label":"게시글과 의견","focus":["users","post","post_option","post_product","vote","comment"],"note":"회원이 올린 게시글에 선택지와 상품이 딸리고, 투표와 댓글로 의견이 모인다."},{"id":"onepick-reward","label":"원픽과 보상","focus":["comment","comment_pick","point_history","badge","user_badge"],"note":"작성자가 고른 원픽 하나가 포인트 적립의 근거가 되고, 누적이 뱃지로 이어진다."},{"id":"counters","label":"집계와 랭킹","focus":["users","post","post_commenter","user_daily_activity"],"note":"조회 때 세지 않도록 카운터와 일별 집계를 미리 쌓아 둔다. 순위는 배치가 채운다."},{"id":"media-auth","label":"첨부와 인증","focus":["users","item_container","item_resource","user_refresh_token","apple_provider_token"],"note":"사진은 묶음 단위로 올리고, 세션과 애플 연동 토큰은 회원에 하나씩 붙는다."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"post-flow","label":"게시글과 의견","focus":["users","post","post_option","post_product","vote","comment"],"note":"회원이 올린 게시글에 선택지와 상품이 딸리고, 투표와 댓글로 의견이 모인다."},{"id":"onepick-reward","label":"원픽과 보상","focus":["comment","comment_pick","point_history","badge","user_badge"],"note":"작성자가 고른 원픽 하나가 포인트 적립의 근거가 되고, 누적이 뱃지로 이어진다."},{"id":"counters","label":"집계와 랭킹","focus":["users","post","post_commenter","user_daily_activity"],"note":"조회 때 세지 않도록 카운터와 일별 집계를 미리 쌓아 둔다. 순위는 배치가 채운다."},{"id":"media-auth","label":"첨부와 인증","focus":["users","item_container","item_resource","user_refresh_token","apple_provider_token"],"note":"사진은 묶음 단위로 올리고, 세션과 애플 연동 토큰은 회원에 하나씩 붙는다."},{"id":"terms-consent","label":"약관과 동의","focus":["users","terms","user_agreement"],"note":"약관은 버전별 본문을 보존하고, 회원 동의는 해당 버전의 최초 수락을 기록한다."}]</script>
 
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
       <button id="guided-view-prev" type="button" aria-label="Previous guided view" title="Previous guided view ([)">&#8592;</button>
@@ -4938,6 +4938,8 @@
         <path data-edge-from="post_product" data-edge-to="item_container" data-edge-label="사진" data-edge-key="13" data-composition-points="528,577;552,577;552,794;1000,794" d="M 528 577 L 544 577 Q 552 577 552 585 L 552 786 Q 552 794 560 794 L 1000 794" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="comment" data-edge-to="item_container" data-edge-label="사진" data-edge-key="14" data-composition-points="848,374;924,374;924,780;1000,780" d="M 848 374 L 916 374 Q 924 374 924 382 L 924 772 Q 924 780 932 780 L 1000 780" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="item_container" data-edge-to="item_resource" data-edge-label="파일" data-edge-key="15" data-composition-points="1168,787;1320,787" d="M 1168 787 L 1320 787" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="users" data-edge-to="user_agreement" data-edge-label="동의" data-edge-key="16" data-composition-points="208,374;284,374;284,787;360,787" d="M 208 374 L 276 374 Q 284 374 284 382 L 284 779 Q 284 787 292 787 L 360 787" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="terms" data-edge-to="user_agreement" data-edge-label="버전 수락" data-edge-key="17" data-composition-points="208,787;360,787" d="M 208 787 L 360 787" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
         <g id="node-users" data-node-id="users" data-node-label="회원" tabindex="0" role="button" aria-label="Focus 회원, users, 회원 애그리거트" aria-pressed="false" data-node-kind="security" data-node-sublabel="users" data-node-tag="소셜 로그인 · 탈퇴 시 비활성" data-node-context="회원 애그리거트">
@@ -5153,6 +5155,32 @@
         <text data-detail="fine" x="124" y="606" class="t-database" font-size="7" text-anchor="middle">암호화 보관 · 탈퇴 시 해제</text>
         </g>
 
+        <g id="node-terms" data-node-id="terms" data-node-label="약관" tabindex="0" role="button" aria-label="Focus 약관, terms, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="terms" data-node-tag="종류 · 버전별 본문" data-node-context="Architecture component">
+          <title>약관 · terms · Architecture component · 종류 · 버전별 본문</title>
+          <rect x="40" y="750" width="168" height="74" rx="6" class="c-mask"/>
+          <rect x="40" y="750" width="168" height="74" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 756) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-detail-anchor x="124" y="785" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">약관</text>
+        <text data-detail="context" x="124" y="801" class="t-muted" font-size="9" text-anchor="middle">terms</text>
+        <text data-detail="fine" x="124" y="816" class="t-database" font-size="7" text-anchor="middle">종류 · 버전별 본문</text>
+        </g>
+
+        <g id="node-user_agreement" data-node-id="user_agreement" data-node-label="약관 동의" tabindex="0" role="button" aria-label="Focus 약관 동의, user_agreement, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="user_agreement" data-node-tag="회원 · 약관 버전별 최초 수락" data-node-context="Architecture component">
+          <title>약관 동의 · user_agreement · Architecture component · 회원 · 약관 버전별 최초 수락</title>
+          <rect x="360" y="750" width="168" height="74" rx="6" class="c-mask"/>
+          <rect x="360" y="750" width="168" height="74" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(366 756) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-detail-anchor x="444" y="785" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">약관 동의</text>
+        <text data-detail="context" x="444" y="801" class="t-muted" font-size="9" text-anchor="middle">user_agreement</text>
+        <text data-detail="fine" x="444" y="816" class="t-database" font-size="7" text-anchor="middle">회원 · 약관 버전별 최초 수락</text>
+        </g>
+
         <!-- Connection labels -->
         <g data-detail="context" data-edge-from="users" data-edge-to="post" data-edge-label="작성" data-edge-key="0">
           <rect x="269" y="347" width="30" height="14" rx="3" class="c-mask"/>
@@ -5217,6 +5245,14 @@
         <g data-detail="context" data-edge-from="item_container" data-edge-to="item_resource" data-edge-label="파일" data-edge-key="15">
           <rect x="1229" y="767" width="30" height="14" rx="3" class="c-mask"/>
           <text x="1244" y="777" class="t-muted" font-size="8" text-anchor="middle">파일</text>
+        </g>
+        <g data-detail="context" data-edge-from="users" data-edge-to="user_agreement" data-edge-label="동의" data-edge-key="16">
+          <rect x="269" y="570" width="30" height="14" rx="3" class="c-mask"/>
+          <text x="284" y="580" class="t-muted" font-size="8" text-anchor="middle">동의</text>
+        </g>
+        <g data-detail="context" data-edge-from="terms" data-edge-to="user_agreement" data-edge-label="버전 수락" data-edge-key="17">
+          <rect x="257.4" y="767" width="53.2" height="14" rx="3" class="c-mask"/>
+          <text x="284" y="777" class="t-muted" font-size="8" text-anchor="middle">버전 수락</text>
         </g>
 
         <!-- Legend -->
@@ -13841,4 +13877,4 @@
 </body>
 </html>
 
-<!-- erd-source-sha256:b767794225decfc9f00d930d749d5e4e7640a153261c0af07ce7951a7ee85dc0 -->
+<!-- erd-source-sha256:5d17a5c6ed226ae307231c309a6e7ba47b8c60e2c9bddc768815e78324d9eae8 -->
