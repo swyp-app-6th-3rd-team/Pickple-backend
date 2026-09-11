@@ -670,7 +670,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 테이블 | 저장 내용 | 핵심 제약 |
 |---|---|---|
 | `terms` | 종류·버전, 제목, 전체 Markdown 본문, 필수 여부, 시행·등록 시각 | UNIQUE(type, version), UNIQUE(type, effective_at), 필수값 NOT NULL, 빈 문자열/일반 공백만인 값 및 0/1 외 필수 여부 거부 |
-| `user_agreement` | 사용자·약관 버전별 최초 동의 시각 | UNIQUE(user_id, terms_id), users·terms FK |
+| `terms_agreement` | 사용자·약관 버전별 최초 동의 시각 | UNIQUE(user_id, terms_id), users·terms FK |
 
 - 시각은 기존 초 단위 Asia/Seoul 계약을 따른다. 종류별 현재 버전은
   `effective_at <= now` 중 시행 시각이 가장 늦은 행이다. 문자열 버전으로 정렬하지 않는다.
