@@ -6,7 +6,6 @@ import app.pickple.post.domain.PostType;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
-import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -22,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 검색 결과를 count, key, row, thumbnail의 네 QueryDSL 문장으로 읽는다.
+ * 검색 결과를 count, key, row, decoration의 네 QueryDSL 문장으로 읽는다.
  *
  * <p>일치 조건을 SQL에서 먼저 적용하고 게시글 id를 {@code size + 1}개 확정한 뒤,
  * 화면 필드는 최대 {@code size}개에만 붙인다. 결과는 typed projection으로 받아
@@ -35,10 +34,8 @@ class PostSearchQuerydslRepository {
     private static final QPostEntity POST = QPostEntity.postEntity;
     private static final QPostProductEntity MATCHING_PRODUCT =
             new QPostProductEntity("matchingProduct");
-    private static final QPostProductEntity DISPLAY_PRODUCT =
-            new QPostProductEntity("displayProduct");
-    private static final QPostProductEntity IMAGE_PRODUCT =
-            new QPostProductEntity("imageProduct");
+    private static final QPostProductEntity PAGE_PRODUCT =
+            new QPostProductEntity("pageProduct");
     private static final QItemResourceEntity CANDIDATE =
             new QItemResourceEntity("searchCandidate");
 
@@ -46,7 +43,7 @@ class PostSearchQuerydslRepository {
 
     private final JPAQueryFactory queryFactory;
 
-    /** QueryDSL 생성자 프로젝션으로 받는 검색 본문. 사진은 별도 문장에서 붙인다. */
+    /** QueryDSL 생성자 프로젝션으로 받는 검색 본문. 찬반 제목과 사진은 별도 문장에서 붙인다. */
     public record SearchRow(
             Long id,
             PostType type,
@@ -56,11 +53,17 @@ class PostSearchQuerydslRepository {
             LocalDateTime createdAt) {
     }
 
-    /** 별도 사진 문장의 한 행. 한 게시글에 여러 장이면 {@code resourceId}가 가장 작은 행을 쓴다. */
-    public record ThumbnailCandidate(
+    /** 별도 장식 문장의 한 행. 상품명은 찬반 제목에, 사진은 게시글 썸네일에 쓴다. */
+    public record ProductDecorationRow(
             Long postId,
-            Long resourceId,
+            String productName,
+            Byte displayOrder,
             String accessUrl) {
+    }
+
+    private record PageDecorations(
+            Map<Long, String> agreeTitles,
+            Map<Long, String> thumbnailUrls) {
     }
 
     record PostSearchSlice(long totalCount, List<PostSearchView> rows, boolean hasNext) {
@@ -96,8 +99,8 @@ class PostSearchQuerydslRepository {
                 .where(POST.id.in(page))
                 .orderBy(POST.createdAt.desc(), POST.id.desc())
                 .fetch();
-        List<PostSearchView> rows = attachThumbnails(
-                searchRows, thumbnailUrls(page));
+        List<PostSearchView> rows = attachDecorations(
+                searchRows, pageDecorations(page));
         assertSameSnapshot(page, rows);
         return new PostSearchSlice(totalCount, rows, hasNext);
     }
@@ -106,6 +109,11 @@ class PostSearchQuerydslRepository {
         String pattern = literalContainsPattern(keyword);
         BooleanExpression titleMatch = POST.type.in(PostType.GENERAL, PostType.A_B)
                 .and(POST.title.like(pattern, '!'));
+        /*
+         * 상품명 매칭을 별도 조회로 끊으면 LIMIT 전에 제목 결과와 합치려 전체 상품 매칭 id를
+         * 애플리케이션에 올려야 한다. EXISTS는 post 한 행을 유지해 A/B 양 상품이 맞아도
+         * count와 key가 중복되지 않으므로 검색 조건으로 남긴다.
+         */
         BooleanExpression productMatch = POST.type.in(PostType.AGREE, PostType.A_B)
                 .and(JPAExpressions.selectOne()
                         .from(MATCHING_PRODUCT)
@@ -140,58 +148,54 @@ class PostSearchQuerydslRepository {
                 SearchRow.class,
                 POST.id,
                 POST.type,
-                displayTitle(),
+                POST.title,
                 POST.voteCount.longValue(),
                 POST.commentCount.longValue(),
                 POST.createdAt);
     }
 
-    private static Expression<String> displayTitle() {
-        return new CaseBuilder()
-                .when(POST.type.eq(PostType.AGREE))
-                .then(JPAExpressions.select(DISPLAY_PRODUCT.name)
-                        .from(DISPLAY_PRODUCT)
-                        .where(
-                                DISPLAY_PRODUCT.post.id.eq(POST.id),
-                                DISPLAY_PRODUCT.displayOrder.eq(FIRST_PRODUCT)))
-                .otherwise(POST.title);
-    }
-
-    /** 페이지의 상품 사진을 한 번에 읽고, 게시글마다 DB에 가장 먼저 등록된 한 장만 남긴다. */
-    private Map<Long, String> thumbnailUrls(List<Long> postIds) {
-        List<ThumbnailCandidate> candidates = queryFactory
+    /** 페이지의 찬반 제목과 상품 사진을 한 번에 읽어 게시글별 장식 값으로 조립한다. */
+    private PageDecorations pageDecorations(List<Long> postIds) {
+        List<ProductDecorationRow> candidates = queryFactory
                 .select(Projections.constructor(
-                        ThumbnailCandidate.class,
-                        IMAGE_PRODUCT.post.id,
-                        CANDIDATE.id,
+                        ProductDecorationRow.class,
+                        PAGE_PRODUCT.post.id,
+                        PAGE_PRODUCT.name,
+                        PAGE_PRODUCT.displayOrder,
                         CANDIDATE.accessUrl))
-                .from(IMAGE_PRODUCT)
-                .join(CANDIDATE)
-                .on(CANDIDATE.container.id.eq(IMAGE_PRODUCT.itemContainerId))
-                .where(IMAGE_PRODUCT.post.id.in(postIds))
+                .from(PAGE_PRODUCT)
+                .leftJoin(CANDIDATE)
+                .on(CANDIDATE.container.id.eq(PAGE_PRODUCT.itemContainerId))
+                .where(PAGE_PRODUCT.post.id.in(postIds))
                 .orderBy(CANDIDATE.id.asc())
                 .fetch();
 
+        Map<Long, String> agreeTitles = new LinkedHashMap<>();
         Map<Long, String> thumbnails = new LinkedHashMap<>();
-        for (ThumbnailCandidate candidate : candidates) {
-            thumbnails.putIfAbsent(
-                    candidate.postId(),
-                    candidate.accessUrl());
+        for (ProductDecorationRow candidate : candidates) {
+            if (candidate.displayOrder() == FIRST_PRODUCT) {
+                agreeTitles.put(candidate.postId(), candidate.productName());
+            }
+            if (candidate.accessUrl() != null) {
+                thumbnails.putIfAbsent(candidate.postId(), candidate.accessUrl());
+            }
         }
-        return thumbnails;
+        return new PageDecorations(agreeTitles, thumbnails);
     }
 
-    private static List<PostSearchView> attachThumbnails(
-            List<SearchRow> rows, Map<Long, String> thumbnails) {
+    private static List<PostSearchView> attachDecorations(
+            List<SearchRow> rows, PageDecorations decorations) {
         return rows.stream()
                 .map(row -> new PostSearchView(
                         row.id(),
                         row.type(),
-                        row.title(),
+                        row.type() == PostType.AGREE
+                                ? decorations.agreeTitles().get(row.id())
+                                : row.title(),
                         row.voteCount(),
                         row.commentCount(),
                         row.createdAt(),
-                        thumbnails.get(row.id())))
+                        decorations.thumbnailUrls().get(row.id())))
                 .toList();
     }
 
@@ -206,12 +210,12 @@ class PostSearchQuerydslRepository {
 
     private static void requireSnapshot() {
         Assert.state(TransactionSynchronizationManager.isActualTransactionActive(),
-                "검색 count, key, row, thumbnail이 같은 스냅샷을 보려면 트랜잭션 안이어야 한다");
+                "검색 count, key, row, decoration이 같은 스냅샷을 보려면 트랜잭션 안이어야 한다");
         Integer isolation = TransactionSynchronizationManager.getCurrentTransactionIsolationLevel();
         Assert.state(isolation == null
                         || isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ
                         || isolation == TransactionDefinition.ISOLATION_SERIALIZABLE,
-                "검색 count, key, row, thumbnail이 같은 스냅샷을 보려면 REPEATABLE READ 이상이어야 한다: "
+                "검색 count, key, row, decoration이 같은 스냅샷을 보려면 REPEATABLE READ 이상이어야 한다: "
                         + isolation);
     }
 }

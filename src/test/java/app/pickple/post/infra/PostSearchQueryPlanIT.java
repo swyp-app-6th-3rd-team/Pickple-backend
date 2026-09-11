@@ -99,12 +99,12 @@ class PostSearchQueryPlanIT {
 
         assertThat(firstResult.get().totalCount()).isEqualTo(20L);
         assertThat(firstResult.get().window()).hasSize(PAGE_SIZE);
-        assertThat(first).as("count, key, row, thumbnail 네 문장").hasSize(4);
+        assertThat(first).as("count, key, row, decoration 네 문장").hasSize(4);
 
         String countSql = first.get(0);
         String keySql = first.get(1);
         String rowSql = first.get(2);
-        String thumbnailSql = first.get(3);
+        String decorationSql = first.get(3);
         assertThat(countSql)
                 .containsIgnoringCase("count(")
                 .containsIgnoringCase("exists(select")
@@ -121,19 +121,20 @@ class PostSearchQueryPlanIT {
         assertThat(rowSql)
                 .containsIgnoringCase(" in (")
                 .doesNotContainIgnoringCase("item_resource")
+                .doesNotContainIgnoringCase("(select")
                 .doesNotContainIgnoringCase("min(")
                 .doesNotContainIgnoringCase("count(");
-        assertThat(thumbnailSql)
+        assertThat(decorationSql)
                 .containsIgnoringCase("post_product")
                 .containsIgnoringCase("item_resource")
-                .containsIgnoringCase(" join ")
+                .containsIgnoringCase(" left join ")
                 .containsIgnoringCase(" order by ")
                 .doesNotContainIgnoringCase("(select")
                 .doesNotContainIgnoringCase("min(");
         assertThat(placeholders(countSql)).isEqualTo(6L);
         assertThat(placeholders(keySql)).isEqualTo(7L);
-        assertThat(placeholders(rowSql)).isEqualTo(12L);
-        assertThat(placeholders(thumbnailSql)).isEqualTo(PAGE_SIZE);
+        assertThat(placeholders(rowSql)).isEqualTo(PAGE_SIZE);
+        assertThat(placeholders(decorationSql)).isEqualTo(PAGE_SIZE);
 
         String countPlan = explain(countSql, statement -> bindMatch(statement));
         String keyPlan = explain(keySql, statement -> {
@@ -144,10 +145,8 @@ class PostSearchQueryPlanIT {
                 .map(PostStore.PostSearchView::id)
                 .toList();
         String rowPlan = explain(rowSql, statement -> {
-            statement.setString(1, PostType.AGREE.name());
-            statement.setByte(2, (byte) 1);
             for (int index = 0; index < selectedIds.size(); index++) {
-                statement.setLong(index + 3, selectedIds.get(index));
+                statement.setLong(index + 1, selectedIds.get(index));
             }
         });
 

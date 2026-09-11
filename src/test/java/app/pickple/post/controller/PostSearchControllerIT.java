@@ -91,6 +91,10 @@ class PostSearchControllerIT {
         Post agree = saveAgree(keyword + "찬반", "agree");
         Post ab = saveAb(keyword + "주제", keyword + "A", keyword + "B");
         Post general = saveGeneral(keyword + "일반", "설명");
+        jdbcTemplate.update(
+                "UPDATE post SET title = ? WHERE id = ?",
+                "상품명과 다른 저장 제목",
+                agree.id());
         stamp(agree.id(), 3);
         stamp(ab.id(), 2);
         stamp(general.id(), 1);
