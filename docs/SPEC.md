@@ -629,7 +629,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 | `V14__erase_withdrawn_user_personal_data.sql` | `db/migration` | 항상 |
-| `V15__terms_and_user_agreement.sql` | `db/migration` | 항상 — 빈 약관·동의 테이블만 생성 |
+| `V15__terms_tables.sql` | `db/migration` | 항상 — 빈 약관·동의 테이블만 생성 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
