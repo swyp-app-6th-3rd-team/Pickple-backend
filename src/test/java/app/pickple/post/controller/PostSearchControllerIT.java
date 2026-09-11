@@ -253,7 +253,7 @@ class PostSearchControllerIT {
     }
 
     @Test
-    @DisplayName("검색 SQL 수는 빈 결과 1회, 결과 있음 3회, 소진 커서 2회다")
+    @DisplayName("검색 SQL 수는 빈 결과 1회, 결과 있음 4회, 소진 커서 2회다")
     void usesBoundedQueryCountWithoutNPlusOne() throws Exception {
         String keyword = unique("쿼리");
         List<Long> ids = new ArrayList<>();
@@ -272,7 +272,7 @@ class PostSearchControllerIT {
         assertThat(queryCount(() -> mockMvc.perform(
                 get(SEARCH).param("keyword", keyword))
                 .andExpect(status().isOk())))
-                .isEqualTo(3L);
+                .isEqualTo(4L);
 
         jdbcTemplate.update(
                 "UPDATE post SET deleted_at = NOW() WHERE id = ?", ids.getFirst());

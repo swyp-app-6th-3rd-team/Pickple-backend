@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 검색 구현이 실제로 내보낸 QueryDSL 세 문장을 캡처해 MySQL 실행계획을 읽는다.
+ * 검색 구현이 실제로 내보낸 QueryDSL 네 문장을 캡처해 MySQL 실행계획을 읽는다.
  *
  * <p>부분 문자열 검색의 count와 key 문장은 일치 후보를 찾기 위해 많은 행을 읽을 수 있다.
  * 여기서 그 비용이 없다고 주장하지 않는다. 고정하는 성질은 검색 조건이 LIMIT 전에 SQL에 있고,
@@ -99,11 +99,12 @@ class PostSearchQueryPlanIT {
 
         assertThat(firstResult.get().totalCount()).isEqualTo(20L);
         assertThat(firstResult.get().window()).hasSize(PAGE_SIZE);
-        assertThat(first).as("count, key, row 세 문장").hasSize(3);
+        assertThat(first).as("count, key, row, thumbnail 네 문장").hasSize(4);
 
         String countSql = first.get(0);
         String keySql = first.get(1);
         String rowSql = first.get(2);
+        String thumbnailSql = first.get(3);
         assertThat(countSql)
                 .containsIgnoringCase("count(")
                 .containsIgnoringCase("exists(select")
@@ -119,12 +120,20 @@ class PostSearchQueryPlanIT {
                 .doesNotContainIgnoringCase(" join ");
         assertThat(rowSql)
                 .containsIgnoringCase(" in (")
-                .containsIgnoringCase("item_resource")
-                .containsIgnoringCase("min(")
+                .doesNotContainIgnoringCase("item_resource")
+                .doesNotContainIgnoringCase("min(")
                 .doesNotContainIgnoringCase("count(");
+        assertThat(thumbnailSql)
+                .containsIgnoringCase("post_product")
+                .containsIgnoringCase("item_resource")
+                .containsIgnoringCase(" join ")
+                .containsIgnoringCase(" order by ")
+                .doesNotContainIgnoringCase("(select")
+                .doesNotContainIgnoringCase("min(");
         assertThat(placeholders(countSql)).isEqualTo(6L);
         assertThat(placeholders(keySql)).isEqualTo(7L);
         assertThat(placeholders(rowSql)).isEqualTo(12L);
+        assertThat(placeholders(thumbnailSql)).isEqualTo(PAGE_SIZE);
 
         String countPlan = explain(countSql, statement -> bindMatch(statement));
         String keyPlan = explain(keySql, statement -> {
@@ -158,7 +167,7 @@ class PostSearchQueryPlanIT {
                 PostSearchCursor.toPosition(KEYWORD, last.createdAt(), last.id());
         List<String> second = sqlCapture.record(() ->
                 postStore.search(KEYWORD, cursor, PAGE_SIZE));
-        assertThat(second).hasSize(3);
+        assertThat(second).hasSize(4);
         assertThat(second.get(1).replaceAll("\\s+", ""))
                 .contains("(pe1_0.created_at,pe1_0.id)<(?,?)");
         assertThat(placeholders(second.get(1))).isEqualTo(9L);

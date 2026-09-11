@@ -16,10 +16,13 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * 검색 결과를 count, key, row의 세 QueryDSL 문장으로 읽는다.
+ * 검색 결과를 count, key, row, thumbnail의 네 QueryDSL 문장으로 읽는다.
  *
  * <p>일치 조건을 SQL에서 먼저 적용하고 게시글 id를 {@code size + 1}개 확정한 뒤,
  * 화면 필드는 최대 {@code size}개에만 붙인다. 결과는 typed projection으로 받아
@@ -36,14 +39,29 @@ class PostSearchQuerydslRepository {
             new QPostProductEntity("displayProduct");
     private static final QPostProductEntity IMAGE_PRODUCT =
             new QPostProductEntity("imageProduct");
-    private static final QItemResourceEntity RESOURCE =
-            new QItemResourceEntity("searchResource");
     private static final QItemResourceEntity CANDIDATE =
             new QItemResourceEntity("searchCandidate");
 
     private static final byte FIRST_PRODUCT = 1;
 
     private final JPAQueryFactory queryFactory;
+
+    /** QueryDSL 생성자 프로젝션으로 받는 검색 본문. 사진은 별도 문장에서 붙인다. */
+    public record SearchRow(
+            Long id,
+            PostType type,
+            String title,
+            long voteCount,
+            long commentCount,
+            LocalDateTime createdAt) {
+    }
+
+    /** 별도 사진 문장의 한 행. 한 게시글에 여러 장이면 {@code resourceId}가 가장 작은 행을 쓴다. */
+    public record ThumbnailCandidate(
+            Long postId,
+            Long resourceId,
+            String accessUrl) {
+    }
 
     record PostSearchSlice(long totalCount, List<PostSearchView> rows, boolean hasNext) {
     }
@@ -73,11 +91,13 @@ class PostSearchQuerydslRepository {
             return new PostSearchSlice(totalCount, List.of(), false);
         }
 
-        List<PostSearchView> rows = queryFactory.select(projection())
+        List<SearchRow> searchRows = queryFactory.select(projection())
                 .from(POST)
                 .where(POST.id.in(page))
                 .orderBy(POST.createdAt.desc(), POST.id.desc())
                 .fetch();
+        List<PostSearchView> rows = attachThumbnails(
+                searchRows, thumbnailUrls(page));
         assertSameSnapshot(page, rows);
         return new PostSearchSlice(totalCount, rows, hasNext);
     }
@@ -115,16 +135,15 @@ class PostSearchQuerydslRepository {
                 Expressions.constant(cursor.id()));
     }
 
-    private static Expression<PostSearchView> projection() {
+    private static Expression<SearchRow> projection() {
         return Projections.constructor(
-                PostSearchView.class,
+                SearchRow.class,
                 POST.id,
                 POST.type,
                 displayTitle(),
                 POST.voteCount.longValue(),
                 POST.commentCount.longValue(),
-                POST.createdAt,
-                thumbnailUrl());
+                POST.createdAt);
     }
 
     private static Expression<String> displayTitle() {
@@ -138,16 +157,42 @@ class PostSearchQuerydslRepository {
                 .otherwise(POST.title);
     }
 
-    /** 현재 연결된 모든 상품 사진 중 DB에 가장 먼저 등록된 한 장. */
-    private static Expression<String> thumbnailUrl() {
-        return JPAExpressions.select(RESOURCE.accessUrl)
-                .from(RESOURCE)
-                .where(RESOURCE.id.eq(
-                        JPAExpressions.select(CANDIDATE.id.min())
-                                .from(IMAGE_PRODUCT)
-                                .join(CANDIDATE)
-                                .on(CANDIDATE.container.id.eq(IMAGE_PRODUCT.itemContainerId))
-                                .where(IMAGE_PRODUCT.post.id.eq(POST.id))));
+    /** 페이지의 상품 사진을 한 번에 읽고, 게시글마다 DB에 가장 먼저 등록된 한 장만 남긴다. */
+    private Map<Long, String> thumbnailUrls(List<Long> postIds) {
+        List<ThumbnailCandidate> candidates = queryFactory
+                .select(Projections.constructor(
+                        ThumbnailCandidate.class,
+                        IMAGE_PRODUCT.post.id,
+                        CANDIDATE.id,
+                        CANDIDATE.accessUrl))
+                .from(IMAGE_PRODUCT)
+                .join(CANDIDATE)
+                .on(CANDIDATE.container.id.eq(IMAGE_PRODUCT.itemContainerId))
+                .where(IMAGE_PRODUCT.post.id.in(postIds))
+                .orderBy(CANDIDATE.id.asc())
+                .fetch();
+
+        Map<Long, String> thumbnails = new LinkedHashMap<>();
+        for (ThumbnailCandidate candidate : candidates) {
+            thumbnails.putIfAbsent(
+                    candidate.postId(),
+                    candidate.accessUrl());
+        }
+        return thumbnails;
+    }
+
+    private static List<PostSearchView> attachThumbnails(
+            List<SearchRow> rows, Map<Long, String> thumbnails) {
+        return rows.stream()
+                .map(row -> new PostSearchView(
+                        row.id(),
+                        row.type(),
+                        row.title(),
+                        row.voteCount(),
+                        row.commentCount(),
+                        row.createdAt(),
+                        thumbnails.get(row.id())))
+                .toList();
     }
 
     private static void assertSameSnapshot(List<Long> ids, List<PostSearchView> rows) {
@@ -161,12 +206,12 @@ class PostSearchQuerydslRepository {
 
     private static void requireSnapshot() {
         Assert.state(TransactionSynchronizationManager.isActualTransactionActive(),
-                "검색 count, key, row가 같은 스냅샷을 보려면 트랜잭션 안이어야 한다");
+                "검색 count, key, row, thumbnail이 같은 스냅샷을 보려면 트랜잭션 안이어야 한다");
         Integer isolation = TransactionSynchronizationManager.getCurrentTransactionIsolationLevel();
         Assert.state(isolation == null
                         || isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ
                         || isolation == TransactionDefinition.ISOLATION_SERIALIZABLE,
-                "검색 count, key, row가 같은 스냅샷을 보려면 REPEATABLE READ 이상이어야 한다: "
+                "검색 count, key, row, thumbnail이 같은 스냅샷을 보려면 REPEATABLE READ 이상이어야 한다: "
                         + isolation);
     }
 }
