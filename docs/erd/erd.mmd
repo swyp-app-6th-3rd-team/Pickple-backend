@@ -15,6 +15,9 @@ erDiagram
     users ||--o| user_refresh_token : "세션"
     users ||--o| apple_provider_token : "Apple 연동"
     users ||--o{ post_commenter : "참여"
+    users ||--o{ terms_agreement : "약관 동의"
+
+    terms ||--o{ terms_agreement : "버전 동의"
 
     post ||--o{ post_option : "선택지"
     post ||--o{ post_product : "상품"
@@ -197,4 +200,22 @@ erDiagram
         varchar encryption_key_id
         datetime created_at
         datetime updated_at
+    }
+
+    terms {
+        bigint id PK
+        varchar type "약관/동의 항목 코드"
+        varchar version
+        varchar title
+        mediumtext content "Markdown 전문"
+        tinyint is_required "필수 여부"
+        datetime effective_at
+        datetime created_at
+    }
+
+    terms_agreement {
+        bigint id PK
+        bigint user_id FK
+        bigint terms_id FK
+        datetime agreed_at "최초 수락 시각"
     }

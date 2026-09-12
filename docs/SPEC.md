@@ -207,8 +207,8 @@ app/pickple/
   대표 사진은 현재 연결된 모든 상품 사진 중 `item_resource.id`가 가장 작은 한 장이다.
 - 검색 커서는 검색어 해시와 최신순 경계를 함께 보존한다. 다른 검색어·종류·버전의 커서,
   깨진 시각·id·payload는 `INVALID_REQUEST`(400)다.
-- 저장소 조회는 QueryDSL count → 최대 11개 id → 최대 10개 typed row의 세 문장이다.
-  세 문장은 REPEATABLE READ 한 요청 안에서 같은 스냅샷을 보고, 배열 결과나 수동 SQL 조립을 쓰지 않는다.
+- 저장소 조회는 QueryDSL count → 최대 11개 id → 최대 10개 typed row → 해당 페이지의 상품명·사진의 네 문장이다.
+  네 문장은 REPEATABLE READ 한 요청 안에서 같은 스냅샷을 보고, 배열 결과나 수동 SQL 조립을 쓰지 않는다.
 
 **`GET /posts/popular` — 인기 Top 10 (홈 화면, §2.4)**
 
@@ -647,6 +647,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 | `V14__erase_withdrawn_user_personal_data.sql` | `db/migration` | 항상 |
+| `V15__terms_tables.sql` | `db/migration` | 항상 — 빈 약관·동의 테이블만 생성 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -679,6 +680,44 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - V9 는 기존 `vote` 를 일별 집계로 **백필**한다. 빈 채로 두면 배포 직후 모든 회원의
   누적 투표가 0 이 되는데 에러가 나지 않아 사용자가 신고해야 발견된다.
 - `user_badge` 에 UPDATE·DELETE 경로가 없다. 뱃지는 한 번 얻으면 남고 회수 정책이 없다.
+
+---
+
+### 4.4 약관·동의 이력 2개 (V15)
+
+| 테이블 | 저장 내용 | 핵심 제약 |
+|---|---|---|
+| `terms` | 종류·버전, 제목, 전체 Markdown 본문, 필수 여부, 시행·등록 시각 | UNIQUE(type, version), UNIQUE(type, effective_at), 필수값 NOT NULL, 빈 문자열/일반 공백만인 값 및 0/1 외 필수 여부 거부 |
+| `terms_agreement` | 사용자·약관 버전별 최초 동의 시각 | UNIQUE(user_id, terms_id), users·terms FK |
+
+- 시각은 기존 초 단위 Asia/Seoul 계약을 따른다. 종류별 현재 버전은
+  `effective_at <= now` 중 시행 시각이 가장 늦은 행이다. 문자열 버전으로 정렬하지 않는다.
+- 공개된 약관은 덮어쓰지 않고 새 버전을 추가한다. 참조 중인 약관의 DELETE는 FK가 거부하지만,
+  임의 UPDATE는 DB가 막지 않으므로 후속 저장 경로와 운영에서 불변성을 지켜야 한다.
+- 종류·버전은 ASCII binary collation으로 대소문자를 구분한다. 코드 표준화는 후속 등록 경로에서 검증한다.
+  CHECK의 TRIM은 일반 공백 기준이며 탭·개행만인 값, Markdown 내용과 최종 승인 여부는 등록 전에 검수한다.
+- 동의 행은 해당 버전의 최초 수락 사실이다. 거절·철회·재수락 이벤트나 현재 유효 동의 상태는 표현하지 않는다.
+- 사용자 물리 DELETE는 동의 행에 CASCADE한다. INACTIVE 전환에는 적용되지 않는다.
+  동의 수신 API 활성화 전에 보존·파기 정책과 탈퇴 연동을 확정해야 한다.
+- 본문·동의 시드는 없다. 최종 본문 등록과 조회·실제 동의 저장 API는 후속 구현에서 함께 다룬다.
+  개인정보처리방침의 전문 저장 자체가 선택 수집 항목까지 필수 동의로 묶는다는 뜻은 아니다.
+- 이번 변경은 DB 기반 구조다. API·가입 흐름·노션 링크·OS 권한 계약은 변경하지 않는다.
+  선택 근거와 후속 책임은 [ADR-0048](adr/0048-versioned-terms-and-user-agreement.md)에 둔다.
+
+**2026-09-10 사용자 합의 — 후속 등록·앱 연동 방향이며 이번 DB 구현의 동작은 아님:**
+
+| 제공 문서 | 처리 방향 |
+|---|---|
+| [개인정보처리방침](https://super-albatross-219.notion.site/PickPle-3c8eab9bfff480a5810deaa3a8d902f8) | 확정된 Markdown 전문을 `terms.content`에 버전별 저장 |
+| [이용약관](https://super-albatross-219.notion.site/PickPle-3c8eab9bfff480b1ad6ef0fe62c21b42) | 확정된 Markdown 전문을 별도 약관 행에 저장 |
+| [앱 버전/업데이트 안내](https://super-albatross-219.notion.site/3c8eab9bfff480fa8cc6f5e127d72d15?pvs=74) | 앱 설정에서 Notion 링크 제공. 약관·동의 테이블에 넣지 않음 |
+
+- 두 약관 문서에서 확인한 시행일은 `2026-09-20`이다. 약관 버전 번호는 없으며 앱 업데이트 안내도 그 출처가 아니다.
+  `type`·`version`·`created_at`은 백엔드 관리 값이다. 실제 필수 여부는 동의 화면의 해당 항목과 맞춘다.
+- Notion은 문서 작성 원본으로 사용한다. 후속 앱은 DB의 해당 버전 본문을 표시하고 같은 `terms_id`로 동의를 보낸다.
+  등록 후 Notion이 수정돼도 과거 동의가 가리키는 DB 본문은 바꾸지 않는다.
+- 조항·표·목록·링크를 포함한 전문을 보존한다. 자연어의 보관 기간을 저장하는 것과 실제 파기 기능 구현은 구분한다.
+  추가 약관, 관리 화면, 자동 Notion 동기화, 앱 업데이트 관리 테이블은 이번 범위에 추가하지 않는다.
 
 ---
 
@@ -852,7 +891,9 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-12 | 검색 제목·사진 조회를 별도 문장으로 분리한 네 문장 구조를 본문에 반영 | Issue #122·PR #149 리뷰 반영 후 구현과 문서 일치 |
 | 2026-09-10 | 게스트 게시글 검색 추가. 유형별 제목·상품명 SQL 검색, 정확한 전체 건수, 최신순 10건 커서, 검색 전용 응답을 QueryDSL 세 문장으로 구현 | Issue #122. 닫힌 PR #126의 native SQL·배열 결과를 재사용하지 않고 develop의 typed projection 규약 적용 |
+| 2026-09-10 | V15로 버전별 약관 본문과 사용자별 최초 동의 테이블 추가(§4.4). 본문·동의 시드 및 API는 없음 | #123 저장 결정의 후속 #147. 최종본 수령 후 본문을 등록하는 DB 기반 구조(ADR-0048) |
 | 2026-09-08 | `GET /posts/{id}` 추가(ADR-0046). 단일 응답 타입에 투표 섹션만 nullable 중첩, 미투표자·게스트에게 선택지별 집계를 부재로 감춤, 탈퇴 작성자는 비식별 표기. 읽기는 QueryDSL 세 문장 | Issue #20. 첫 판 PR #128 은 `Object[]` + 인덱스 상수 25개라 #130 의 표준으로 다시 구현(PRD-024 작업 단위 6). `users.highest_grade` 를 읽기 전용으로 매핑 |
 | 2026-09-06 | dev QA 아이디·비밀번호 로그인 `/auth/login` 추가. URI에서 환경명을 분리하고 BCrypt 설정 자격증명을 기존 활성 계정에 연결 | Issue #117·PR #120 리뷰 반영. 내부 ID·공유 헤더 키 방식 철회 |
 | 2026-09-06 | 회원 탈퇴가 provider 무관하게 개인정보를 즉시 파기한다(ADR-0040). 다섯 컬럼을 `NULL`로 비우고 도메인 불변식을 `APPLE + INACTIVE` 한정에서 `INACTIVE` 기준으로 넓혔다. V14가 기존 탈퇴자를 소급 파기한다 | Issue #111. 개인정보처리방침 제3조가 "회원 탈퇴 시 지체 없이 파기"를 규정하는데(시행 2026-09-20) `withdraw()`는 상태만 바꿔 이메일·이름·닉네임·프로필 이미지와 카카오 `provider_id`가 무기한 남았다. **원인은 버그가 아니라 도메인 모델 결손이다** — 규칙 표에 R-20("지우지 않는다")만 있어 코드가 표현할 파기 규칙이 없었다. R-27·R-28을 세우고 R-20의 대상을 "콘텐츠와 활동"으로 좁혔다 |

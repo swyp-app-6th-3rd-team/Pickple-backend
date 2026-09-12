@@ -3,6 +3,7 @@ package app.pickple.post.service;
 import app.pickple.common.CursorCodec;
 import app.pickple.common.RelativeTime;
 import app.pickple.common.ResponseCode;
+import app.pickple.common.StringUtils;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
@@ -398,7 +399,7 @@ public class PostService {
         if (raw == null) {
             throw invalidSearchKeyword();
         }
-        String keyword = stripEdgeWhitespace(raw);
+        String keyword = StringUtils.stripEdgeWhitespace(raw);
         int codePoints = keyword.codePointCount(0, keyword.length());
         if (codePoints < 1
                 || codePoints > SEARCH_KEYWORD_MAX_CODE_POINTS
@@ -406,30 +407,6 @@ public class PostService {
             throw invalidSearchKeyword();
         }
         return keyword;
-    }
-
-    private static String stripEdgeWhitespace(String value) {
-        int start = 0;
-        int end = value.length();
-        while (start < end) {
-            int codePoint = value.codePointAt(start);
-            if (!isEdgeWhitespace(codePoint)) {
-                break;
-            }
-            start += Character.charCount(codePoint);
-        }
-        while (start < end) {
-            int codePoint = value.codePointBefore(end);
-            if (!isEdgeWhitespace(codePoint)) {
-                break;
-            }
-            end -= Character.charCount(codePoint);
-        }
-        return value.substring(start, end);
-    }
-
-    private static boolean isEdgeWhitespace(int codePoint) {
-        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
     private static ScrollPosition decodeSearchCursor(String cursor) {
