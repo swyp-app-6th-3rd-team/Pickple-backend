@@ -58,18 +58,23 @@ public class ActivityQueryService {
     /**
      * 활동 목록 한 조각 (§9.1 · §9.2).
      *
-     * @param type   없거나 모르는 값이면 투표 (§9.1 — 칩은 항상 하나가 활성이다)
+     * <p><b>유형은 경로가 정한다</b> — 문자열이 아니라 {@link ActivityType} 을 받는다.
+     * 세 경로로 갈린 뒤로는 호출자가 유형을 이미 알고 있으므로, 여기서 다시
+     * "모르는 값을 접는" 단계를 두면 도달하지 않는 분기가 남는다(ADR-0049).
+     * 정렬은 그대로 쿼리 파라미터라 {@link ActivitySort#from} 의 관대한 해석이 남는다.
+     *
+     * @param type   경로가 고정한 활동 유형
      * @param sort   없거나 모르는 값이면 최신순
-     * @param cursor 없으면 첫 조각
+     * @param cursor 없으면 첫 조각. 다른 유형에서 만든 커서면 400 이다
      */
     @Transactional(readOnly = true)
     public Window<ActivityQueryStore.ActivityPostView> findSlice(
-            Long userId, String type, String sort, String cursor, Integer size) {
+            Long userId, ActivityType type, String sort, String cursor, Integer size) {
 
         ScrollPosition position = CursorCodec.decode(cursor);
         return activityQueryStore.findSlice(
                 userId,
-                ActivityType.from(type),
+                type,
                 ActivitySort.from(sort),
                 position,
                 sliceSize(size));
