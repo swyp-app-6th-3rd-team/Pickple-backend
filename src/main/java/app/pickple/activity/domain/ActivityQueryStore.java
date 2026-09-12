@@ -83,6 +83,14 @@ public interface ActivityQueryStore {
      * @param activityAt   <b>내가 이 게시글에 활동한 시각.</b> 투표한 시각·처음 댓글을 단 시각·
      *                     글을 올린 시각이며, 게시글 작성 시각과 다를 수 있다.
      *                     최신순·오래된순의 정렬 키이자 커서 값이다 (ADR-0036)
+     * @param selectedOptionId 내가 고른 선택지. <b>투표 활동 경로에만 값이 있다</b> —
+     *                     그 경로는 조회자가 곧 투표자라 언제나 값이 있고(R-09),
+     *                     댓글·내 글 경로는 투표 여부를 묻지 않으므로 {@code null} 이다.
+     *                     재투표는 {@code vote} 한 행의 UPDATE 라 이 값이 곧 최신 선택이다 (R-22)
+     * @param products     투표 대상 상품. 투표 활동 경로의 투표 게시글에만 있고
+     *                     그 밖에는 빈 목록이다 (§9.2)
+     * @param options      선택지와 득표 수. 투표 활동 경로의 투표 게시글에만 있고
+     *                     그 밖에는 빈 목록이다. 정확히 둘이다 (R-04)
      */
     record ActivityPostView(
             Long id,
@@ -94,6 +102,56 @@ public interface ActivityQueryStore {
             long commentCount,
             LocalDateTime createdAt,
             String thumbnailUrl,
-            LocalDateTime activityAt) {
+            LocalDateTime activityAt,
+            Long selectedOptionId,
+            List<ActivityPostProduct> products,
+            List<ActivityPostOption> options) {
+
+        /**
+         * 투표 활동이 아닌 유형의 한 줄. 선택지·상품을 읽지 않는 경로가 쓴다 —
+         * 세 필드를 매번 {@code null}·{@code List.of()} 로 적어 넣는 자리를 한 곳으로 모은다.
+         */
+        public static ActivityPostView card(
+                Long id, PostType type, PostCategory category, String title, String description,
+                long voteCount, long commentCount, LocalDateTime createdAt, String thumbnailUrl,
+                LocalDateTime activityAt) {
+            return new ActivityPostView(id, type, category, title, description, voteCount,
+                    commentCount, createdAt, thumbnailUrl, activityAt, null, List.of(), List.of());
+        }
+
+        /** 선택지·상품을 붙인 사본. 배치 문장이 읽어 온 값을 행에 얹는다. */
+        public ActivityPostView withVoteDetail(
+                List<ActivityPostProduct> products, List<ActivityPostOption> options) {
+            return new ActivityPostView(id, type, category, title, description, voteCount,
+                    commentCount, createdAt, thumbnailUrl, activityAt, selectedOptionId,
+                    products, options);
+        }
+    }
+
+    /**
+     * 투표 활동 카드의 상품 한 건 (§9.2). 찬반은 1개, A/B 는 표시 순서대로 2개다 (R-02).
+     *
+     * <p>{@code PostStore.PostDetailProduct} 와 <b>필드가 다르다</b> — 카드는 사진만 쓰고
+     * 상품명·가격·URL 을 그리지 않는다. 상세의 타입을 그대로 가져오면 이 화면이 쓰지 않는
+     * 세 필드를 들고 다니게 되고, 그 값을 채우려 조회가 넓어진다.
+     *
+     * @param imageUrl 상품 사진 1장. 찬반은 최대 3장 중 가장 처음 등록한 것,
+     *                 A/B 는 상품마다 1장이라 그 한 장이다 (R-03). 사진이 없으면 {@code null}
+     */
+    record ActivityPostProduct(int displayOrder, String imageUrl) {
+    }
+
+    /**
+     * 투표 활동 카드의 선택지 한 건 (§9.2). 투표 게시글은 정확히 둘이다 (R-04).
+     *
+     * <p><b>득표율을 여기서 계산하지 않는다.</b> 저장소는 읽은 득표 수를 그대로 올리고
+     * 퍼센트 환산은 컨트롤러가 {@code VotePercentage} 로 한다 — 상세가 세운 분담과 같다
+     * (ADR-0046). 저장소가 계산하면 상세와 활동 목록에 정본이 둘이 되어 같은 글의
+     * 게이지가 화면마다 달라질 자리가 생긴다.
+     *
+     * @param label     찬반만 값이 있다. A/B 선택지는 상품이 이름을 대신하므로 {@code null}
+     * @param voteCount 이 선택지의 득표 수. 재투표는 카운터를 옮길 뿐이라 합이 인원과 같다 (R-22)
+     */
+    record ActivityPostOption(Long id, String label, int displayOrder, long voteCount) {
     }
 }

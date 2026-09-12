@@ -516,7 +516,7 @@ class ActivityControllerIT {
                 long one = countStatements(path + "?size=1", 1);
                 long twelve = countStatements(path + "?size=12", 12);
 
-                // 지키려는 성질은 "3회" 라는 숫자가 아니라 행 수에 비례하지 않는다는 것이다.
+                // 지키려는 성질은 숫자가 아니라 행 수에 비례하지 않는다는 것이다.
                 assertThat(twelve)
                         .as("%s 의 문장 수가 행 수를 따라 늘면 N+1 이다", path)
                         .isEqualTo(one);
@@ -528,9 +528,126 @@ class ActivityControllerIT {
                 //      둘로 갈라졌지만 행 수에 비례하는 쪽은 여전히 없다.
                 //   3) 탈퇴 회원 차단 관문의 상태 확인 (#106, ADR-0035)
                 //      요청당 1회이고 행 수와 무관하다. type=const / key=PRIMARY 로 끝난다.
-                // POST 는 조인이 없지만 문장 수는 셋으로 같다 — 갈리는 것은 문장의 모양이지 개수가 아니다.
-                assertThat(one).as("%s 의 요청당 상수 문장 수", path).isEqualTo(3L);
+                // 투표 경로는 여기에 둘이 더 붙는다 — 선택지와 상품을 조각 전체에
+                // post.id IN 한 문장씩으로 읽는다 (#157). 이 둘도 행 수와 무관하다.
+                // COMMENT·POST 는 그 계약이 없어 셋 그대로다 (#158 소관).
+                long expected = path.equals(VOTES) ? 5L : 3L;
+                assertThat(one).as("%s 의 요청당 상수 문장 수", path).isEqualTo(expected);
             }
+
+            // ⚠️ 문장 수 단언만으로 N+1 부재를 선언하지 않는다 — 한 문장 안의 상관 서브쿼리는
+            // 이 계수에 잡히지 않는다(대표 사진·상품 사진이 그렇다). 조각 크기를 12배로 키워도
+            // 위 단언이 같은 값을 요구하므로, 문장이 늘지 않으면서 안쪽이 행마다 도는 경우는
+            // 실행계획 테스트(RowStatementPlan)가 따로 고정한다.
+        }
+
+        @Test
+        @DisplayName("선택을 바꾸면 목록의 내 선택도 최신 선택이다 (R-22)")
+        void selectedOptionIsTheLatestChoice() throws Exception {
+            // 재투표는 vote 한 행의 UPDATE 라 uk_vote_post_user 가 "한 사람당 한 선택" 을
+            // 이미 보장한다 — 목록이 옛 선택을 보여주면 그 한 행을 안 읽고 있다는 뜻이다.
+            Post post = saveAgreePost("재투표 카드");
+            castVote(post, me, 1);
+
+            assertThat(firstItem(VOTES, "selectedOptionId"))
+                    .isEqualTo(optionIdOf(post, 1).intValue());
+
+            recastVote(post, me, 1, 2);
+
+            assertThat(firstItem(VOTES, "selectedOptionId"))
+                    .as("재투표 뒤에는 최신 선택이어야 한다")
+                    .isEqualTo(optionIdOf(post, 2).intValue());
+            // 사람 수는 그대로고 표만 옮겨갔다.
+            assertThat(firstItem(VOTES, "voteCount")).isEqualTo(1);
+            assertThat(firstItem(VOTES, "options[0].voteCount")).isEqualTo(0);
+            assertThat(firstItem(VOTES, "options[1].voteCount")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("득표율이 게시글 상세와 같은 값이고 합이 100±1 이다")
+        void percentageMatchesPostDetail() throws Exception {
+            // 같은 게이지를 두 화면이 그린다. 반올림 규칙이 갈리면 카드에서 본 값과
+            // 탭해 들어간 상세의 값이 미세하게 달라진다 — 그래서 값을 직접 대조한다.
+            // 3명 중 1명 = 33.33% 라 정수 반올림 경계에 걸린다.
+            Post post = saveAgreePost("반올림 대조 카드");
+            User second = saveUser("act-voter2-" + seed, "투표2");
+            User third = saveUser("act-voter3-" + seed, "투표3");
+            castVote(post, me, 1);
+            castVote(post, second, 2);
+            castVote(post, third, 2);
+
+            int firstFromDetail = detail(post.id(), "vote.options[0].percentage");
+            int secondFromDetail = detail(post.id(), "vote.options[1].percentage");
+
+            assertThat(firstItem(VOTES, "options[0].percentage"))
+                    .as("활동 목록의 득표율이 상세와 달라지면 정본이 둘이다")
+                    .isEqualTo(firstFromDetail);
+            assertThat(firstItem(VOTES, "options[1].percentage")).isEqualTo(secondFromDetail);
+
+            int sum = firstItem(VOTES, "options[0].percentage")
+                    + firstItem(VOTES, "options[1].percentage");
+            assertThat(sum)
+                    .as("선택지별 반올림이라 합이 정확히 100 은 아닐 수 있다 — 다만 1 을 넘게 벌어지면 계산이 틀린 것이다")
+                    .isBetween(99, 101);
+        }
+
+        @Test
+        @DisplayName("A/B 카드는 사진 2장, 찬반 카드는 1장이다 (R-02 · R-03)")
+        void productPhotosFollowPostType() throws Exception {
+            Post ab = saveAbPost("A/B 카드", "https://cdn/ab-a.jpg", "https://cdn/ab-b.jpg");
+            castVote(ab, me, 1);
+
+            JSONArray abImages = JsonPath.read(read(VOTES), "$.returnObject.content[0].products[*].imageUrl");
+            assertThat(abImages)
+                    .as("A/B 는 표시 순서대로 두 상품의 사진이 필요하다 — 선택지별 결과가 양쪽을 그린다")
+                    .containsExactly("https://cdn/ab-a.jpg", "https://cdn/ab-b.jpg");
+
+            // 찬반은 상품이 하나뿐이다 (R-02).
+            Post agree = saveAgreePost("찬반 카드");
+            attachPhotos(agree, "https://cdn/agree-1.jpg", "https://cdn/agree-2.jpg");
+            castVote(agree, me, 1);
+            stampVotedAt(ab, 60);   // A/B 를 뒤로 보내 찬반이 첫 항목이 되게 한다
+
+            JSONArray agreeImages = JsonPath.read(read(VOTES), "$.returnObject.content[0].products[*].imageUrl");
+            assertThat(agreeImages)
+                    .as("찬반 상품은 사진이 최대 3장이어도 대표 1장이다")
+                    .containsExactly("https://cdn/agree-1.jpg");
+        }
+
+        @Test
+        @DisplayName("선택지는 정확히 둘이고 표시 순서대로다 (R-04)")
+        void optionsAreExactlyTwoInDisplayOrder() throws Exception {
+            Post post = saveAgreePost("선택지 순서");
+            castVote(post, me, 1);
+
+            JSONArray orders = JsonPath.read(read(VOTES), "$.returnObject.content[0].options[*].displayOrder");
+            assertThat(orders).containsExactly(1, 2);
+            JSONArray labels = JsonPath.read(read(VOTES), "$.returnObject.content[0].options[*].label");
+            assertThat(labels).containsExactly("사자", "말자");
+        }
+
+        @Test
+        @DisplayName("댓글·내 글 응답은 그대로다 — 투표 카드에만 필드가 붙는다")
+        void otherPathsKeepTheirContract() throws Exception {
+            // #158 이 댓글 카드를 따로 정하므로, 그전까지 두 경로의 계약은 변하지 않아야 한다.
+            Post commented = saveAgreePost("댓글 단 투표글");
+            commenterStore.recordIfFirst(commented.id(), me.id());
+            Post mine = saveAgreePost("내가 쓴 투표글", me);
+
+            mockMvc.perform(get(COMMENTS).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.content[0].selectedOptionId").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject.content[0].options").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject.content[0].products").doesNotExist());
+
+            mockMvc.perform(get(POSTS).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.content[0].selectedOptionId").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject.content[0].options").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject.content[0].products").doesNotExist());
+
+            assertThat(idsOf(COMMENTS)).containsExactly(commented.id().intValue());
+            assertThat(idsOf(POSTS)).containsExactly(mine.id().intValue());
         }
 
         @Test
@@ -1022,6 +1139,78 @@ class ActivityControllerIT {
                 optionIdOf(post, 2), voteId);
     }
 
+    /**
+     * 한 사람의 첫 투표를 <b>카운터까지</b> 심는다 — {@code VoteService.castFirst} 와 같은 모양이다.
+     *
+     * <p>{@link #voteOn} 은 {@code vote} 행만 넣어 정렬·커서를 보기에 충분했지만, 득표율을
+     * 대조하려면 집계가 운영과 같아야 한다. 사람 수({@code post.vote_count})와 선택지 표
+     * ({@code post_option.vote_count})를 함께 올리지 않으면 두 화면이 <b>같은 틀린 값</b>을
+     * 보여도 테스트가 통과한다.
+     */
+    private void castVote(Post post, User voter, int displayOrder) {
+        Long optionId = optionIdOf(post, displayOrder);
+        jdbcTemplate.update("INSERT INTO vote (post_id, post_option_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+                post.id(), optionId, voter.id(), LocalDateTime.now(clock));
+        jdbcTemplate.update("UPDATE post SET vote_count = vote_count + 1 WHERE id = ?", post.id());
+        jdbcTemplate.update("UPDATE post_option SET vote_count = vote_count + 1 WHERE id = ?", optionId);
+    }
+
+    /**
+     * 선택을 바꾼다 — {@code VoteService.changeChoice} 와 같은 모양이다.
+     * <b>사람 수는 그대로 두고 선택지 표만 옮긴다</b> (R-22).
+     */
+    private void recastVote(Post post, User voter, int fromDisplayOrder, int toDisplayOrder) {
+        Long from = optionIdOf(post, fromDisplayOrder);
+        Long to = optionIdOf(post, toDisplayOrder);
+        jdbcTemplate.update("UPDATE vote SET post_option_id = ? WHERE post_id = ? AND user_id = ?",
+                to, post.id(), voter.id());
+        jdbcTemplate.update("UPDATE post_option SET vote_count = vote_count - 1 WHERE id = ?", from);
+        jdbcTemplate.update("UPDATE post_option SET vote_count = vote_count + 1 WHERE id = ?", to);
+    }
+
+    /**
+     * A/B 게시글을 상품 둘과 사진 한 장씩으로 심는다 (R-02 · R-03).
+     *
+     * <p>{@link #saveAgreePost} 와 같은 이유로 JDBC 로 우회한다. 선택지는 상품을 가리키고
+     * ({@code post_product_id}) 표시 순서가 1=A · 2=B 라, 카드가 사진 두 장을 순서대로
+     * 그릴 수 있는지 보려면 이 연결까지 심어야 한다.
+     */
+    private Post saveAbPost(String title, String imageA, String imageB) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        jdbcTemplate.update("""
+                INSERT INTO post (user_id, type, category, title, description, created_at, updated_at)
+                VALUES (?, 'A_B', 'ETC', ?, '설명', ?, ?)
+                """, author.id(), title, now, now);
+        Long postId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+
+        Long productA = saveProduct(postId, "A 상품", 1, imageA);
+        Long productB = saveProduct(postId, "B 상품", 2, imageB);
+        jdbcTemplate.update("""
+                INSERT INTO post_option (post_id, post_product_id, label, display_order, vote_count, created_at)
+                VALUES (?, ?, NULL, 1, 0, ?), (?, ?, NULL, 2, 0, ?)
+                """, postId, productA, now, postId, productB, now);
+        return postStore.findById(postId).orElseThrow();
+    }
+
+    /** 상품 한 건과 사진 한 장. 컨테이너가 사진의 부모라 먼저 넣는다. */
+    private Long saveProduct(Long postId, String name, int displayOrder, String accessUrl) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        jdbcTemplate.update("""
+                INSERT INTO item_container (user_id, attach_type, created_at, updated_at)
+                VALUES (?, 'PRODUCT', ?, ?)
+                """, author.id(), now, now);
+        Long containerId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO item_resource (item_container_id, size, original_file_name, item_key, access_url, created_at, updated_at)
+                VALUES (?, 1024, 'photo.jpg', ?, ?, ?, ?)
+                """, containerId, "key/" + accessUrl, accessUrl, now, now);
+        jdbcTemplate.update("""
+                INSERT INTO post_product (post_id, item_container_id, name, display_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, postId, containerId, name, (byte) displayOrder, now, now);
+        return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
     private Long optionIdOf(Post post, int displayOrder) {
         return jdbcTemplate.queryForObject(
                 "SELECT id FROM post_option WHERE post_id = ? AND display_order = ?",
@@ -1081,6 +1270,29 @@ class ActivityControllerIT {
     private List<String> thumbnailsOf(String url) throws Exception {
         JSONArray urls = JsonPath.read(read(url), "$.returnObject.content[*].thumbnailUrl");
         return urls.stream().map(u -> (String) u).toList();
+    }
+
+    /**
+     * 첫 항목의 정수 필드를 목록에서 읽는다. 대조 테스트가 조각에 한 건만 두므로 [0] 이다.
+     *
+     * <p>반환형을 {@code int} 로 못박는다 — 타입 변수로 두면 호출자가 값을 쓰는 자리에서
+     * AssertJ 의 {@code assertThat(IntPredicate)} 와 {@code assertThat(Predicate<T>)} 가
+     * 모두 후보가 되어 컴파일이 모호해진다.
+     */
+    private int firstItem(String url, String path) throws Exception {
+        Number value = JsonPath.read(read(url), "$.returnObject.content[0]." + path);
+        return value.intValue();
+    }
+
+    /** 게시글 상세의 정수 필드. 활동 목록과 값을 대조할 때 쓴다. */
+    private int detail(Long postId, String path) throws Exception {
+        MvcResult result = mockMvc.perform(get("/posts/{id}", postId)
+                        .header("Authorization", bearer(me)))
+                .andExpect(status().isOk())
+                .andReturn();
+        Number value = JsonPath.read(
+                result.getResponse().getContentAsString(), "$.returnObject." + path);
+        return value.intValue();
     }
 
     private List<Integer> recentIds() throws Exception {

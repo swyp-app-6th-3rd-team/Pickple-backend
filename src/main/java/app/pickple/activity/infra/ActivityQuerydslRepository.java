@@ -1,5 +1,7 @@
 package app.pickple.activity.infra;
 
+import app.pickple.activity.domain.ActivityQueryStore.ActivityPostOption;
+import app.pickple.activity.domain.ActivityQueryStore.ActivityPostProduct;
 import app.pickple.activity.domain.ActivityQueryStore.ActivityPostView;
 import app.pickple.activity.domain.ActivityQueryStore.ActivitySummary;
 import app.pickple.activity.domain.ActivitySort;
@@ -9,6 +11,7 @@ import app.pickple.comment.infra.QPostCommenterEntity;
 import app.pickple.item.infra.QItemResourceEntity;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.infra.QPostEntity;
+import app.pickple.post.infra.QPostOptionEntity;
 import app.pickple.post.infra.QPostProductEntity;
 import app.pickple.vote.infra.QVoteEntity;
 import com.querydsl.core.types.Expression;
@@ -29,10 +32,15 @@ import org.springframework.util.Assert;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * 내 활동 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0043).
+ * <b>투표 활동 경로만 넷</b>이다 — 카드가 선택지별 득표율과 내 선택을 그리므로
+ * ({@link #attachVoteDetail} #157) 선택지와 상품을 조각 전체에 한 문장씩 더 붙인다.
+ * 늘어난 둘도 행 수에 비례하지 않는다 — 조각 크기가 10 이든 50 이든 문장 수는 같다.
  *
  * <p><b>먼저 자르고 나중에 붙인다.</b> 조각에 들어갈 게시글 id 를 활동 테이블의 인덱스로
  * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 게시글과 대표 사진을 붙인다.
@@ -75,6 +83,7 @@ class ActivityQuerydslRepository {
     private static final QPostCommenterEntity COMMENTER = QPostCommenterEntity.postCommenterEntity;
     private static final QUserEntity USER = QUserEntity.userEntity;
     private static final QPostProductEntity PRODUCT = QPostProductEntity.postProductEntity;
+    private static final QPostOptionEntity OPTION = QPostOptionEntity.postOptionEntity;
     private static final QItemResourceEntity RESOURCE = QItemResourceEntity.itemResourceEntity;
     /** 대표 사진 서브쿼리 안쪽의 두 번째 {@code item_resource}. 바깥 별칭과 겹치면 안 된다. */
     private static final QItemResourceEntity CANDIDATE = new QItemResourceEntity("candidate");
@@ -130,7 +139,10 @@ class ActivityQuerydslRepository {
         List<ActivityRow> rows = rows(type, userId, page)
                 .orderBy(order(sortKey, sort), order(postId, sort))
                 .fetch();
-        return new ActivitySlice(rows, hasNext);
+        // 선택지·상품은 투표 활동 카드만 그린다 (#157). 다른 두 경로에 붙이면 화면이 쓰지 않는
+        // 값을 위해 문장이 둘 늘고, 그 계약은 #158 이 댓글 카드에 따로 정한다.
+        return new ActivitySlice(
+                type == ActivityType.VOTE ? attachVoteDetail(rows) : rows, hasNext);
     }
 
     /**
@@ -258,7 +270,7 @@ class ActivityQuerydslRepository {
      */
     private JPAQuery<ActivityRow> rows(ActivityType type, Long userId, List<Long> ids) {
         return switch (type) {
-            case VOTE -> queryFactory.select(projection(VOTE.createdAt))
+            case VOTE -> queryFactory.select(projection(VOTE.createdAt, VOTE.postOptionId))
                     .from(POST)
                     .join(VOTE).on(VOTE.postId.eq(POST.id), VOTE.userId.eq(userId))
                     .where(POST.id.in(ids));
@@ -283,6 +295,19 @@ class ActivityQuerydslRepository {
      * {@link QPostEntity#popularityScore} 를 써야 인덱스가 산다.
      */
     private static Expression<ActivityRow> projection(DateTimePath<LocalDateTime> activityAt) {
+        return projection(activityAt, Expressions.nullExpression(Long.class));
+    }
+
+    /**
+     * 행 문장의 프로젝션에 <b>내가 고른 선택지</b>를 싣는다. 투표 활동 경로만 쓴다.
+     *
+     * <p>새 조인이 없다 — {@link #rows} 의 VOTE 분기가 이미 {@code (post_id, user_id)} 유니크 키로
+     * {@code vote} 를 한 줄 붙이고 있으므로 {@code post_option_id} 는 그 한 줄에서 한 컬럼 더 읽는
+     * 것이다. 재투표가 UPDATE 라(R-22) 그 한 줄이 곧 <b>최신</b> 선택이고, 그래서 정렬이나
+     * {@code MAX} 가 필요 없다 — "최신" 을 스키마의 유니크 키가 이미 보장한다.
+     */
+    private static Expression<ActivityRow> projection(
+            DateTimePath<LocalDateTime> activityAt, Expression<Long> selectedOptionId) {
         return Projections.constructor(ActivityRow.class,
                 Projections.constructor(ActivityPostView.class,
                         POST.id,
@@ -294,8 +319,107 @@ class ActivityQuerydslRepository {
                         POST.commentCount.longValue(),
                         POST.createdAt,
                         thumbnailUrl(),
-                        activityAt),
+                        activityAt,
+                        selectedOptionId,
+                        Expressions.constant(List.<ActivityPostProduct>of()),
+                        Expressions.constant(List.<ActivityPostOption>of())),
                 POST.popularityScore.longValue());
+    }
+
+    /**
+     * 선택지와 상품을 <b>조각 전체에 한 문장씩</b> 붙인다 (#157). 투표 활동 경로만 쓴다.
+     *
+     * <p>행 문장에 조인하지 않는 이유는 <b>팬아웃</b>이다. 선택지는 게시글당 둘(R-04), 상품은
+     * 최대 둘(R-02)이라 한 문장에 둘 다 조인하면 게시글 한 줄이 <b>서로를 곱해</b> 최대 넉 줄이
+     * 되고 조각 크기가 어긋난다 — 상세가 세 문장으로 나눈 것과 같은 이유다
+     * ({@code PostDetailQuerydslRepository}). 그렇다고 게시글마다 따로 물으면 그것이 N+1 이다.
+     *
+     * <p>그래서 <b>이미 확정된 id 전부를 {@code IN} 하나로</b> 읽고 메모리에서 게시글별로 묶는다.
+     * 조각 크기가 10 이든 50 이든 문장은 둘이다 — 늘어나는 것은 {@code IN} 의 인자 수뿐이고
+     * 그 접근 경로는 {@code (post_id, display_order)} 유니크 키 범위다.
+     *
+     * <p>투표 게시글이 하나도 없는 조각이면 두 문장을 건너뛴다. 일반 게시글은 선택지도 상품도
+     * 없으므로(R-02·R-04) 물어봐야 빈 결과이고, 상세가 같은 경우에 두 문장을 건너뛰는 것과 같다.
+     */
+    private List<ActivityRow> attachVoteDetail(List<ActivityRow> rows) {
+        List<Long> votingPostIds = rows.stream()
+                .map(ActivityRow::view)
+                .filter(view -> view.type().hasVoting())
+                .map(ActivityPostView::id)
+                .toList();
+        if (votingPostIds.isEmpty()) {
+            return rows;
+        }
+        Map<Long, List<ActivityPostProduct>> products = products(votingPostIds);
+        Map<Long, List<ActivityPostOption>> options = options(votingPostIds);
+        return rows.stream()
+                .map(row -> new ActivityRow(
+                        row.view().withVoteDetail(
+                                products.getOrDefault(row.view().id(), List.of()),
+                                options.getOrDefault(row.view().id(), List.of())),
+                        row.popularityScore()))
+                .toList();
+    }
+
+    /**
+     * 조각에 든 게시글들의 상품과 그 대표 사진 1장 (§9.2). 표시 순서대로다 — 찬반은 1개,
+     * A/B 는 A·B 둘 (R-02).
+     *
+     * <p>{@code post_id} 를 함께 읽어 게시글별로 묶는다. 정렬을 {@code post_id} 까지 넓히지 않는
+     * 이유는 묶는 주체가 SQL 이 아니라 애플리케이션이고, {@code groupingBy} 가 값의 순서를
+     * 유지하므로 {@code display_order} 하나면 게시글 안의 순서가 정해지기 때문이다.
+     */
+    private Map<Long, List<ActivityPostProduct>> products(List<Long> postIds) {
+        return queryFactory.select(PRODUCT.post.id,
+                        Projections.constructor(ActivityPostProduct.class,
+                                PRODUCT.displayOrder.intValue(),
+                                imageUrl()))
+                .from(PRODUCT)
+                .where(PRODUCT.post.id.in(postIds))
+                .orderBy(PRODUCT.displayOrder.asc())
+                .fetch()
+                .stream()
+                .collect(Collectors.groupingBy(
+                        tuple -> tuple.get(PRODUCT.post.id),
+                        Collectors.mapping(
+                                tuple -> tuple.get(1, ActivityPostProduct.class), Collectors.toList())));
+    }
+
+    /**
+     * 조각에 든 게시글들의 선택지와 득표 수 (§9.2). 표시 순서대로이고 게시글당 정확히 둘이다 (R-04).
+     *
+     * <p><b>득표율로 바꾸지 않는다.</b> 저장소는 읽은 값을 그대로 올리고 퍼센트 환산은 위층이
+     * 한다 — 상세가 세운 분담과 같다(ADR-0046). 여기서 계산하면 같은 글의 게이지에 정본이 둘이 된다.
+     */
+    private Map<Long, List<ActivityPostOption>> options(List<Long> postIds) {
+        return queryFactory.select(OPTION.post.id,
+                        Projections.constructor(ActivityPostOption.class,
+                                OPTION.id,
+                                OPTION.label,
+                                OPTION.displayOrder.intValue(),
+                                OPTION.voteCount.longValue()))
+                .from(OPTION)
+                .where(OPTION.post.id.in(postIds))
+                .orderBy(OPTION.displayOrder.asc())
+                .fetch()
+                .stream()
+                .collect(Collectors.groupingBy(
+                        tuple -> tuple.get(OPTION.post.id),
+                        Collectors.mapping(
+                                tuple -> tuple.get(1, ActivityPostOption.class), Collectors.toList())));
+    }
+
+    /**
+     * 상품의 대표 사진 — 가장 먼저 등록된 한 장 (§9.2). {@code PostDetailQuerydslRepository} 와
+     * 같은 정의다. 상관 조건의 {@code PRODUCT} 는 {@link #products} 의 루트다.
+     */
+    private static Expression<String> imageUrl() {
+        return JPAExpressions.select(RESOURCE.accessUrl)
+                .from(RESOURCE)
+                .where(RESOURCE.id.eq(
+                        JPAExpressions.select(CANDIDATE.id.min())
+                                .from(CANDIDATE)
+                                .where(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))));
     }
 
     /**
