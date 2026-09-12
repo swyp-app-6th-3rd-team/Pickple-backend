@@ -91,6 +91,12 @@ public interface ActivityQueryStore {
      *                     그 밖에는 빈 목록이다 (§9.2)
      * @param options      선택지와 득표 수. 투표 활동 경로의 투표 게시글에만 있고
      *                     그 밖에는 빈 목록이다. 정확히 둘이다 (R-04)
+     * @param myComment    내가 그 글에 남긴 <b>대표 댓글</b>. 원픽이 가장 많은 한 건이고
+     *                     동률이면 최신이다 (#158). <b>댓글 활동 경로에만 값이 있다</b> —
+     *                     그 경로는 살아있는 내 댓글이 있는 글만 돌려주므로 언제나 값이 있고,
+     *                     투표·내 글 경로는 댓글을 묻지 않으므로 {@code null} 이다
+     * @param myCommentOnePickCount 대표 댓글이 받은 원픽 수. <b>그 한 건의 것</b>이지
+     *                     그 글에서 내 댓글들이 받은 합계가 아니다 (#158)
      */
     record ActivityPostView(
             Long id,
@@ -105,18 +111,22 @@ public interface ActivityQueryStore {
             LocalDateTime activityAt,
             Long selectedOptionId,
             List<ActivityPostProduct> products,
-            List<ActivityPostOption> options) {
+            List<ActivityPostOption> options,
+            String myComment,
+            long myCommentOnePickCount) {
 
         /**
-         * 투표 활동이 아닌 유형의 한 줄. 선택지·상품을 읽지 않는 경로가 쓴다 —
-         * 세 필드를 매번 {@code null}·{@code List.of()} 로 적어 넣는 자리를 한 곳으로 모은다.
+         * 투표 활동이 아닌 유형의 한 줄. 선택지·상품·대표 댓글을 읽지 않는 경로가 쓴다 —
+         * 다섯 필드를 매번 {@code null}·{@code List.of()}·{@code 0} 으로 적어 넣는 자리를
+         * 한 곳으로 모은다.
          */
         public static ActivityPostView card(
                 Long id, PostType type, PostCategory category, String title, String description,
                 long voteCount, long commentCount, LocalDateTime createdAt, String thumbnailUrl,
                 LocalDateTime activityAt) {
             return new ActivityPostView(id, type, category, title, description, voteCount,
-                    commentCount, createdAt, thumbnailUrl, activityAt, null, List.of(), List.of());
+                    commentCount, createdAt, thumbnailUrl, activityAt, null, List.of(), List.of(),
+                    null, 0);
         }
 
         /** 선택지·상품을 붙인 사본. 배치 문장이 읽어 온 값을 행에 얹는다. */
@@ -124,7 +134,17 @@ public interface ActivityQueryStore {
                 List<ActivityPostProduct> products, List<ActivityPostOption> options) {
             return new ActivityPostView(id, type, category, title, description, voteCount,
                     commentCount, createdAt, thumbnailUrl, activityAt, selectedOptionId,
-                    products, options);
+                    products, options, myComment, myCommentOnePickCount);
+        }
+
+        /**
+         * 대표 댓글과 그 원픽 수를 붙인 사본 (#158). 배치 문장 하나가 읽어 온 값을 행에 얹는다 —
+         * {@link #withVoteDetail} 과 같은 모양이다.
+         */
+        public ActivityPostView withCommentDetail(String myComment, long myCommentOnePickCount) {
+            return new ActivityPostView(id, type, category, title, description, voteCount,
+                    commentCount, createdAt, thumbnailUrl, activityAt, selectedOptionId,
+                    products, options, myComment, myCommentOnePickCount);
         }
     }
 

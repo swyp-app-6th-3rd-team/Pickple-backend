@@ -326,7 +326,11 @@ public class ActivityController {
      * 내가 댓글 단 글 한 줄 (§9.2).
      *
      * <p>한 글에 댓글을 여러 개 달아도 한 줄이다 — 읽는 곳이 {@code comment} 가 아니라
-     * {@code post_commenter} 이고 그 테이블이 게시글당 한 행이다(R-25).
+     * {@code post_commenter} 이고 그 테이블이 게시글당 한 행이다(R-25). 그래서 여러 개 중
+     * <b>어느 것을 보여줄지</b>가 정해져야 하고, 그것이 {@link #myComment} 의 대표 규칙이다.
+     *
+     * <p><b>내 댓글을 전부 지운 글은 이 목록에 없다</b>(#158). {@code post_commenter} 는
+     * 참여 원장이라 행이 남지만, 카드에 그릴 내 댓글이 없으면 보여줄 것이 없다.
      *
      * @param activityAt 내가 <b>처음</b> 댓글을 단 시각 (R-32)
      */
@@ -340,7 +344,13 @@ public class ActivityController {
             @Schema(description = "투표 인원. 일반 게시글은 null") Long voteCount,
             @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
             @Schema(description = "게시글 작성 시각") LocalDateTime createdAt,
-            @Schema(description = "내가 처음 댓글을 단 시각") LocalDateTime activityAt) {
+            @Schema(description = "내가 처음 댓글을 단 시각") LocalDateTime activityAt,
+            @Schema(description = "내가 남긴 대표 댓글 원문. 원픽이 가장 많은 한 건이고 "
+                    + "동률이면 최신이다. 1줄 줄임은 클라이언트가 한다")
+            String myComment,
+            @Schema(description = "대표 댓글이 받은 원픽 수. 그 한 건의 것이지 "
+                    + "이 글에서 내 댓글들이 받은 합계가 아니다")
+            long myCommentOnePickCount) {
 
         static CommentActivityItem from(ActivityQueryStore.ActivityPostView view) {
             return new CommentActivityItem(
@@ -353,7 +363,9 @@ public class ActivityController {
                     view.type().hasVoting() ? view.voteCount() : null,
                     view.thumbnailUrl(),
                     view.createdAt(),
-                    view.activityAt());
+                    view.activityAt(),
+                    view.myComment(),
+                    view.myCommentOnePickCount());
         }
     }
 
