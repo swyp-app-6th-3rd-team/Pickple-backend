@@ -236,10 +236,94 @@ class CommentControllerIT {
                 .andExpect(jsonPath("$.returnObject.comments[0].authorId").value(commentAuthor.id()))
                 .andExpect(jsonPath("$.returnObject.comments[0].createdAt").isString())
                 .andExpect(jsonPath("$.returnObject.comments[0].mine").value(false))
-                .andExpect(jsonPath("$.returnObject.comments[0].createdAgo").isString());
+                .andExpect(jsonPath("$.returnObject.comments[0].createdAgo").isString())
+                // 이 조회자는 픽한 적이 없다. onePickCount 2 는 남의 픽이라 내 상태와 무관하다.
+                .andExpect(jsonPath("$.returnObject.myOnePickCommentId").doesNotExist());
 
-        // 인증 필수 목록이므로 계정 활성 상태 확인 1회 + 댓글 목록 조회 2회다.
-        assertThat(statistics.getPrepareStatementCount()).isEqualTo(3L);
+        // 계정 활성 상태 확인 1 + 댓글 목록 2 + 내 원픽 1 이다.
+        //
+        // 내 원픽이 목록에 섞이지 않고 한 문장을 더 쓰는 이유: 목록은 deleted_at IS NULL 로
+        // 거르는데 픽은 그 필터를 넘어 살아남고(R-06), 활성 댓글이 0건이면 값을 실어 나를
+        // 행 자체가 사라진다. 조인으로는 표현되지 않아 게시글 단위로 따로 읽는다.
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(4L);
+    }
+
+    /** 원픽하면 그 댓글 식별자가 최상위로 돌아온다. 재조회·재로그인해도 같다. */
+    @Test
+    void returnsOwnPickIdentifierOnReread() throws Exception {
+        Comment target = commentService.write(new Comment(
+                postEntity.id(), commentAuthor.id(), "내가 픽할 댓글", null));
+        commentService.write(new Comment(postEntity.id(), commentAuthor.id(), "안 고른 댓글", null));
+
+        assertThat(onePickStore.saveIfAbsent(target.pick(otherUser.id()))).isPresent();
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(otherUserToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.commentCount").value(2))
+                .andExpect(jsonPath("$.returnObject.myOnePickCommentId").value(target.id()));
+
+        // 토큰을 새로 발급해도 서버 상태라 그대로다 — 다른 기기에서의 재진입과 같은 경로다.
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(jwtService.createAccessToken(otherUser))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.myOnePickCommentId").value(target.id()));
+
+        // 픽하지 않은 다른 사람에게는 null 이다. 같은 목록이라도 상태는 조회자마다 다르다.
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(commentAuthorToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.myOnePickCommentId").doesNotExist());
+    }
+
+    /**
+     * 원픽한 댓글이 삭제돼도 식별자는 남는다 (R-06).
+     *
+     * <p>취소 경로가 없어 소프트 삭제가 {@code comment_pick} 을 건드리지 않는다. 그래서
+     * <b>목록에 없는 식별자</b>가 나오고, 클라이언트는 그것을 "이미 원픽을 썼다" 로 읽는다.
+     * 이 값이 사라지면 재픽이 막힌 사용자에게 픽 버튼이 열린 것처럼 보인다.
+     */
+    @Test
+    void keepsOwnPickIdentifierAfterTargetCommentDeleted() throws Exception {
+        Comment target = commentService.write(new Comment(
+                postEntity.id(), commentAuthor.id(), "픽한 뒤 지워질 댓글", null));
+        Comment survivor = commentService.write(new Comment(
+                postEntity.id(), commentAuthor.id(), "남는 댓글", null));
+
+        assertThat(onePickStore.saveIfAbsent(target.pick(otherUser.id()))).isPresent();
+        commentService.delete(target.id(), commentAuthor.id());
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(otherUserToken)))
+                .andExpect(status().isOk())
+                // 삭제된 댓글은 목록에서 빠진다.
+                .andExpect(jsonPath("$.returnObject.commentCount").value(1))
+                .andExpect(jsonPath("$.returnObject.comments[0].id").value(survivor.id()))
+                // 그래도 내 원픽 식별자는 그 사라진 댓글을 가리킨다.
+                .andExpect(jsonPath("$.returnObject.myOnePickCommentId").value(target.id()));
+    }
+
+    /** 활성 댓글이 0건이어도 원픽 상태는 살아 있다 — 값을 실어 나를 행이 없는 경우다. */
+    @Test
+    void keepsOwnPickIdentifierWhenNoActiveCommentRemains() throws Exception {
+        Comment only = commentService.write(new Comment(
+                postEntity.id(), commentAuthor.id(), "하나뿐인 댓글", null));
+
+        assertThat(onePickStore.saveIfAbsent(only.pick(otherUser.id()))).isPresent();
+        commentService.delete(only.id(), commentAuthor.id());
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(get("/posts/{postId}/comments", postEntity.id())
+                        .header("Authorization", bearer(otherUserToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.commentCount").value(0))
+                .andExpect(jsonPath("$.returnObject.comments").isEmpty())
+                .andExpect(jsonPath("$.returnObject.myOnePickCommentId").value(only.id()));
     }
 
     @Test

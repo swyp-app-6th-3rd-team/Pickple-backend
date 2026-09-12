@@ -122,15 +122,30 @@ public class CommentController {
         }
     }
 
+    /**
+     * 댓글 목록 (§6.4).
+     *
+     * <p><b>원픽 상태가 항목이 아니라 여기 있는 이유</b> — 한 사람은 한 게시글에서 하나만
+     * 픽하므로(R-05) 상태의 단위가 댓글이 아니라 게시글이다. 게다가 픽은 취소되지 않아(R-06)
+     * 대상 댓글이 삭제돼도 남는다 — 항목에 실으면 그 순간 상태를 잃는다.
+     *
+     * @param myOnePickCommentId 내가 이 게시글에서 픽한 댓글. 픽한 적이 없으면 {@code null} 이다.
+     *                           <b>{@code comments} 에 없는 값일 수 있다</b> — 그 댓글이 삭제된
+     *                           경우이며, 클라이언트는 "이미 원픽을 썼다" 로 읽는다
+     */
     public record CommentListResponse(
             @Schema(description = "활성 댓글 건수. 삭제된 댓글은 세지 않는다") long commentCount,
             @Schema(description = "(created_at, id) 오름차순. 페이징 없이 전체를 준다")
-            List<CommentResponse> comments) {
+            List<CommentResponse> comments,
+            @Schema(description = "내가 이 게시글에서 원픽한 댓글. 원픽한 적이 없으면 null (R-05). "
+                    + "그 댓글이 삭제됐어도 유지되므로 comments 에 없는 값일 수 있다 (R-06)")
+            Long myOnePickCommentId) {
 
         static CommentListResponse from(CommentQueryService.CommentListResult result) {
             return new CommentListResponse(
                     result.commentCount(),
-                    result.comments().stream().map(CommentResponse::from).toList());
+                    result.comments().stream().map(CommentResponse::from).toList(),
+                    result.myOnePickCommentId());
         }
     }
 

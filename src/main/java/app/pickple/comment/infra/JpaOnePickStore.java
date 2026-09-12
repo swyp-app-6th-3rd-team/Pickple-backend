@@ -41,6 +41,21 @@ public class JpaOnePickStore implements OnePickStore {
                 OnePickEntity.from(pick, LocalDateTime.now(clock))).getId());
     }
 
+    /**
+     * 이 사람이 이 게시글에서 픽한 댓글 (R-05).
+     *
+     * <p>게스트({@code userId == null})는 픽 이력을 가질 수 없으므로 조회 없이 빈 값이다 —
+     * 문장 하나를 아끼고, {@code user_id IS NULL} 로 엉뚱한 행을 만나는 일도 없앤다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Long> findPickedCommentId(Long userId, Long postId) {
+        if (userId == null) {
+            return Optional.empty();
+        }
+        return repository.findPickedCommentId(userId, postId);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public long countByComment(Long commentId) {
