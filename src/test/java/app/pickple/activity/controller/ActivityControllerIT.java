@@ -81,7 +81,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ActivityControllerIT {
 
     private static final String SUMMARY = "/users/me/activities/summary";
+    /** 구 경로. 유형을 쿼리 파라미터로 받으며 deprecated 다 (#156). 동작은 그대로여야 한다. */
     private static final String ACTIVITIES = "/users/me/activities";
+    private static final String VOTES = "/users/me/activities/votes";
+    private static final String COMMENTS = "/users/me/activities/comments";
+    private static final String POSTS = "/users/me/activities/posts";
     private static final String RECENT = "/users/me/posts/recent";
 
     @Autowired
@@ -224,8 +228,8 @@ class ActivityControllerIT {
             mockMvc.perform(get(SUMMARY).header("Authorization", bearer(me)))
                     .andExpect(jsonPath("$.returnObject.voteCount").value(1))
                     .andExpect(jsonPath("$.returnObject.commentCount").value(1));
-            assertThat(idsOf(ACTIVITIES + "?type=VOTE")).hasSize(1);
-            assertThat(idsOf(ACTIVITIES + "?type=COMMENT")).hasSize(1);
+            assertThat(idsOf(VOTES)).hasSize(1);
+            assertThat(idsOf(COMMENTS)).hasSize(1);
         }
 
         @Test
@@ -244,39 +248,73 @@ class ActivityControllerIT {
     class ActivityList {
 
         @Test
-        @DisplayName("활동이 0건이면 200 과 빈 배열이다")
+        @DisplayName("활동이 0건이면 200 과 빈 배열이다 — 세 경로 모두")
         void emptyListWhenNoActivity() throws Exception {
-            mockMvc.perform(get(ACTIVITIES).header("Authorization", bearer(me)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.code").value("OK"))
-                    .andExpect(jsonPath("$.returnObject.content").isArray())
-                    .andExpect(jsonPath("$.returnObject.content").isEmpty())
-                    .andExpect(jsonPath("$.returnObject.hasNext").value(false))
-                    .andExpect(jsonPath("$.returnObject.nextCursor").doesNotExist());
+            for (String path : List.of(VOTES, COMMENTS, POSTS)) {
+                mockMvc.perform(get(path).header("Authorization", bearer(me)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.code").value("OK"))
+                        .andExpect(jsonPath("$.returnObject.content").isArray())
+                        .andExpect(jsonPath("$.returnObject.content").isEmpty())
+                        .andExpect(jsonPath("$.returnObject.hasNext").value(false))
+                        .andExpect(jsonPath("$.returnObject.nextCursor").doesNotExist());
+            }
         }
 
         @Test
-        @DisplayName("유형 필터가 활동 종류를 가른다")
-        void typeFilterSelectsActivity() throws Exception {
+        @DisplayName("경로가 활동 종류를 가른다 — 유형은 더 이상 쿼리 파라미터가 아니다")
+        void pathSelectsActivity() throws Exception {
             Post voted = saveAgreePost("투표한 글");
             voteOn(voted);
             Post commented = saveGeneralPost("댓글 단 글");
             commenterStore.recordIfFirst(commented.id(), me.id());
             Post mine = saveGeneralPost("내가 쓴 글", me);
 
-            assertThat(idsOf(ACTIVITIES + "?type=VOTE")).containsExactly(voted.id().intValue());
-            assertThat(idsOf(ACTIVITIES + "?type=COMMENT")).containsExactly(commented.id().intValue());
-            assertThat(idsOf(ACTIVITIES + "?type=POST")).containsExactly(mine.id().intValue());
+            assertThat(idsOf(VOTES)).containsExactly(voted.id().intValue());
+            assertThat(idsOf(COMMENTS)).containsExactly(commented.id().intValue());
+            assertThat(idsOf(POSTS)).containsExactly(mine.id().intValue());
         }
 
         @Test
-        @DisplayName("모르는 유형·정렬은 400 이 아니라 기본값으로 되돌린다")
-        void unknownParametersFallBackToDefaults() throws Exception {
+        @DisplayName("유형별 경로에서 type 파라미터는 무시된다 — 경로가 이긴다")
+        void typeParameterIsIgnoredOnTypedPaths() throws Exception {
+            // 경로가 유형을 고정하므로 남은 type 파라미터는 아무것도 바꾸지 못한다.
+            // 이것이 성립해야 "유형 fold 가 사라졌다" 는 계약이 실제로 참이다.
+            Post voted = saveAgreePost("투표한 글");
+            voteOn(voted);
+            Post mine = saveGeneralPost("내가 쓴 글", me);
+
+            assertThat(idsOf(VOTES + "?type=POST"))
+                    .as("경로가 /votes 면 type=POST 를 실어도 투표 활동이다")
+                    .containsExactly(voted.id().intValue());
+            assertThat(idsOf(POSTS + "?type=VOTE"))
+                    .containsExactly(mine.id().intValue());
+        }
+
+        @Test
+        @DisplayName("모르는 정렬은 400 이 아니라 기본값으로 되돌린다 — 정렬 계약은 그대로다")
+        void unknownSortFallsBackToDefault() throws Exception {
+            // 유형 fold 는 경로가 고정하면서 사라졌지만 ActivitySort.from 은 살아남는다.
+            // "모르는 값은 400 이 아니다" 가 절반만 참이 된 자리다 (SPEC §3.10).
             Post voted = saveAgreePost("기본값 확인");
             voteOn(voted);
 
-            assertThat(idsOf(ACTIVITIES + "?type=오타&sort=오타"))
+            assertThat(idsOf(VOTES + "?sort=오타"))
                     .as("진입 화면이 오타 하나로 비지 않아야 한다")
+                    .containsExactly(voted.id().intValue());
+        }
+
+        @Test
+        @DisplayName("구 경로는 그대로 200 이다 — deprecated 지만 동작은 유지된다")
+        void deprecatedPathStillWorks() throws Exception {
+            Post voted = saveAgreePost("구 경로 투표");
+            voteOn(voted);
+            Post mine = saveGeneralPost("구 경로 내 글", me);
+
+            assertThat(idsOf(VOTES)).containsExactly(voted.id().intValue());
+            assertThat(idsOf(ACTIVITIES + "?type=POST")).containsExactly(mine.id().intValue());
+            assertThat(idsOf(ACTIVITIES + "?type=오타"))
+                    .as("구 경로에는 유형 fold 가 남는다 — 마지막 호출자다")
                     .containsExactly(voted.id().intValue());
         }
 
@@ -294,7 +332,7 @@ class ActivityControllerIT {
             stampVotedAt(oldPost, 1);      // 1분 전에 투표
             stampVotedAt(newPost, 500);    // 500분 전에 투표
 
-            assertThat(idsOf(ACTIVITIES + "?type=VOTE&sort=LATEST"))
+            assertThat(idsOf(VOTES + "?sort=LATEST"))
                     .as("방금 투표한 글이 위에 온다 — 그래야 다시 찾을 수 있다")
                     .containsExactly(oldPost.id().intValue(), newPost.id().intValue());
         }
@@ -310,8 +348,8 @@ class ActivityControllerIT {
                 expected.add(post.id().intValue());
             }
 
-            List<Integer> latest = idsOf(ACTIVITIES + "?type=VOTE&sort=LATEST");
-            List<Integer> oldest = idsOf(ACTIVITIES + "?type=VOTE&sort=OLDEST");
+            List<Integer> latest = idsOf(VOTES + "?sort=LATEST");
+            List<Integer> oldest = idsOf(VOTES + "?sort=OLDEST");
 
             assertThat(oldest).containsExactlyElementsOf(latest.reversed());
         }
@@ -327,7 +365,7 @@ class ActivityControllerIT {
             jdbcTemplate.update("UPDATE post SET vote_count = 1, commenter_count = 1 WHERE id = ?", low.id());
             jdbcTemplate.update("UPDATE post SET vote_count = 9, commenter_count = 9 WHERE id = ?", high.id());
 
-            assertThat(idsOf(ACTIVITIES + "?type=VOTE&sort=POPULAR"))
+            assertThat(idsOf(VOTES + "?sort=POPULAR"))
                     .containsExactly(high.id().intValue(), low.id().intValue());
         }
 
@@ -339,7 +377,7 @@ class ActivityControllerIT {
             commenterStore.recordIfFirst(post.id(), me.id());
             commenterStore.recordIfFirst(post.id(), me.id());
 
-            assertThat(idsOf(ACTIVITIES + "?type=COMMENT"))
+            assertThat(idsOf(COMMENTS))
                     .as("comment 로 읽었다면 세 번 나왔을 것이다")
                     .containsExactly(post.id().intValue());
         }
@@ -353,7 +391,7 @@ class ActivityControllerIT {
             voteOn(removed);
             softDelete(removed);
 
-            assertThat(idsOf(ACTIVITIES + "?type=VOTE")).containsExactly(alive.id().intValue());
+            assertThat(idsOf(VOTES)).containsExactly(alive.id().intValue());
         }
 
         @Test
@@ -367,7 +405,7 @@ class ActivityControllerIT {
                 all.add(post.id().intValue());
             }
 
-            List<Integer> walked = scrollAll(ACTIVITIES + "?type=VOTE&sort=OLDEST", 10);
+            List<Integer> walked = scrollAll(VOTES + "?sort=OLDEST", 10);
 
             assertThat(walked)
                     .as("부등호만 뒤집고 ORDER BY 를 그대로 두면 같은 조각을 무한히 돈다")
@@ -389,7 +427,7 @@ class ActivityControllerIT {
                 all.add(post.id().intValue());
             }
 
-            assertThat(scrollAll(ACTIVITIES + "?type=VOTE&sort=POPULAR", 10))
+            assertThat(scrollAll(VOTES + "?sort=POPULAR", 10))
                     .containsExactlyInAnyOrderElementsOf(all);
         }
 
@@ -406,9 +444,9 @@ class ActivityControllerIT {
                 all.add(post.id().intValue());
             }
 
-            assertThat(scrollAll(ACTIVITIES + "?type=COMMENT&sort=LATEST", 10))
+            assertThat(scrollAll(COMMENTS + "?sort=LATEST", 10))
                     .containsExactlyInAnyOrderElementsOf(all);
-            assertThat(scrollAll(ACTIVITIES + "?type=COMMENT&sort=OLDEST", 10))
+            assertThat(scrollAll(COMMENTS + "?sort=OLDEST", 10))
                     .containsExactlyElementsOf(all);
         }
 
@@ -422,9 +460,9 @@ class ActivityControllerIT {
                 all.add(post.id().intValue());
             }
 
-            assertThat(scrollAll(ACTIVITIES + "?type=POST&sort=LATEST", 10))
+            assertThat(scrollAll(POSTS + "?sort=LATEST", 10))
                     .containsExactlyInAnyOrderElementsOf(all);
-            assertThat(scrollAll(ACTIVITIES + "?type=POST&sort=POPULAR", 10))
+            assertThat(scrollAll(POSTS + "?sort=POPULAR", 10))
                     .containsExactlyInAnyOrderElementsOf(all);
         }
 
@@ -439,7 +477,7 @@ class ActivityControllerIT {
                 all.add(post.id().intValue());
             }
 
-            List<Integer> walked = scrollAll(ACTIVITIES + "?type=VOTE&sort=LATEST", 10);
+            List<Integer> walked = scrollAll(VOTES + "?sort=LATEST", 10);
 
             assertThat(walked).as("합집합이 전체와 같아야 한다")
                     .containsExactlyInAnyOrderElementsOf(all);
@@ -457,34 +495,42 @@ class ActivityControllerIT {
                 all.add(post.id().intValue());
             }
 
-            assertThat(scrollAll(ACTIVITIES + "?type=VOTE", 5))
+            assertThat(scrollAll(VOTES, 5))
                     .containsExactlyInAnyOrderElementsOf(all);
         }
 
         @Test
-        @DisplayName("조각 크기가 12배가 되어도 SQL 횟수는 그대로다 — N+1 이 없다")
-        void statementCountDoesNotGrowWithSliceSize() throws Exception {
+        @DisplayName("세 경로 모두 조각 크기가 12배가 되어도 SQL 횟수는 그대로다 — N+1 이 없다")
+        void statementCountDoesNotGrowWithSliceSizeOnEveryPath() throws Exception {
+            // 지금까지 이 검증은 VOTE 한 유형만 돌았다. 세 경로로 갈렸으니 경로별로 확인한다 —
+            // POST 는 활동 테이블이 게시글 자신이라 조인이 없어 구조가 다른 유일한 분기다.
             for (int i = 0; i < 12; i++) {
-                Post post = saveAgreePost("N+1 확인" + i);
-                voteOn(post);
+                Post voted = saveAgreePost("N+1 투표" + i);
+                voteOn(voted);
+                Post commented = saveGeneralPost("N+1 댓글" + i);
+                commenterStore.recordIfFirst(commented.id(), me.id());
+                saveGeneralPost("N+1 내글" + i, me);
             }
 
-            long oneRow = countStatements(ACTIVITIES + "?type=VOTE&size=1", 1);
-            long twelveRows = countStatements(ACTIVITIES + "?type=VOTE&size=12", 12);
+            for (String path : List.of(VOTES, COMMENTS, POSTS)) {
+                long one = countStatements(path + "?size=1", 1);
+                long twelve = countStatements(path + "?size=12", 12);
 
-            // 지키려는 성질은 "1회" 라는 숫자가 아니라 <b>행 수에 비례하지 않는다</b> 는 것이다.
-            // 절대값을 박아 두면 요청당 상수 비용이 하나 늘 때마다 이 테스트가 깨지면서
-            // 정작 N+1 이 생겼는지는 알려주지 못한다.
-            assertThat(twelveRows).isEqualTo(oneRow);
+                // 지키려는 성질은 "3회" 라는 숫자가 아니라 행 수에 비례하지 않는다는 것이다.
+                assertThat(twelve)
+                        .as("%s 의 문장 수가 행 수를 따라 늘면 N+1 이다", path)
+                        .isEqualTo(one);
 
-            // 그 상수가 무엇으로 이루어졌는지도 고정한다. 늘어나면 이유를 대야 한다.
-            //   1) 키 문장 — 조각에 들어갈 게시글 id 를 활동 인덱스로 확정한다
-            //   2) 행 문장 — 그 id 들에만 게시글과 대표 사진을 붙인다 (ADR-0043)
-            //      옛 네이티브 SQL 은 파생 테이블로 1) 2) 를 한 문장에 담았다. QueryDSL 전환으로
-            //      둘로 갈라졌지만 행 수에 비례하는 쪽은 여전히 없다.
-            //   3) 탈퇴 회원 차단 관문의 상태 확인 (#106, ADR-0035)
-            //      요청당 1회이고 행 수와 무관하다. type=const / key=PRIMARY 로 끝난다.
-            assertThat(oneRow).isEqualTo(3L);
+                // 그 상수가 무엇으로 이루어졌는지도 고정한다. 늘어나면 이유를 대야 한다.
+                //   1) 키 문장 — 조각에 들어갈 게시글 id 를 활동 인덱스로 확정한다
+                //   2) 행 문장 — 그 id 들에만 게시글과 대표 사진을 붙인다 (ADR-0043)
+                //      옛 네이티브 SQL 은 파생 테이블로 1) 2) 를 한 문장에 담았다. QueryDSL 전환으로
+                //      둘로 갈라졌지만 행 수에 비례하는 쪽은 여전히 없다.
+                //   3) 탈퇴 회원 차단 관문의 상태 확인 (#106, ADR-0035)
+                //      요청당 1회이고 행 수와 무관하다. type=const / key=PRIMARY 로 끝난다.
+                // POST 는 조인이 없지만 문장 수는 셋으로 같다 — 갈리는 것은 문장의 모양이지 개수가 아니다.
+                assertThat(one).as("%s 의 요청당 상수 문장 수", path).isEqualTo(3L);
+            }
         }
 
         @Test
@@ -495,7 +541,7 @@ class ActivityControllerIT {
                 voteOn(post);
             }
 
-            assertThat(idsOf(ACTIVITIES + "?type=VOTE&size=100000")).hasSize(3);
+            assertThat(idsOf(VOTES + "?size=100000")).hasSize(3);
         }
 
         @Test
@@ -513,10 +559,10 @@ class ActivityControllerIT {
             voteOn(voted);
             commenterStore.recordIfFirst(commented.id(), me.id());
 
-            assertThat(thumbnailsOf(ACTIVITIES + "?type=VOTE")).containsExactly("https://cdn/voted-1.jpg");
-            assertThat(thumbnailsOf(ACTIVITIES + "?type=COMMENT")).containsExactly("https://cdn/commented-1.jpg");
-            assertThat(thumbnailsOf(ACTIVITIES + "?type=POST")).containsExactly("https://cdn/mine-1.jpg");
-            assertThat(idsOf(ACTIVITIES + "?type=VOTE"))
+            assertThat(thumbnailsOf(VOTES)).containsExactly("https://cdn/voted-1.jpg");
+            assertThat(thumbnailsOf(COMMENTS)).containsExactly("https://cdn/commented-1.jpg");
+            assertThat(thumbnailsOf(POSTS)).containsExactly("https://cdn/mine-1.jpg");
+            assertThat(idsOf(VOTES))
                     .as("사진이 세 장이어도 게시글은 한 줄이다")
                     .containsExactly(voted.id().intValue());
         }
@@ -524,8 +570,31 @@ class ActivityControllerIT {
         @Test
         @DisplayName("조작된 커서는 400 이다")
         void tamperedCursorIsRejected() throws Exception {
-            mockMvc.perform(get(ACTIVITIES + "?cursor=not-a-cursor").header("Authorization", bearer(me)))
+            mockMvc.perform(get(VOTES + "?cursor=not-a-cursor").header("Authorization", bearer(me)))
                     .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("다른 경로에서 만든 커서를 넣으면 400 이다 — 조용히 첫 조각으로 되감기지 않는다")
+        void cursorFromAnotherPathIsRejected() throws Exception {
+            // 세 경로가 같은 키 이름을 쓰므로 이 커서는 구조상 유효해 보인다.
+            // 유형 판별자가 없으면 그대로 통과해 /posts 가 엉뚱한 첫 조각을 준다 (ADR-0049).
+            for (int i = 0; i < 12; i++) {
+                Post voted = saveAgreePost("교차" + i);
+                voteOn(voted);
+                saveGeneralPost("내 글" + i, me);
+            }
+
+            String votesCursor = JsonPath.read(read(VOTES + "?size=10"), "$.returnObject.nextCursor");
+            assertThat(votesCursor).as("다음 조각이 있어야 커서가 나온다").isNotNull();
+
+            mockMvc.perform(get(POSTS + "?cursor=" + votesCursor).header("Authorization", bearer(me)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+            // 같은 경로에 그대로 넣으면 통과한다 — 위 400 이 "커서가 늘 깨진다" 가 아니라는 대조군이다.
+            mockMvc.perform(get(VOTES + "?cursor=" + votesCursor).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk());
         }
     }
 
@@ -608,9 +677,11 @@ class ActivityControllerIT {
     class Authentication {
 
         @Test
-        @DisplayName("세 엔드포인트 모두 미인증은 401 이다 — 게스트용 0 응답을 만들지 않는다")
+        @DisplayName("여섯 엔드포인트 모두 미인증은 401 이다 — 게스트용 0 응답을 만들지 않는다")
         void allRequireAuthentication() throws Exception {
-            for (String path : List.of(SUMMARY, ACTIVITIES, RECENT)) {
+            // 유형별 경로 셋을 더해도 게스트 접근 정책은 그대로다 (#156).
+            // SecurityConfig 의 .anyRequest() 관문이 새 경로를 자동으로 잡는다.
+            for (String path : List.of(SUMMARY, ACTIVITIES, RECENT, VOTES, COMMENTS, POSTS)) {
                 mockMvc.perform(get(path))
                         .andExpect(status().isUnauthorized());
             }
@@ -815,7 +886,13 @@ class ActivityControllerIT {
          */
         private Statements slice(ActivityType type, ActivitySort sort) {
             Object sortValue = sort.byActivityTime() ? cursorAt : 0L;
-            ScrollPosition cursor = ScrollPosition.forward(Map.of(sort.cursorKey(), sortValue, "id", cursorPostId));
+            // 커서에 유형을 함께 싣는다 (#156). 이 그룹은 HTTP 를 거치지 않고 저장소를 직접
+            // 부르는데, 유형 판별자가 요구되는 자리가 바로 그 저장소 진입점이다 —
+            // 빠뜨리면 "커서와 활동 유형이 맞지 않습니다" 로 막힌다.
+            // toPosition 은 activity.infra 의 package-private 이라 여기서 부르지 못해
+            // 키 맵을 직접 만든다. 키 이름이 갈리면 ActivityListCursorTest 가 먼저 깨진다.
+            ScrollPosition cursor = ScrollPosition.forward(
+                    Map.of("type", type.name(), sort.cursorKey(), sortValue, "id", cursorPostId));
 
             List<Long> ids = new ArrayList<>();
             List<String> statements = sqlCapture.record(() ->

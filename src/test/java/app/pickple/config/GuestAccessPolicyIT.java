@@ -50,6 +50,11 @@ class GuestAccessPolicyIT {
             new Endpoint(PATCH, "/users/profile"),
             new Endpoint(GET, "/users/me/activities/summary"),
             new Endpoint(GET, "/users/me/activities"),
+            // 유형별 경로 셋 (#156). 구 경로와 함께 전부 인증이 필요하다 —
+            // 경로가 늘어도 게스트 접근 정책은 그대로라는 것을 여기서 고정한다.
+            new Endpoint(GET, "/users/me/activities/votes"),
+            new Endpoint(GET, "/users/me/activities/comments"),
+            new Endpoint(GET, "/users/me/activities/posts"),
             new Endpoint(GET, "/users/me/posts/recent"),
             new Endpoint(GET, "/users/me/points"),
             new Endpoint(GET, "/users/me/grade"),

@@ -1,6 +1,7 @@
 package app.pickple.activity.infra;
 
 import app.pickple.activity.domain.ActivitySort;
+import app.pickple.activity.domain.ActivityType;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import org.springframework.data.domain.KeysetScrollPosition;
@@ -31,6 +32,16 @@ import java.util.Map;
  * 활동 행의 id 를 실으면 세 유형이 각기 다른 시퀀스를 쓰므로 유형을 바꿀 때
  * 커서가 조용히 엉뚱한 자리를 가리킨다.
  *
+ * <p><b>정렬 튜플 옆에 활동 유형을 함께 싣는다</b> (ADR-0049). SQL 조건에는 쓰이지 않고
+ * 오직 <b>경로 교차를 판별</b>하는 데만 쓴다 — 유형별 경로가 갈린 뒤로는
+ * {@code /votes} 에서 받은 커서를 {@code /posts} 에 넣는 호출이 도달 가능해지고,
+ * 세 유형이 같은 키 이름 {@code (activityAt|popularityScore, id)} 을 쓰므로
+ * 그 커서가 <b>구조상 유효해 보여 그대로 통과</b>한다. 유형을 값으로 실어야만 걸린다.
+ *
+ * <p>판별자가 생기면서 <b>이전에 발급한 커서는 모두 무효</b>가 된다. 무한 스크롤 중이던
+ * 클라이언트는 400 을 받고 첫 조각부터 다시 읽는다 — 조용히 되감기는 것보다 낫고,
+ * 커서는 한 세션 안에서만 쓰이는 값이라 비용이 짧다(ADR-0049 "결과" 참조).
+ *
  * <p>게시글 식별자는 이미 목록 응답에 그대로 실려 나가므로 커서에 담아도
  * 새로 드러나는 것이 없다({@code CursorCodec} 의 "노출되면 곤란한 값을 정렬 키로
  * 쓰지 않는다" 를 지킨다).
@@ -38,9 +49,11 @@ import java.util.Map;
 record ActivityListCursor(Object sortValue, long id) {
 
     private static final String ID_KEY = "id";
+    /** 활동 유형 판별자. 정렬 축 가드가 잡지 못하는 <b>경로 교차</b>를 막는다. */
+    private static final String TYPE_KEY = "type";
 
     /** 첫 조각이면 {@code null} 을 준다 — 커서 조건 없이 처음부터 읽는다. */
-    static ActivityListCursor from(ScrollPosition position, ActivitySort sort) {
+    static ActivityListCursor from(ScrollPosition position, ActivityType type, ActivitySort sort) {
         if (!(position instanceof KeysetScrollPosition keyset)) {
             return null;
         }
@@ -48,6 +61,7 @@ record ActivityListCursor(Object sortValue, long id) {
         if (keys.isEmpty()) {
             return null;
         }
+        requireSameType(keys.get(TYPE_KEY), type);
         Object rawSortValue = keys.get(sort.cursorKey());
         Object rawId = keys.get(ID_KEY);
         if (rawSortValue == null || rawId == null) {
@@ -57,6 +71,38 @@ record ActivityListCursor(Object sortValue, long id) {
             throw new ApiException(ResponseCode.INVALID_REQUEST, "커서와 정렬 기준이 맞지 않습니다.");
         }
         return new ActivityListCursor(convertSortValue(rawSortValue, sort), toLong(rawId));
+    }
+
+    /**
+     * 커서에 실린 유형이 <b>경로가 고정한 유형</b>과 같은지 본다 (ADR-0049).
+     *
+     * <p><b>정렬 축 가드로는 이것을 못 막는다.</b> 그쪽은 키 <i>이름</i>으로 판별하는데
+     * 최신순과 오래된순이 {@code activityAt} 키를 일부러 공유하므로
+     * ({@code timeSortsShareTheSameCursor}) 이름 매칭으로는 유형까지 가릴 수 없다.
+     * 세 유형이 쓰는 키 이름도 서로 같아, 유형은 값으로 실어야만 판별된다.
+     *
+     * <p>유형이 <b>없는</b> 커서도 거절한다. 판별자가 생기기 전에 만든 커서이거나
+     * 키를 지워 보낸 요청인데, 없는 것을 통과시키면 {@code /votes} 커서에서 유형만
+     * 떼어내 {@code /posts} 에 넣는 경로가 그대로 열린다 — 막으려던 구멍이 되살아난다.
+     *
+     * <p>조용히 첫 조각을 주지 않는 이유는 정렬 불일치와 같다 —
+     * 클라이언트는 무한 스크롤이 되감기는 것을 본다.
+     */
+    private static void requireSameType(Object raw, ActivityType type) {
+        if (raw == null || !type.name().equals(nameOf(raw))) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "커서와 활동 유형이 맞지 않습니다.");
+        }
+    }
+
+    /**
+     * 커서의 유형 값을 이름으로 읽는다.
+     *
+     * <p>JSON 왕복을 거치면 문자열이지만 같은 프로세스에서 방금 만든 위치는
+     * {@code ActivityType} 그대로다 — {@code id}·{@code activityAt} 이 겪는 타입 소실과
+     * 같은 계열이라 <b>양쪽을 모두 받는다.</b>
+     */
+    private static String nameOf(Object raw) {
+        return raw instanceof ActivityType value ? value.name() : raw.toString();
     }
 
     /**
@@ -93,9 +139,16 @@ record ActivityListCursor(Object sortValue, long id) {
         }
     }
 
-    /** 이 조각의 마지막 행이 다음 요청에 실어 보낼 커서. */
-    static KeysetScrollPosition toPosition(ActivitySort sort, Object sortValue, long id) {
+    /**
+     * 이 조각의 마지막 행이 다음 요청에 실어 보낼 커서.
+     *
+     * <p>유형을 <b>이름으로</b> 싣는다. {@code CursorCodec} 이 JSON 으로 감싸면 어차피
+     * 문자열이 되므로, 같은 프로세스에서 만든 커서와 왕복한 커서가 같은 모양이 된다.
+     */
+    static KeysetScrollPosition toPosition(
+            ActivityType type, ActivitySort sort, Object sortValue, long id) {
         Map<String, Object> keys = new LinkedHashMap<>();
+        keys.put(TYPE_KEY, type.name());
         keys.put(sort.cursorKey(), sortValue);
         keys.put(ID_KEY, id);
         return (KeysetScrollPosition) ScrollPosition.forward(keys);

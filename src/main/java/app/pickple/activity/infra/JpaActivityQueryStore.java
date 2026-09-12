@@ -52,11 +52,11 @@ public class JpaActivityQueryStore implements ActivityQueryStore {
     public Window<ActivityPostView> findSlice(
             Long userId, ActivityType type, ActivitySort sort, ScrollPosition position, int size) {
 
-        ActivityListCursor cursor = ActivityListCursor.from(position, sort);
+        ActivityListCursor cursor = ActivityListCursor.from(position, type, sort);
         ActivitySlice slice = repository.findSlice(userId, type, sort, cursor, size);
 
         List<ActivityPostView> content = slice.rows().stream().map(ActivityRow::view).toList();
-        return Window.from(content, positionFunction(sort, slice.rows()), slice.hasNext());
+        return Window.from(content, positionFunction(type, sort, slice.rows()), slice.hasNext());
     }
 
     @Override
@@ -71,11 +71,12 @@ public class JpaActivityQueryStore implements ActivityQueryStore {
      *
      * <p>인기 점수는 화면에 나가지 않는 값이라 뷰가 아닌 {@link ActivityRow} 에서 읽는다.
      */
-    private static IntFunction<ScrollPosition> positionFunction(ActivitySort sort, List<ActivityRow> rows) {
+    private static IntFunction<ScrollPosition> positionFunction(
+            ActivityType type, ActivitySort sort, List<ActivityRow> rows) {
         return index -> {
             ActivityRow row = rows.get(index);
             Object sortValue = sort.byActivityTime() ? row.view().activityAt() : row.popularityScore();
-            return ActivityListCursor.toPosition(sort, sortValue, row.view().id());
+            return ActivityListCursor.toPosition(type, sort, sortValue, row.view().id());
         };
     }
 }
