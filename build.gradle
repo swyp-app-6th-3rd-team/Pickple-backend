@@ -3,6 +3,10 @@ plugins {
     id 'org.springframework.boot' version '4.1.0'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'jacoco'
+    // 포털 기준 최신(1.19.0)을 쓴다. Maven Central 은 1.15.0 에서 멈춰 있는데
+    // 그건 이 플러그인이 Gradle Plugin Portal 자체 저장소에 배포되기 때문이고,
+    // 1.15.0(2023) 은 현재 Gradle 9.2.1 에서 깨진다(ADR-0050).
+    id 'info.solidsoft.pitest' version '1.19.0'
 }
 
 group = 'app.pickple'
@@ -30,7 +34,9 @@ ext {
     // Spring Boot 4.1 이 Hibernate 7.4.5 를 관리하므로 본가를 쓰면 빌드가 깨진다.
     querydslVersion = '7.5'
     jjwtVersion = '0.12.6'
-    archunitVersion = '1.4.1'
+    // 1.5.0 부터 JUnit 6 전용 모듈(archunit-junit6)이 나온다. junit5 모듈은 Platform 1.x 로
+    // 빌드돼 junit-bom:5.12.2 제약을 들고 오는데, 그게 launcher 를 1.12.2 로 끌어내린다(ADR-0050).
+    archunitVersion = '1.5.0'
     testcontainersVersion = '1.21.3'
     awsSdkVersion = '2.53.1'
 }
@@ -96,7 +102,9 @@ dependencies {
     testImplementation 'org.testcontainers:mysql'
     testImplementation 'org.testcontainers:localstack'
     testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation "com.tngtech.archunit:archunit-junit5:${archunitVersion}"
+    // junit5 가 아니라 junit6 모듈을 쓴다. Boot 4.1 이 관리하는 JUnit 이 6.0.3 이라
+    // junit5 모듈(Platform 1.x)을 쓰면 pitest 가 launcher 를 올리는 순간 버전이 어긋난다.
+    testImplementation "com.tngtech.archunit:archunit-junit6:${archunitVersion}"
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -151,14 +159,55 @@ tasks.register('unitTest', Test) {
     // test 와 같은 이유로 타임존을 맞춘다. 빠지면 시간 판정이 9시간 밀린다(위 주석 참조).
     systemProperty 'user.timezone', 'Asia/Seoul'
 
-    filter {
-        excludeTestsMatching '*IT'
-    }
+    // 클래스 파일 기준으로 제외한다. 이름 필터(`excludeTestsMatching`)를 쓰면 안 된다 —
+    // Gradle 이 패턴을 **메서드 이름에도** 적용해서, `*IT` 는 ArchitectureTest 의
+    // `integrationTestsEndWithIT()` 규칙을 조용히 빼버린다(실측: ArchUnit 24개 -> 23개).
+    // 하필 유닛·통합 분리를 보장하는 그 규칙이라, 분리의 근거가 사라진다.
+    // `*IT.*` 로 고쳐도 이번엔 ActivityControllerIT 가 새어 들어왔다(실측: 476 -> 575개).
+    // 파일 패턴은 클래스에만 걸리므로 두 함정을 모두 피한다.
+    exclude '**/*IT.class'
 
     testLogging {
         events 'passed', 'skipped', 'failed'
         exceptionFormat 'full'
     }
+}
+
+// 뮤테이션 테스트. 커버리지가 답하지 못하는 "단언이 실제로 잡는가" 를 판정한다.
+//
+// 대상을 도메인·서비스로 좁히는 이유: 판정 로직이 거기 있다. 엔티티·설정에 뮤턴트를
+// 만들어도 의미 있는 신호가 나오지 않고 실행 시간만 늘어난다.
+// 테스트는 유닛만 쓴다 — 통합을 넣으면 Testcontainers 가 뮤턴트마다 떠서 시간이 폭발한다.
+pitest {
+    pitestVersion = '1.30.0'
+    junit5PluginVersion = '1.2.3'
+
+    // test 와 같은 이유로 타임존을 맞춘다(시간 판정이 9시간 밀린다).
+    jvmArgs = ['-Duser.timezone=Asia/Seoul']
+
+    targetClasses = [
+            'app.pickple.*.domain.*',
+            'app.pickple.*.service.*',
+    ]
+    excludedClasses = [
+            'app.pickple.config.*',
+            'app.pickple.docs.*',
+            'app.pickple.*.entity.*',
+    ]
+    // 아키텍처 테스트는 바이트코드를 스캔할 뿐 도메인 로직을 검증하지 않는다.
+    // 뮤턴트를 죽이지 못하면서 매 뮤턴트마다 전체 클래스패스를 훑어 느리다.
+    excludedTestClasses = [
+            'app.pickple.architecture.*',
+            'app.pickple.docs.*',
+            '*IT',
+    ]
+
+    outputFormats = ['XML', 'HTML']
+    timestampedReports = false
+    threads = 4
+
+    // 첫 도입의 바닥값이다. 목표가 아니라 회귀 차단선이다(ADR-0050).
+    mutationThreshold = 60
 }
 
 // 판정할 로직이 없어 분모만 키우는 것들. 커버리지 산정에서 뺀다.
