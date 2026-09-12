@@ -67,6 +67,37 @@ jobs:
   # 기준으로 삼는 이유는 ddl-auto: validate 의 검사 방향이 한쪽뿐이기 때문이다 —
   # 엔티티가 선언한 컬럼이 DB 에 있는지는 보지만, DB 에만 있는 컬럼은 보지 않는다.
   # 실제로 users.ranking·point·highest_grade 등 9개가 그 사각지대에서 ERD 와 어긋나 있었다.
+  # 뮤테이션 테스트. 커버리지가 답하지 못하는 "단언이 실제로 잡는가" 를 판정한다(ADR-0050).
+  #
+  # build 와 별도 job 으로 둔다 — 실패 원인이 섞이면 "커버리지가 깨졌나 단언이 약한가" 를
+  # 로그에서 갈라내야 한다. Docker 가 필요 없으므로(유닛 대상) build 보다 가볍고 병렬로 돈다.
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'corretto'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Mutation test
+        env:
+          JWT_SECRET_KEY: ci-only-secret-key-not-for-production-32bytes+
+        run: ./gradlew pitest --no-daemon
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: build/reports/pitest
+          retention-days: 7
+
   erd-drift:
     runs-on: ubuntu-latest
 

@@ -78,7 +78,8 @@ pitest 가 launcher 를 클래스패스에 올리는 순간 제약이 깨어나 
 `archunit-junit6` 을 낸다**(TNG/ArchUnit#1556). 이 모듈의 `engine-api` 는
 `junit-platform-engine:6.1.2` 를 선언하므로 1.x 제약 자체가 사라진다.
 
-교체 후 launcher 6.1.2 / engine 6.0.3 으로 정렬되고 PIT 가 정상 동작한다.
+교체 후 1.x 제약이 사라져 PIT 가 정상 동작한다. 다만 이 시점에는 launcher 6.1.2 /
+engine 6.0.3 으로 여전히 어긋나 있었고, 그건 아래 "리뷰에서 잡힌 것" 에서 마저 정렬했다.
 테스트 코드는 한 줄도 바꾸지 않았다 — `ArchitectureTest` 는 `@AnalyzeClasses`/`@ArchTest` 가
 아니라 평범한 `@Test` + `ClassFileImporter` 를 쓰고, import 는 `com.tngtech.archunit.base/core/lang.*`
 로 두 모듈이 동일하다.
@@ -112,6 +113,46 @@ pitest 가 launcher 를 클래스패스에 올리는 순간 제약이 깨어나 
 - **임계값 60 은 바닥값이지 목표가 아니다.** 현재 71% 라 11%p 여유가 있는데,
   이는 회귀를 막되 오늘의 팀을 막지 않기 위한 간격이다. 0% 클래스들을 보강한 뒤 올린다.
 - ArchUnit 을 1.4.1 → 1.5.0 으로 올렸다. 규칙 24개가 전부 그대로 통과하는 것은 확인했다.
+
+## 리뷰에서 잡힌 것 (이종 리뷰 반영)
+
+구현 후 동종(reviewer) + 이종(Codex) 리뷰를 각각 돌렸고, **이종 리뷰만 잡은 결함이 둘** 있었다.
+
+**1. 플러그인이 launcher 를 버전까지 박아 주입한다.**
+pitest 플러그인은 detached configuration 에서 고른 launcher 를 `testRuntimeOnly` 에
+명시 버전으로 추가한다. 그 결과 launcher 6.1.2 / engine 6.0.3 으로 갈렸고,
+**launcher 가 선언한 engine(6.1.2)이 도로 6.0.3 으로 내려앉는** 상태였다.
+테스트는 통과하지만 정렬된 것은 아니라 업그레이드 때 깨질 수 있다.
+→ `addJUnitPlatformLauncher = false` 로 주입을 끄고, 저장소가 이미 갖고 있던
+버전 없는 launcher 선언이 Boot BOM 을 따르게 했다. 실측으로 launcher·engine 모두 6.0.3 정렬.
+PIT 는 그대로 동작한다(뮤테이션 71%, 변화 없음).
+
+**2. 리포트와 검증이 다른 모수를 봤다.**
+제외 목록을 공통 함수로 뽑는 과정에서 `jacocoTestReport` 에만 적용하고
+`jacocoTestCoverageVerification` 에는 빠뜨렸다. 리포트는 91.5% 인데 게이트는 제외가 안 걸린
+클래스 집합으로 판정하는, **통과해도 근거가 다른** 상태였다.
+→ 양쪽 모두에 적용하고 negative control 을 다시 돌려 확인했다.
+
+교훈: 동종 리뷰는 "중복 코드를 함수로 빼라"(Minor)까지 봤지만, 그 함수를 **한쪽에만 연결한
+결함**은 이종 리뷰가 잡았다. 같은 맹점을 공유하지 않는 관점이 순증분이라는 근거다.
+
+**부수 수정**
+- PIT 의 `*IT` 는 `^.*IT$` 로 변환돼 중첩 클래스(`FooIT$Nested`)를 놓친다. `*IT$*` 를 추가했다.
+  (Gradle 의 이름 필터와 달리 PIT 의 glob 은 메서드에 닿지 않으므로 `*IT` 자체는 안전하다)
+- `app.pickple.*.entity.*` 제외 패턴은 이 저장소에 매칭되는 클래스가 없었다(ADR-0008 로
+  엔티티는 `*/infra/*Entity`). 죽은 설정이라 지웠다 — 지운 뒤에도 커버리지 수치는 그대로다.
+
+## CI 연결
+
+`unitTest` 와 `pitest` 는 `check` 에 걸지 않는다. 대신 **`ci.yml` 에 별도 `mutation` job** 을 둔다.
+`build` 와 섞으면 실패 원인이 "커버리지가 깨졌나 단언이 약한가" 로 갈리지 않는다.
+유닛 대상이라 Docker 가 필요 없어 `build` 와 병렬로 돈다.
+
+커버리지 게이트는 `check` 에 걸리므로 기존 `build` job 이 그대로 판정한다(CI 수정 불필요).
+
+> **주의**: 새 job 은 추가만으로 머지를 막지 않는다. `develop` ruleset 의 필수 컨텍스트가
+> `build`·`sync` 뿐이므로, 뮤테이션으로 머지를 차단하려면 ruleset 에 `mutation` 을 추가해야 한다.
+> 저장소 설정 변경이라 별도 합의가 필요하다.
 
 ## 검토한 대안과 기각 사유
 
