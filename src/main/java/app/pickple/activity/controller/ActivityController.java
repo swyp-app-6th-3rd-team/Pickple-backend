@@ -8,6 +8,7 @@ import app.pickple.common.ApiResponse;
 import app.pickple.common.ScrollResponse;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostType;
+import app.pickple.vote.domain.VotePercentage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -246,7 +247,13 @@ public class ActivityController {
             @Schema(description = "투표 인원. 일반 게시글은 null") Long voteCount,
             @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
             @Schema(description = "게시글 작성 시각") LocalDateTime createdAt,
-            @Schema(description = "내가 투표한 시각") LocalDateTime activityAt) {
+            @Schema(description = "내가 투표한 시각") LocalDateTime activityAt,
+            @Schema(description = "내가 고른 선택지. 재투표했으면 최신 선택이다 (R-22)")
+            Long selectedOptionId,
+            @Schema(description = "투표 대상 상품. 찬반은 1개, A/B는 표시 순서대로 2개 (R-02)")
+            List<VoteActivityProduct> products,
+            @Schema(description = "선택지별 득표 현황. 정확히 둘이다 (R-04)")
+            List<VoteActivityOption> options) {
 
         static VoteActivityItem from(ActivityQueryStore.ActivityPostView view) {
             return new VoteActivityItem(
@@ -259,7 +266,59 @@ public class ActivityController {
                     view.type().hasVoting() ? view.voteCount() : null,
                     view.thumbnailUrl(),
                     view.createdAt(),
-                    view.activityAt());
+                    view.activityAt(),
+                    view.selectedOptionId(),
+                    view.products().stream().map(VoteActivityProduct::from).toList(),
+                    view.options().stream()
+                            .map(option -> VoteActivityOption.from(option, view.voteCount()))
+                            .toList());
+        }
+    }
+
+    /**
+     * 투표 활동 카드의 상품 한 건 (§9.2). 상세의 {@code ProductItem} 과 어휘를 맞추되
+     * <b>카드가 그리는 두 필드만 둔다</b> — 목록은 사진으로 A/B 를 보여줄 뿐 상품명·가격·URL 을
+     * 쓰지 않고, 그 셋은 카드를 탭해 들어간 상세에 있다.
+     *
+     * @param imageUrl 상품 사진 1장. 찬반은 가장 처음 등록한 것, A/B 는 상품마다 1장 (R-03)
+     */
+    public record VoteActivityProduct(
+            @Schema(description = "표시 순서. 1(A) 또는 2(B)") int displayOrder,
+            @Schema(description = "상품 사진 1장. 찬반은 가장 처음 등록한 것, A/B는 상품마다 1장 (R-03)")
+            String imageUrl) {
+
+        static VoteActivityProduct from(ActivityQueryStore.ActivityPostProduct product) {
+            return new VoteActivityProduct(product.displayOrder(), product.imageUrl());
+        }
+    }
+
+    /**
+     * 투표 활동 카드의 선택지 하나 (§9.2). 상세의 {@code OptionItem} 과 어휘가 같다.
+     *
+     * <p><b>득표 수와 득표율을 감추지 않는다.</b> 상세는 미투표자에게 둘 다 지우지만(ADR-0046)
+     * 이 경로는 <b>내가 투표한 글만</b> 돌려주므로 조회자가 곧 투표자다 — 감출 대상이 존재하지
+     * 않는다. 작성자 예외 논의는 이 계약 밖이다(#159).
+     *
+     * <p>득표율은 {@link VotePercentage} 가 계산한다. 상세·투표 직후 응답과 <b>같은 정본</b>을
+     * 써야 같은 글을 어느 화면에서 열어도 게이지 값이 같다 — 여기서 직접 나누면 반올림이 갈린다.
+     *
+     * @param percentage 정수 퍼센트. 선택지별 반올림 때문에 두 값의 합이 100 이 아닐 수 있다
+     */
+    public record VoteActivityOption(
+            @Schema(description = "선택지 식별자") Long optionId,
+            @Schema(description = "찬반 선택지의 라벨. A/B는 null") String label,
+            @Schema(description = "표시 순서. 1 또는 2") int displayOrder,
+            @Schema(description = "이 선택지의 득표 수") long voteCount,
+            @Schema(description = "정수 퍼센트. 반올림 때문에 두 값의 합이 100이 아닐 수 있다")
+            int percentage) {
+
+        static VoteActivityOption from(ActivityQueryStore.ActivityPostOption option, long voterCount) {
+            return new VoteActivityOption(
+                    option.id(),
+                    option.label(),
+                    option.displayOrder(),
+                    option.voteCount(),
+                    VotePercentage.calculate(option.voteCount(), voterCount));
         }
     }
 
