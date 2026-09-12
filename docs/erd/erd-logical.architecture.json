@@ -53,6 +53,16 @@
           "apple_provider_token"
         ],
         "note": "사진은 묶음 단위로 올리고, 세션과 애플 연동 토큰은 회원에 하나씩 붙는다."
+      },
+      {
+        "id": "terms-consent",
+        "label": "약관과 동의",
+        "focus": [
+          "users",
+          "terms",
+          "terms_agreement"
+        ],
+        "note": "약관은 버전별 본문을 보존하고, 회원 동의는 해당 버전의 최초 수락을 기록한다."
       }
     ]
   },
@@ -296,6 +306,36 @@
         168,
         74
       ]
+    },
+    {
+      "id": "terms",
+      "type": "database",
+      "label": "약관",
+      "sublabel": "terms",
+      "tag": "종류 · 버전별 본문",
+      "pos": [
+        40,
+        750
+      ],
+      "size": [
+        168,
+        74
+      ]
+    },
+    {
+      "id": "terms_agreement",
+      "type": "database",
+      "label": "약관 동의",
+      "sublabel": "terms_agreement",
+      "tag": "회원 · 약관 버전별 최초 수락",
+      "pos": [
+        360,
+        750
+      ],
+      "size": [
+        168,
+        74
+      ]
     }
   ],
   "boundaries": [
@@ -435,6 +475,20 @@
       "from": "item_container",
       "to": "item_resource",
       "label": "파일"
+    },
+    {
+      "from": "users",
+      "to": "terms_agreement",
+      "label": "동의",
+      "labelAt": [
+        284,
+        580
+      ]
+    },
+    {
+      "from": "terms",
+      "to": "terms_agreement",
+      "label": "버전 수락"
     }
   ],
   "cards": [
