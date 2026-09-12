@@ -86,9 +86,12 @@ public class RankingController {
     /**
      * 랭킹 한 줄 — 조회 데이터 (§2.5 · §3.1).
      *
-     * <p><b>등급명칭은 아직 없다.</b> 판정의 정본인 {@code Grade} 는 이슈 #25 가
-     * 만들고 있어, 여기서 같은 정책표 §2 를 옮겨 적으면 정본이 둘이 된다.
-     * #25 머지 후 후속 PR 에서 필드를 더한다.
+     * <p><b>등급은 저장된 도달 최고 등급이다</b> — 응답의 포인트로 되계산한 값이 아니다.
+     * 승급은 포인트와 투표 횟수의 AND 조건이고(R-15) 한 번 오른 등급은 내려가지 않으므로(R-16),
+     * 포인트 하나만으로는 그 둘을 재현할 수 없다 (ADR-0030).
+     *
+     * <p>필드 이름은 게시글 상세의 {@code authorGradeLevel}·{@code authorGradeName} 과 같은
+     * 어휘를 쓰되 {@code author} 접두어를 뺐다 — 여기서 등급의 주체는 목록에 선 회원 자신이다.
      *
      * @param ranking 순위. 목록에는 산정된 회원만 오르므로 여기서는 항상 값이 있다
      */
@@ -97,7 +100,9 @@ public class RankingController {
             @Schema(description = "닉네임") String nickname,
             @Schema(description = "프로필 사진") String profileImageUrl,
             @Schema(description = "랭킹 순위. 1위가 가장 앞") Integer ranking,
-            @Schema(description = "누적 포인트") long point) {
+            @Schema(description = "누적 포인트") long point,
+            @Schema(description = "등급 레벨. 1~5 이며 가입 시 1") int gradeLevel,
+            @Schema(description = "등급 명칭. \"LV.1\" 형식") String gradeName) {
 
         static RankingItem from(RankingView view) {
             return new RankingItem(
@@ -105,7 +110,9 @@ public class RankingController {
                     view.nickname(),
                     view.profileImageUrl(),
                     view.ranking(),
-                    view.point());
+                    view.point(),
+                    view.grade().level(),
+                    view.grade().displayName());
         }
     }
 
@@ -130,7 +137,12 @@ public class RankingController {
             @Schema(description = "랭킹 순위. 아직 산정되지 않았으면 이 필드가 없다")
             Integer ranking,
 
-            @Schema(description = "누적 포인트") long point) {
+            @Schema(description = "누적 포인트") long point,
+
+            // 순위와 달리 등급은 순위 미산정 상태에서도 값이 있다 — 가입 시 LV.1 이
+            // 기본이라(R-16) 비지 않는다. NON_NULL 을 붙일 이유가 없는 이유다.
+            @Schema(description = "등급 레벨. 1~5 이며 가입 시 1") int gradeLevel,
+            @Schema(description = "등급 명칭. \"LV.1\" 형식") String gradeName) {
 
         static MyRankingResponse from(RankingView view) {
             return new MyRankingResponse(
@@ -138,7 +150,9 @@ public class RankingController {
                     view.nickname(),
                     view.profileImageUrl(),
                     view.ranking(),
-                    view.point());
+                    view.point(),
+                    view.grade().level(),
+                    view.grade().displayName());
         }
     }
 }
