@@ -1,6 +1,7 @@
 package app.pickple.comment.service;
 
 import app.pickple.comment.domain.CommentQueryStore;
+import app.pickple.comment.domain.OnePickStore;
 import app.pickple.post.service.ActivePostGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
@@ -27,6 +29,8 @@ class CommentQueryServiceTest {
     @Mock
     private CommentQueryStore commentQueryStore;
     @Mock
+    private OnePickStore onePickStore;
+    @Mock
     private ActivePostGuard activePost;
 
     private CommentQueryService queryService;
@@ -34,7 +38,7 @@ class CommentQueryServiceTest {
     @BeforeEach
     void setUp() {
         queryService = new CommentQueryService(
-                commentQueryStore, activePost, Clock.fixed(NOW, ZONE));
+                commentQueryStore, onePickStore, activePost, Clock.fixed(NOW, ZONE));
     }
 
     @Test
@@ -44,6 +48,7 @@ class CommentQueryServiceTest {
                 new CommentQueryStore.CommentView(
                         1L, 20L, "https://image.example/profile.png", "피커", createdAt,
                         "도움이 돼요", 2L)));
+        given(onePickStore.findPickedCommentId(20L, 10L)).willReturn(Optional.empty());
 
         CommentQueryService.CommentListResult result = queryService.findAll(10L, 20L);
 
@@ -62,8 +67,30 @@ class CommentQueryServiceTest {
         given(commentQueryStore.findAllByPostId(10L)).willReturn(List.of(
                 new CommentQueryStore.CommentView(
                         1L, 20L, null, "피커", createdAt, "내용", 0L)));
+        given(onePickStore.findPickedCommentId(null, 10L)).willReturn(Optional.empty());
 
         assertThat(queryService.findAll(10L, null).comments().getFirst().mine()).isFalse();
+    }
+
+    /** 원픽 상태는 댓글이 아니라 게시글에 속한다 — 목록이 비어도 값이 살아 있다 (R-05·R-06). */
+    @Test
+    void carriesOwnPickEvenWhenTargetCommentIsGone() {
+        given(commentQueryStore.findAllByPostId(10L)).willReturn(List.of());
+        given(onePickStore.findPickedCommentId(20L, 10L)).willReturn(Optional.of(77L));
+
+        CommentQueryService.CommentListResult result = queryService.findAll(10L, 20L);
+
+        assertThat(result.commentCount()).isZero();
+        assertThat(result.comments()).isEmpty();
+        assertThat(result.myOnePickCommentId()).isEqualTo(77L);
+    }
+
+    @Test
+    void reportsNoPickAsNull() {
+        given(commentQueryStore.findAllByPostId(10L)).willReturn(List.of());
+        given(onePickStore.findPickedCommentId(30L, 10L)).willReturn(Optional.empty());
+
+        assertThat(queryService.findAll(10L, 30L).myOnePickCommentId()).isNull();
     }
 
     @Test
