@@ -7,6 +7,16 @@ import app.pickple.auth.service.JwtService;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.OnePickStore;
+import app.pickple.grade.domain.Grade;
+import app.pickple.grade.domain.GradeStore;
+import app.pickple.item.domain.AttachType;
+import app.pickple.item.domain.ItemContainer;
+import app.pickple.item.domain.ItemContainerStore;
+import app.pickple.item.domain.ItemResource;
+import app.pickple.post.domain.PostOption;
+import app.pickple.post.domain.PostProduct;
+import app.pickple.vote.domain.Vote;
+import app.pickple.vote.domain.VoteStore;
 import app.pickple.point.domain.PointHistory;
 import app.pickple.point.domain.PointHistoryStore;
 import app.pickple.point.domain.PointReason;
@@ -69,6 +79,16 @@ class RankingControllerIT {
     private PointHistoryStore pointStore;
     @Autowired
     private RankingBatchService rankingBatch;
+    /**
+     * 등급 픽스처는 이 저장소로만 심는다 — {@code UserEntity.highestGrade} 가
+     * {@code insertable = false} 라 JPA 로는 쓸 수 없다 (ADR-0041).
+     */
+    @Autowired
+    private GradeStore gradeStore;
+    @Autowired
+    private VoteStore voteStore;
+    @Autowired
+    private ItemContainerStore containerStore;
     @Autowired
     private JwtService jwtService;
     @Autowired
@@ -312,6 +332,101 @@ class RankingControllerIT {
     }
 
     // ─────────────────────────────────────────────────────────────
+    // 이슈 #154 — 저장 등급을 그대로 응답한다 (R-15 · R-16 · ADR-0030)
+    // ─────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("포인트가 같아도 저장 등급이 다르면 각자의 등급으로 응답된다")
+    void sameProfitDifferentStoredGradeIsRespected() throws Exception {
+        // 두 사람의 포인트를 같게 두어 등급을 가르는 것이 저장값뿐이게 만든다.
+        // 포인트가 다르면 "포인트로 계산한 결과"와 "저장값"이 우연히 같아져
+        // 어느 쪽을 읽었는지 구분되지 않는다.
+        User high = newUser("grade-high");
+        User low = newUser("grade-low");
+        grant(high, 1);
+        grant(low, 1);
+        gradeStore.raiseHighestGrade(high.id(), Grade.LV4);
+        rankingBatch.refresh();
+
+        MvcResult result = mockMvc.perform(get("/rankings"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String body = result.getResponse().getContentAsString();
+
+        // 같은 10P 인데 등급만 갈린다.
+        assertThat(gradeAt(body, high.id())).containsExactly(4, "LV.4");
+        assertThat(gradeAt(body, low.id())).containsExactly(1, "LV.1");
+    }
+
+    @Test
+    @DisplayName("재계산하면 등급이 올랐을 사용자도 저장된 등급 그대로 응답된다 (R-16)")
+    void storedGradeIsNotRecomputedFromPoints() throws Exception {
+        // 승급 조건을 실제로 넘긴 사람을 만든다 — LV.2 는 200P AND 20회다.
+        // 포인트만 넘기고 투표를 0 으로 두면 원장 기준 도달 등급도 LV.1 이라,
+        // "포인트만 보는" 잘못된 구현만 잡고 "AND 로 올바로 재계산하지만 저장값을
+        // 무시하는" 구현은 통과시켜 버린다. 두 입력을 모두 넘겨야 재계산과 저장값이 갈린다.
+        User rich = newUser("over-threshold-lv1");
+        grant(rich, 25);        // PICKED +10 × 25 = 250P (> 200P)
+        castVotes(rich, 20);    // vote 20 행 (>= 20회)
+        rankingBatch.refresh();
+
+        // 재계산했다면 LV.2 가 나올 입력이다 — 두 조건을 모두 충족한다 (R-15).
+        GradeStore.GradeInputs inputs = gradeStore.readInputs(rich.id());
+        assertThat(inputs.point()).isEqualTo(250L);
+        assertThat(inputs.voteCount()).isEqualTo(20L);
+        assertThat(inputs.reachedGrade()).isEqualTo(Grade.LV2);
+
+        // 그런데 저장된 등급은 승급 경로를 타지 않아 기본값 LV.1 그대로다.
+        // 이 괴리가 이 테스트의 전부다 — 응답이 LV.2 면 재계산한 것이다.
+        assertThat(gradeStore.readHighestGrade(rich.id())).isEqualTo(Grade.LV1);
+
+        mockMvc.perform(get("/users/me/points").header("Authorization", bearer(rich)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.point").value(250))
+                .andExpect(jsonPath("$.returnObject.gradeLevel").value(1))
+                .andExpect(jsonPath("$.returnObject.gradeName").value("LV.1"));
+
+        // 목록 경로도 같은 저장값을 본다 — 세 엔드포인트가 프로젝션 하나를 공유한다.
+        MvcResult listed = mockMvc.perform(get("/rankings"))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(gradeAt(listed.getResponse().getContentAsString(), rich.id()))
+                .containsExactly(1, "LV.1");
+
+        // 반대 방향 — 포인트·투표가 그대로인데 저장값만 올리면 응답이 따라 올라간다.
+        // 재계산 구현이라면 여기서도 LV.2 가 나와야 하므로 LV.5 는 저장값을 읽었다는 증거다.
+        gradeStore.raiseHighestGrade(rich.id(), Grade.LV5);
+
+        mockMvc.perform(get("/users/me/points").header("Authorization", bearer(rich)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.point").value(250))
+                .andExpect(jsonPath("$.returnObject.gradeLevel").value(5))
+                .andExpect(jsonPath("$.returnObject.gradeName").value("LV.5"));
+    }
+
+    @Test
+    @DisplayName("순위가 아직 없어도 등급은 응답에 있다")
+    void unrankedMineStillHasGrade() throws Exception {
+        // ranking 은 NON_NULL 이라 빠지지만 등급은 가입 시 LV.1 이 기본이라 비지 않는다.
+        User fresh = newUser("fresh-grade");
+
+        mockMvc.perform(get("/users/me/points").header("Authorization", bearer(fresh)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.ranking").doesNotExist())
+                .andExpect(jsonPath("$.returnObject.gradeLevel").value(1))
+                .andExpect(jsonPath("$.returnObject.gradeName").value("LV.1"));
+    }
+
+    /** 목록 응답에서 한 회원의 {@code (gradeLevel, gradeName)} 을 꺼낸다. */
+    private static List<Object> gradeAt(String body, Long userId) {
+        String filter = "$.returnObject.content[?(@.userId == %d)]".formatted(userId);
+        List<Integer> levels = JsonPath.read(body, filter + ".gradeLevel");
+        List<String> names = JsonPath.read(body, filter + ".gradeName");
+        assertThat(levels).as("회원 %d 가 목록에 있어야 한다".formatted(userId)).hasSize(1);
+        return List.of(levels.get(0), names.get(0));
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // §3.1 — 무한 스크롤
     // ─────────────────────────────────────────────────────────────
 
@@ -401,6 +516,31 @@ class RankingControllerIT {
         }
     }
 
+    /**
+     * 투표 {@code times} 건을 쌓는다. 승급 판정의 두 번째 입력이다 (R-15).
+     *
+     * <p><b>매번 새 게시글이 필요하다.</b> {@code UNIQUE(post_id, user_id)} 라
+     * 한 게시글에 한 사람은 한 행뿐이고(R-09), 선택 변경은 UPDATE 라 행이 늘지 않는다(R-22).
+     * 그래서 20회를 채우려면 게시글 20개가 든다.
+     *
+     * <p>게시글 작성자는 {@code picker} 다 — 투표자가 자기 글에 투표해도 막히지 않지만,
+     * 남의 글에 투표하는 쪽이 실제 경로에 가깝다.
+     */
+    private void castVotes(User voter, int times) {
+        for (int i = 0; i < times; i++) {
+            Long containerId = containerStore.save(
+                    new ItemContainer(picker.id(), AttachType.PRODUCT)
+                            .add(new ItemResource(1L, "p.jpg", "s3/" + System.nanoTime(), "https://cdn/x")))
+                    .id();
+            Post post = postStore.save(
+                    new Post(picker.id(), PostType.AGREE, PostCategory.ETC, "투표 대상", null)
+                            .addProduct(new PostProduct(containerId, "상품", 1000L, null, 1))
+                            .addOption(PostOption.ofLabel("사자", 1))
+                            .addOption(PostOption.ofLabel("말자", 2)));
+            voteStore.save(new Vote(post.id(), post.options().get(0).id(), voter.id()));
+        }
+    }
+
     private String bearer(User user) {
         return "Bearer " + jwtService.createAccessToken(user);
     }
@@ -430,7 +570,7 @@ class RankingControllerIT {
                 EXPLAIN FORMAT=TREE
                 SELECT u.id,
                        COALESCE(NULLIF(u.nickname, ''), NULLIF(u.name, ''), '알 수 없음'),
-                       u.profile_image_url, u.ranking, u.point, u.vote_count
+                       u.profile_image_url, u.ranking, u.point, u.vote_count, u.highest_grade
                   FROM users u
                  WHERE u.ranking IS NOT NULL AND u.ranking > 10
                  ORDER BY u.ranking ASC LIMIT 21

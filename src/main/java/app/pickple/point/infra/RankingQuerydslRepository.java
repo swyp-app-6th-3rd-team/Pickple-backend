@@ -117,6 +117,15 @@ class RankingQuerydslRepository {
      * {@code ranking} 은 {@code null} 을 그대로 올린다 — 0 으로 접으면 "아직 모른다" 가
      * "0위" 라는 거짓이 된다 (ADR-0028). {@code point}·{@code voteCount} 는 스키마가
      * {@code INT UNSIGNED} 라 {@code Integer} 로 읽고 도메인 계약인 {@code long} 으로 넓힌다.
+     *
+     * <p><b>등급은 저장된 {@code users.highest_grade} 를 읽는다</b> — {@code point}·{@code voteCount}
+     * 가 이미 여기 있지만 그 둘로 다시 판정하지 않는다. 재판정은 R-16(등급은 내려가지 않는다)을
+     * 깬다: 저장값은 <b>도달한 최고</b> 등급이라 현재 입력값이 그보다 낮은 등급을 가리킬 수 있고,
+     * 그 차이가 곧 R-16 이 지키는 것이다 (ADR-0030). 게시글 상세도 같은 컬럼을 같은 이유로 읽는다.
+     *
+     * <p>세 조회가 이 프로젝션 하나를 공유하므로 컬럼 추가가 세 응답에 함께 반영된다. 대신
+     * {@code RankingControllerIT.sliceUsesRankingIndex} 의 {@code EXPLAIN} SELECT 절이 이 목록을
+     * 따로 옮겨 적고 있다 — 커버링 여부는 SELECT 도 보므로 둘이 어긋나면 계획 단언이 헛돈다.
      */
     private static com.querydsl.core.types.Expression<RankingView> projection() {
         return Projections.constructor(RankingView.class,
@@ -125,6 +134,7 @@ class RankingQuerydslRepository {
                 USER.profileImageUrl,
                 USER.ranking,
                 USER.point.longValue(),
-                USER.voteCount.longValue());
+                USER.voteCount.longValue(),
+                USER.highestGrade);
     }
 }

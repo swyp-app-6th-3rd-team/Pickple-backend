@@ -1,5 +1,6 @@
 package app.pickple.point.domain;
 
+import app.pickple.grade.domain.Grade;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 
@@ -46,7 +47,8 @@ public interface RankingQueryStore {
      * 본인의 랭킹 (§7.3).
      *
      * <p>순위가 아직 없어도({@code ranking IS NULL}) <b>행 자체는 돌아온다</b> —
-     * 포인트와 등급은 순위와 무관하게 존재하기 때문이다. 비는 것은 순위 하나뿐이다.
+     * 포인트와 등급은 순위와 무관하게 존재하기 때문이다(가입 시 LV.1 이 기본이다).
+     * 비는 것은 순위 하나뿐이다.
      *
      * @return 활성 회원이 아니면 빈 값
      */
@@ -57,11 +59,10 @@ public interface RankingQueryStore {
      *
      * <p>세 화면이 같은 필드를 쓰므로 한 레코드를 공유한다.
      *
-     * <p><b>등급명칭이 아직 없다.</b> 명세의 조회 데이터는 등급을 포함하지만,
-     * 등급 판정의 정본({@code Grade} enum)은 이슈 #25 가 만들고 있다. 같은 정책표
-     * §2 를 두 패키지에 옮겨 적으면 정본이 둘이 되고 복제본은 어긋난다 —
-     * #25 가 머지된 뒤 그쪽 {@code Grade} 로 이 레코드에 필드를 더한다.
-     * 판정 입력인 {@code voteCount} 를 지금부터 함께 읽어두는 이유가 그것이다.
+     * <p><b>등급은 저장값이지 계산값이 아니다.</b> {@code point}·{@code voteCount} 를 함께
+     * 들고 있어 여기서 {@code Grade.reachedBy} 를 부를 수 있을 것처럼 보이지만 부르지 않는다 —
+     * 그 둘은 <b>현재</b> 값이고 등급은 <b>도달한 최고</b> 값이라(R-16) 둘이 갈릴 수 있다.
+     * 판정과 저장은 등급 도메인이 하고(ADR-0030) 이 읽기 모델은 그 결과를 옮기기만 한다.
      *
      * @param ranking   TOP 피커 순위. 배치 사전계산값이며 아직 산정되지 않았으면
      *                  {@code null} 이다 (ADR-0028). 0 으로 접지 않는다 —
@@ -69,6 +70,8 @@ public interface RankingQueryStore {
      * @param point     누적 포인트. 원장 합계의 캐시다 (R-14)
      * @param voteCount 누적 투표 횟수. 등급 판정의 두 번째 입력이다 —
      *                  {@code users.vote_count} 이며 배치가 {@code vote} 에서 채운다
+     * @param grade     도달한 최고 등급 (R-16). {@code users.highest_grade} 이며
+     *                  가입 시 LV.1 이 기본이라 비지 않는다
      */
     record RankingView(
             Long userId,
@@ -76,6 +79,18 @@ public interface RankingQueryStore {
             String profileImageUrl,
             Integer ranking,
             long point,
-            long voteCount) {
+            long voteCount,
+            Grade grade) {
+
+        /**
+         * 프로젝션이 쓰는 생성자. 스키마가 {@code TINYINT UNSIGNED} 라 QueryDSL 이
+         * {@code Byte} 를 돌려주므로 여기서 도메인 타입으로 복원한다 — 게시글 상세의
+         * {@code DetailRow.toView} 와 같은 경계다. 바깥은 {@code Grade} 만 본다.
+         */
+        public RankingView(Long userId, String nickname, String profileImageUrl,
+                           Integer ranking, long point, long voteCount, Byte gradeLevel) {
+            this(userId, nickname, profileImageUrl, ranking, point, voteCount,
+                    Grade.ofLevel(gradeLevel));
+        }
     }
 }
