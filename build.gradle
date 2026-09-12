@@ -132,12 +132,91 @@ tasks.named('test') {
     }
 }
 
+// 유닛만 도는 태스크. Docker 없이 도는 빠른 피드백 경로이고, 뮤테이션 테스트의 대상이다.
+//
+// 유닛과 통합을 이름으로 가른다. `@IntegrationTest` 는 `@Tag` 가 아니라 `@SpringBootTest`
+// 메타 애노테이션이라 JUnit Platform 태그 필터로는 고를 수 없다. 대신 ArchitectureTest 가
+// "`@IntegrationTest` 면 이름이 IT 로 끝난다" 를 강제하므로 이름 제외가 규약으로 보장된다(ADR-0050).
+tasks.register('unitTest', Test) {
+    description = '통합 테스트(*IT)를 제외한 단위·아키텍처 테스트만 실행한다'
+    group = 'verification'
+
+    // 소스셋을 명시하지 않으면 testClassesDirs·classpath 가 비어 Gradle 이 NO-SOURCE 로
+    // 건너뛰고도 BUILD SUCCESSFUL 을 낸다(테스트 0개 실행). 반드시 test 소스셋에 연결한다.
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform()
+
+    // test 와 같은 이유로 타임존을 맞춘다. 빠지면 시간 판정이 9시간 밀린다(위 주석 참조).
+    systemProperty 'user.timezone', 'Asia/Seoul'
+
+    filter {
+        excludeTestsMatching '*IT'
+    }
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
+}
+
+// 판정할 로직이 없어 분모만 키우는 것들. 커버리지 산정에서 뺀다.
+// - Q* : QueryDSL 이 생성한 클래스(사람이 쓰지 않는다)
+// - config/docs : 설정과 문서 표면. 분기가 거의 없다
+// - PickpleApplication : 엔트리포인트
+def coverageExclusions = [
+        '**/Q*.class',
+        'app/pickple/config/**',
+        'app/pickple/docs/**',
+        'app/pickple/**/entity/**',
+        'app/pickple/PickpleApplication.class',
+]
+
 jacocoTestReport {
     dependsOn test
     reports {
         xml.required = true
         html.required = true
     }
+    afterEvaluate {
+        classDirectories.setFrom(classDirectories.files.collect {
+            fileTree(dir: it, exclude: coverageExclusions)
+        })
+    }
+}
+
+// 커버리지 하한선. 목표치가 아니라 실측 바로 아래다 — 이 게이트의 목적은
+// 향상 강제가 아니라 회귀 차단이기 때문이다(ADR-0050).
+// 도입 시점 실측: LINE 91.7% / BRANCH 81.4%.
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+
+    afterEvaluate {
+        classDirectories.setFrom(classDirectories.files.collect {
+            fileTree(dir: it, exclude: coverageExclusions)
+        })
+    }
+
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.90
+            }
+            limit {
+                counter = 'BRANCH'
+                value = 'COVEREDRATIO'
+                minimum = 0.80
+            }
+        }
+    }
+}
+
+// check 에 걸어 기존 CI 의 `./gradlew build` 가 그대로 판정하게 한다(CI 수정 불필요).
+tasks.named('check') {
+    dependsOn jacocoTestCoverageVerification
 }
 
 // 생성된 Q 클래스를 IDE 가 소스로 인식하고, clean 시 함께 지워지도록 한다.
