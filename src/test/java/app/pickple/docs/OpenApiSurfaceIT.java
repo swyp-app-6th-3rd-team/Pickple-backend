@@ -54,7 +54,10 @@ class OpenApiSurfaceIT {
      */
     private static final List<String> DOCUMENTED_SCHEMAS = List.of(
             "PostDetailResponse", "VoteSection", "ProductItem", "OptionItem",
-            "PostSearchResponse", "PostSearchItem");
+            "PostSearchResponse", "PostSearchItem",
+            // 랭킹 세 응답이 공유하는 두 스키마다. 등급 필드를 더하면서 넣었다(#154) —
+            // 목록에 없으면 설명이 비어도 아무도 알려주지 않는다.
+            "RankingItem", "MyRankingResponse");
 
     @Autowired
     private WebApplicationContext context;
