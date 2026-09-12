@@ -9,6 +9,14 @@ import app.pickple.comment.domain.CommentStore;
 import app.pickple.comment.domain.OnePickStore;
 import app.pickple.grade.domain.Grade;
 import app.pickple.grade.domain.GradeStore;
+import app.pickple.item.domain.AttachType;
+import app.pickple.item.domain.ItemContainer;
+import app.pickple.item.domain.ItemContainerStore;
+import app.pickple.item.domain.ItemResource;
+import app.pickple.post.domain.PostOption;
+import app.pickple.post.domain.PostProduct;
+import app.pickple.vote.domain.Vote;
+import app.pickple.vote.domain.VoteStore;
 import app.pickple.point.domain.PointHistory;
 import app.pickple.point.domain.PointHistoryStore;
 import app.pickple.point.domain.PointReason;
@@ -77,6 +85,10 @@ class RankingControllerIT {
      */
     @Autowired
     private GradeStore gradeStore;
+    @Autowired
+    private VoteStore voteStore;
+    @Autowired
+    private ItemContainerStore containerStore;
     @Autowired
     private JwtService jwtService;
     @Autowired
@@ -349,16 +361,23 @@ class RankingControllerIT {
     @Test
     @DisplayName("재계산하면 등급이 올랐을 사용자도 저장된 등급 그대로 응답된다 (R-16)")
     void storedGradeIsNotRecomputedFromPoints() throws Exception {
-        // LV.2 승급선은 200P 이고(AND 20회) 이 사람은 200P 를 넘긴다.
-        // 그런데 등급 승급 경로를 타지 않아 highest_grade 는 기본값 LV.1 그대로다.
-        // 응답이 포인트로 다시 판정한다면 여기서 LV.1 이 아닌 값이 나온다.
-        User rich = newUser("rich-but-lv1");
-        grant(rich, 25);   // PICKED +10 × 25 = 250P
+        // 승급 조건을 실제로 넘긴 사람을 만든다 — LV.2 는 200P AND 20회다.
+        // 포인트만 넘기고 투표를 0 으로 두면 원장 기준 도달 등급도 LV.1 이라,
+        // "포인트만 보는" 잘못된 구현만 잡고 "AND 로 올바로 재계산하지만 저장값을
+        // 무시하는" 구현은 통과시켜 버린다. 두 입력을 모두 넘겨야 재계산과 저장값이 갈린다.
+        User rich = newUser("over-threshold-lv1");
+        grant(rich, 25);        // PICKED +10 × 25 = 250P (> 200P)
+        castVotes(rich, 20);    // vote 20 행 (>= 20회)
         rankingBatch.refresh();
 
-        assertThat(pointStore.sumByUser(rich.id())).isEqualTo(250L);
-        // 투표는 한 건도 없다 — AND 조건이라 원장 기준으로도 실제 도달 등급은 LV.1 이다.
-        // 즉 이 테스트는 "포인트만 보고 올리는" 구현만 잡는다.
+        // 재계산했다면 LV.2 가 나올 입력이다 — 두 조건을 모두 충족한다 (R-15).
+        GradeStore.GradeInputs inputs = gradeStore.readInputs(rich.id());
+        assertThat(inputs.point()).isEqualTo(250L);
+        assertThat(inputs.voteCount()).isEqualTo(20L);
+        assertThat(inputs.reachedGrade()).isEqualTo(Grade.LV2);
+
+        // 그런데 저장된 등급은 승급 경로를 타지 않아 기본값 LV.1 그대로다.
+        // 이 괴리가 이 테스트의 전부다 — 응답이 LV.2 면 재계산한 것이다.
         assertThat(gradeStore.readHighestGrade(rich.id())).isEqualTo(Grade.LV1);
 
         mockMvc.perform(get("/users/me/points").header("Authorization", bearer(rich)))
@@ -367,8 +386,15 @@ class RankingControllerIT {
                 .andExpect(jsonPath("$.returnObject.gradeLevel").value(1))
                 .andExpect(jsonPath("$.returnObject.gradeName").value("LV.1"));
 
-        // 저장값을 올리면 포인트가 그대로여도 응답이 따라 올라간다 —
-        // 응답이 보는 것이 저장값이라는 사실의 반대 방향 확인이다.
+        // 목록 경로도 같은 저장값을 본다 — 세 엔드포인트가 프로젝션 하나를 공유한다.
+        MvcResult listed = mockMvc.perform(get("/rankings"))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(gradeAt(listed.getResponse().getContentAsString(), rich.id()))
+                .containsExactly(1, "LV.1");
+
+        // 반대 방향 — 포인트·투표가 그대로인데 저장값만 올리면 응답이 따라 올라간다.
+        // 재계산 구현이라면 여기서도 LV.2 가 나와야 하므로 LV.5 는 저장값을 읽었다는 증거다.
         gradeStore.raiseHighestGrade(rich.id(), Grade.LV5);
 
         mockMvc.perform(get("/users/me/points").header("Authorization", bearer(rich)))
@@ -487,6 +513,31 @@ class RankingControllerIT {
             Comment comment = commentStore.save(new Comment(post.id(), userId, "의견", null));
             Long pickId = pickStore.saveIfAbsent(comment.pick(picker.id())).orElseThrow();
             pointStore.saveIfAbsent(PointHistory.forPick(userId, PointReason.PICKED, pickId));
+        }
+    }
+
+    /**
+     * 투표 {@code times} 건을 쌓는다. 승급 판정의 두 번째 입력이다 (R-15).
+     *
+     * <p><b>매번 새 게시글이 필요하다.</b> {@code UNIQUE(post_id, user_id)} 라
+     * 한 게시글에 한 사람은 한 행뿐이고(R-09), 선택 변경은 UPDATE 라 행이 늘지 않는다(R-22).
+     * 그래서 20회를 채우려면 게시글 20개가 든다.
+     *
+     * <p>게시글 작성자는 {@code picker} 다 — 투표자가 자기 글에 투표해도 막히지 않지만,
+     * 남의 글에 투표하는 쪽이 실제 경로에 가깝다.
+     */
+    private void castVotes(User voter, int times) {
+        for (int i = 0; i < times; i++) {
+            Long containerId = containerStore.save(
+                    new ItemContainer(picker.id(), AttachType.PRODUCT)
+                            .add(new ItemResource(1L, "p.jpg", "s3/" + System.nanoTime(), "https://cdn/x")))
+                    .id();
+            Post post = postStore.save(
+                    new Post(picker.id(), PostType.AGREE, PostCategory.ETC, "투표 대상", null)
+                            .addProduct(new PostProduct(containerId, "상품", 1000L, null, 1))
+                            .addOption(PostOption.ofLabel("사자", 1))
+                            .addOption(PostOption.ofLabel("말자", 2)));
+            voteStore.save(new Vote(post.id(), post.options().get(0).id(), voter.id()));
         }
     }
 
