@@ -278,8 +278,12 @@ class PostControllerIT {
     @DisplayName("한 사람이 댓글 3개를 달아도 인기순 점수는 1만 오른다")
     void popularityCountsPeopleNotComments() throws Exception {
         // R-25. 완료 판정: "댓글 3개 작성 후 정렬 점수 비교".
-        Post three = saveGeneralPost("댓글 3개 한 사람", PostCategory.ETC);
-        Post two = saveGeneralPost("댓글 2명", PostCategory.ETC);
+        //
+        // 카테고리를 EMPTY_CATEGORY 로 둔다. 아래 단언이 목록의 첫 두 항목을 지목하는데,
+        // 전역 인기순은 다른 테스트가 남긴 게시글까지 후보로 삼기 때문이다(#137).
+        // 실제로 점수 22 짜리 잔여 게시글이 1등을 차지해 깨졌다.
+        Post three = saveGeneralPost("댓글 3개 한 사람", EMPTY_CATEGORY);
+        Post two = saveGeneralPost("댓글 2명", EMPTY_CATEGORY);
         User first = saveUser("commenter-a-" + seed, "댓글러A");
         User second = saveUser("commenter-b-" + seed, "댓글러B");
 
@@ -296,7 +300,7 @@ class PostControllerIT {
         assertThat(postStore.findById(two.id()).orElseThrow().popularityScore()).isEqualTo(2L);
 
         // 댓글 건수가 더 많은 쪽(3건)이 아니라 인원이 많은 쪽(2명)이 앞에 온다.
-        mockMvc.perform(get("/posts?sort=POPULAR"))
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY + "&sort=POPULAR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content[0].id").value(two.id()))
                 .andExpect(jsonPath("$.returnObject.content[0].commentCount").value(2))
