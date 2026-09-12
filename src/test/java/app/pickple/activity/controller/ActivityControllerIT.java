@@ -886,7 +886,13 @@ class ActivityControllerIT {
          */
         private Statements slice(ActivityType type, ActivitySort sort) {
             Object sortValue = sort.byActivityTime() ? cursorAt : 0L;
-            ScrollPosition cursor = ScrollPosition.forward(Map.of(sort.cursorKey(), sortValue, "id", cursorPostId));
+            // 커서에 유형을 함께 싣는다 (#156). 이 그룹은 HTTP 를 거치지 않고 저장소를 직접
+            // 부르는데, 유형 판별자가 요구되는 자리가 바로 그 저장소 진입점이다 —
+            // 빠뜨리면 "커서와 활동 유형이 맞지 않습니다" 로 막힌다.
+            // toPosition 은 activity.infra 의 package-private 이라 여기서 부르지 못해
+            // 키 맵을 직접 만든다. 키 이름이 갈리면 ActivityListCursorTest 가 먼저 깨진다.
+            ScrollPosition cursor = ScrollPosition.forward(
+                    Map.of("type", type.name(), sort.cursorKey(), sortValue, "id", cursorPostId));
 
             List<Long> ids = new ArrayList<>();
             List<String> statements = sqlCapture.record(() ->
