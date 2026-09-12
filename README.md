@@ -46,6 +46,25 @@ IntelliJ 를 쓰면 커밋된 `PickpleApplication` 실행 구성(`.run/`)을 그
 
 `Started PickpleApplication` 과 `The following 1 profile is active: "local"` 이 보이면 성공이다.
 
+#### 포트는 8080 이다 — `.env` 의 `APP_PORT=8081` 이 아니다
+
+`.env` 에 `APP_PORT=8081` 이 있지만 **서버는 8080 에 뜬다.** `application.yml` 에는
+`server.port` 선언이 없어(`management.server.port` 만 있다) Tomcat 기본값 8080 이 쓰인다.
+`.env` 가 Spring 프로퍼티 소스로도 읽히지만(ADR-0024) 바인딩할 대상이 없어 값은 무시된다.
+
+`APP_PORT` 는 사실 **어디에서도 쓰이지 않는다.** 앱을 띄우는 compose 서비스가 없기 때문이다 —
+`docker-compose-local.yml` 은 MySQL 만, `docker-compose-ec2.yml` 은 MySQL 과 Caddy 만 포트를
+매핑한다. 앱 이미지는 8080 을 노출하고 Caddy 가 그 앞에 선다.
+
+`curl localhost:8081/posts` 가 연결 실패하면 이 경우다. `localhost:8080` 으로 붙는다.
+실측 기록은 [D-2](docs/verification/2026-09-04-auth-lifecycle-e2e.md) 에 있다.
+
+> **기동 확인을 `/actuator/health` 하나로 하지 말 것.**
+> management 커넥터(9090)와 서비스 커넥터(8080)는 따로 열리고 **순서가 보장되지 않는다.**
+> D-2 검증에서는 9090 이 먼저 떠 **health 가 UP 인데 서비스 포트는 닫혀 있는 구간**이 실측됐다
+> (이 문서를 쓰며 다시 띄웠을 때는 8080 이 53ms 먼저 떴다 — 그래서 순서에 기대면 안 된다).
+> health 만 보고 "준비 완료" 로 읽지 말고, 서비스 포트로 실제 요청을 한 번 보내 확인한다.
+
 ### `.env` 는 어떻게 읽히나
 
 `.env` 는 표준이 아니라 관례다. JVM 도 Spring Boot 도 `.env` 라는 개념이 없고,
