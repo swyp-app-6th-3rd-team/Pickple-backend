@@ -1,6 +1,7 @@
 package app.pickple.activity.controller;
 
 import app.pickple.activity.domain.ActivityQueryStore;
+import app.pickple.activity.domain.ActivityType;
 import app.pickple.activity.service.ActivityQueryService;
 import app.pickple.auth.security.CurrentUser;
 import app.pickple.common.ApiResponse;
@@ -57,10 +58,81 @@ public class ActivityController {
      * 서버가 존재하지 않는 활동을 지어내지 않는다 — 지어내면 그 카드를 탭했을 때
      * 갈 곳이 없다. {@code GET /posts} 가 세운 규칙과 같다.
      */
-    @Operation(summary = "내 활동 목록 조회",
-            description = "활동 유형 필터와 정렬(최신순·오래된순·인기순), 커서 기반 무한 스크롤. "
-                    + "세 유형 모두 결과는 게시글 카드다 — 내가 투표한 글, 댓글 단 글, 올린 글. "
-                    + "활동이 없으면 빈 배열이다.")
+    @Operation(summary = "내가 투표한 글 목록",
+            description = "내가 투표한 게시글을 정렬(최신순·오래된순·인기순)과 커서 기반 무한 스크롤로 준다. "
+                    + "정렬 키인 활동 시각은 투표한 시각이다(R-32). 활동이 없으면 빈 배열이다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/users/me/activities/votes")
+    public ApiResponse<ScrollResponse<VoteActivityItem>> findVotes(
+            @Parameter(hidden = true) @CurrentUser Long userId,
+            @Parameter(description = "LATEST(기본) | OLDEST | POPULAR. 모르는 값은 기본값으로 되돌린다")
+            @RequestParam(value = "sort", required = false) String sort,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 첫 조각. 다른 유형의 커서면 400")
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @Parameter(description = "조각 크기. 기본 10")
+            @RequestParam(value = "size", required = false) Integer size) {
+
+        return ApiResponse.success(ScrollResponse.of(
+                activityQueryService.findSlice(userId, ActivityType.VOTE, sort, cursor, size),
+                VoteActivityItem::from));
+    }
+
+    @Operation(summary = "내가 댓글 단 글 목록",
+            description = "내가 댓글을 단 게시글을 정렬과 커서 기반 무한 스크롤로 준다. "
+                    + "한 글에 댓글을 여러 개 달아도 한 번만 나오고(R-25), "
+                    + "정렬 키인 활동 시각은 처음 댓글을 단 시각이다(R-32).")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/users/me/activities/comments")
+    public ApiResponse<ScrollResponse<CommentActivityItem>> findComments(
+            @Parameter(hidden = true) @CurrentUser Long userId,
+            @Parameter(description = "LATEST(기본) | OLDEST | POPULAR. 모르는 값은 기본값으로 되돌린다")
+            @RequestParam(value = "sort", required = false) String sort,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 첫 조각. 다른 유형의 커서면 400")
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @Parameter(description = "조각 크기. 기본 10")
+            @RequestParam(value = "size", required = false) Integer size) {
+
+        return ApiResponse.success(ScrollResponse.of(
+                activityQueryService.findSlice(userId, ActivityType.COMMENT, sort, cursor, size),
+                CommentActivityItem::from));
+    }
+
+    @Operation(summary = "내가 올린 글 목록",
+            description = "내가 올린 게시글을 정렬과 커서 기반 무한 스크롤로 준다. "
+                    + "내가 올린 글은 활동이 곧 작성이라 활동 시각이 작성 시각과 같다(R-32).")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/users/me/activities/posts")
+    public ApiResponse<ScrollResponse<PostActivityItem>> findPosts(
+            @Parameter(hidden = true) @CurrentUser Long userId,
+            @Parameter(description = "LATEST(기본) | OLDEST | POPULAR. 모르는 값은 기본값으로 되돌린다")
+            @RequestParam(value = "sort", required = false) String sort,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 첫 조각. 다른 유형의 커서면 400")
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @Parameter(description = "조각 크기. 기본 10")
+            @RequestParam(value = "size", required = false) Integer size) {
+
+        return ApiResponse.success(ScrollResponse.of(
+                activityQueryService.findSlice(userId, ActivityType.POST, sort, cursor, size),
+                PostActivityItem::from));
+    }
+
+    /**
+     * 유형을 쿼리 파라미터로 받던 옛 경로. <b>유형별 경로로 대체됐다</b> (ADR-0049).
+     *
+     * <p>지우지 않는 이유는 SPEC 에 공개된 계약이고 FE 가 OpenAPI 로 계약을 가져가는
+     * 구조라 미사용을 증명할 수 없어서다. 동작은 그대로 두고 문서에 deprecated 로
+     * 표시해 소비 클라이언트 전환을 확인한 뒤 별도 이슈로 제거한다.
+     *
+     * <p><b>{@link ActivityType#from} 의 마지막 호출자다.</b> "모르는 값은 400 이 아니라
+     * 기본값" 계약은 이 경로에만 남는다 — 세 새 경로는 유형을 경로가 고정하므로
+     * 접을 값 자체가 없다.
+     */
+    @Deprecated(since = "#156")
+    @Operation(summary = "내 활동 목록 조회 (deprecated)",
+            deprecated = true,
+            description = "유형별 경로(`/users/me/activities/votes` · `/comments` · `/posts`)로 대체됐다. "
+                    + "동작은 그대로이나 새 클라이언트는 유형별 경로를 쓴다. "
+                    + "활동 유형 필터와 정렬(최신순·오래된순·인기순), 커서 기반 무한 스크롤.")
     @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/activities")
     public ApiResponse<ScrollResponse<ActivityItem>> findAll(
@@ -75,7 +147,8 @@ public class ActivityController {
             @RequestParam(value = "size", required = false) Integer size) {
 
         return ApiResponse.success(ScrollResponse.of(
-                activityQueryService.findSlice(userId, type, sort, cursor, size), ActivityItem::from));
+                activityQueryService.findSlice(userId, ActivityType.from(type), sort, cursor, size),
+                ActivityItem::from));
     }
 
     @Operation(summary = "내가 올린 최신 투표",
@@ -112,11 +185,13 @@ public class ActivityController {
     }
 
     /**
-     * 활동 목록 한 줄 (§9.2).
+     * 활동 목록 한 줄 (§9.2). <b>deprecated 경로 {@link #findAll} 전용이다.</b>
      *
-     * <p>세 활동 유형이 <b>한 스키마를 공유한다.</b> 명세의 조회 데이터가 세 유형 모두
-     * 게시글 카드이고, 탭하면 게시글 상세로 간다. 유형별로 쪼개면 클라이언트가
-     * 파싱 분기를 갖는데 목록은 칩 하나로 한 유형만 담으므로 그 분기가 쓰이지도 않는다.
+     * <p>세 활동 유형이 한 스키마를 공유한다. 그 근거였던 "목록은 칩 하나로 한 유형만
+     * 담으므로 파싱 분기가 쓰이지도 않는다" 는 <b>경로가 유형을 고정하면서 그대로
+     * 분리의 근거로 뒤집혔다</b> (ADR-0049 가 ADR-0046 의 이 항목을 부분 대체).
+     * 새 경로는 {@link VoteActivityItem}·{@link CommentActivityItem}·{@link PostActivityItem}
+     * 를 쓰고, 이 타입은 옛 계약을 깨지 않기 위해 남는다 — 구 경로가 사라질 때 함께 사라진다.
      *
      * @param voteCount  찬반·A/B 만. 일반 게시글은 투표가 없어 {@code null} 이다
      * @param activityAt 내가 이 게시글에 활동한 시각. 투표한 시각·처음 댓글을 단 시각·
@@ -137,6 +212,112 @@ public class ActivityController {
 
         static ActivityItem from(ActivityQueryStore.ActivityPostView view) {
             return new ActivityItem(
+                    view.id(),
+                    view.type(),
+                    view.category(),
+                    view.title(),
+                    view.description(),
+                    view.commentCount(),
+                    view.type().hasVoting() ? view.voteCount() : null,
+                    view.thumbnailUrl(),
+                    view.createdAt(),
+                    view.activityAt());
+        }
+    }
+
+    /**
+     * 내가 투표한 글 한 줄 (§9.2).
+     *
+     * <p><b>세 유형이 각기 다른 타입이다</b> (ADR-0049). 지금은 필드 구성이 셋 다 같지만
+     * 그것이 합칠 근거가 되지는 않는다 — 명세 §9.2 가 투표 활동에 "각 항목의 투표율,
+     * 내가 선택한 항목" 을, 댓글 활동에 "내가 남긴 댓글, 받은 원픽 갯수" 를 따로 요구하므로
+     * 세 모양은 곧 갈린다(#157 · #158). 한 타입을 공유해 두면 그때 유형에 따라
+     * {@code null} 이 되는 필드가 늘어 계약이 흐려진다.
+     *
+     * @param activityAt 내가 투표한 시각. 게시글 작성 시각과 다를 수 있다 (R-32 · ADR-0036)
+     */
+    public record VoteActivityItem(
+            @Schema(description = "게시글 식별자") Long id,
+            @Schema(description = "GENERAL | AGREE | A_B") PostType type,
+            @Schema(description = "카테고리") PostCategory category,
+            @Schema(description = "찬반=상품명, A/B=주제, 일반=제목") String title,
+            @Schema(description = "설명") String description,
+            @Schema(description = "댓글 건수") long commentCount,
+            @Schema(description = "투표 인원. 일반 게시글은 null") Long voteCount,
+            @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
+            @Schema(description = "게시글 작성 시각") LocalDateTime createdAt,
+            @Schema(description = "내가 투표한 시각") LocalDateTime activityAt) {
+
+        static VoteActivityItem from(ActivityQueryStore.ActivityPostView view) {
+            return new VoteActivityItem(
+                    view.id(),
+                    view.type(),
+                    view.category(),
+                    view.title(),
+                    view.description(),
+                    view.commentCount(),
+                    view.type().hasVoting() ? view.voteCount() : null,
+                    view.thumbnailUrl(),
+                    view.createdAt(),
+                    view.activityAt());
+        }
+    }
+
+    /**
+     * 내가 댓글 단 글 한 줄 (§9.2).
+     *
+     * <p>한 글에 댓글을 여러 개 달아도 한 줄이다 — 읽는 곳이 {@code comment} 가 아니라
+     * {@code post_commenter} 이고 그 테이블이 게시글당 한 행이다(R-25).
+     *
+     * @param activityAt 내가 <b>처음</b> 댓글을 단 시각 (R-32)
+     */
+    public record CommentActivityItem(
+            @Schema(description = "게시글 식별자") Long id,
+            @Schema(description = "GENERAL | AGREE | A_B") PostType type,
+            @Schema(description = "카테고리") PostCategory category,
+            @Schema(description = "찬반=상품명, A/B=주제, 일반=제목") String title,
+            @Schema(description = "설명") String description,
+            @Schema(description = "댓글 건수") long commentCount,
+            @Schema(description = "투표 인원. 일반 게시글은 null") Long voteCount,
+            @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
+            @Schema(description = "게시글 작성 시각") LocalDateTime createdAt,
+            @Schema(description = "내가 처음 댓글을 단 시각") LocalDateTime activityAt) {
+
+        static CommentActivityItem from(ActivityQueryStore.ActivityPostView view) {
+            return new CommentActivityItem(
+                    view.id(),
+                    view.type(),
+                    view.category(),
+                    view.title(),
+                    view.description(),
+                    view.commentCount(),
+                    view.type().hasVoting() ? view.voteCount() : null,
+                    view.thumbnailUrl(),
+                    view.createdAt(),
+                    view.activityAt());
+        }
+    }
+
+    /**
+     * 내가 올린 글 한 줄 (§9.2).
+     *
+     * @param activityAt 내가 올린 시각. 내가 올린 글은 활동이 곧 작성이라
+     *                   {@code createdAt} 과 같다 (R-32)
+     */
+    public record PostActivityItem(
+            @Schema(description = "게시글 식별자") Long id,
+            @Schema(description = "GENERAL | AGREE | A_B") PostType type,
+            @Schema(description = "카테고리") PostCategory category,
+            @Schema(description = "찬반=상품명, A/B=주제, 일반=제목") String title,
+            @Schema(description = "설명") String description,
+            @Schema(description = "댓글 건수") long commentCount,
+            @Schema(description = "투표 인원. 일반 게시글은 null") Long voteCount,
+            @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
+            @Schema(description = "게시글 작성 시각") LocalDateTime createdAt,
+            @Schema(description = "내가 올린 시각. 작성 시각과 같다") LocalDateTime activityAt) {
+
+        static PostActivityItem from(ActivityQueryStore.ActivityPostView view) {
+            return new PostActivityItem(
                     view.id(),
                     view.type(),
                     view.category(),
