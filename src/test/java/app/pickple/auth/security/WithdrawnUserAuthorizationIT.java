@@ -382,7 +382,11 @@ class WithdrawnUserAuthorizationIT {
             // 그 사실을 고정해 둔다 — 새 보호 엔드포인트가 자동으로 보호된다는 근거다.
             String[] untouchedProtectedPaths = {
                     "/auth/me", "/users/me", "/users/me/points",
-                    "/users/me/grade", "/users/me/badges", "/users/me/activities"
+                    "/users/me/grade", "/users/me/badges", "/users/me/activities",
+                    // 유형별 경로 셋 (#156). SecurityConfig 를 고치지 않았는데도
+                    // .anyRequest() 관문에 자동으로 걸린다는 것이 여기서 드러난다.
+                    "/users/me/activities/votes", "/users/me/activities/comments",
+                    "/users/me/activities/posts"
             };
             for (String path : untouchedProtectedPaths) {
                 mockMvc.perform(get(path).header("Authorization", bearer(withdrawnToken)))
