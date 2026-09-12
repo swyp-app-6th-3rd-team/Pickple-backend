@@ -3,6 +3,7 @@ package app.pickple.post.service;
 import app.pickple.common.CursorCodec;
 import app.pickple.common.RelativeTime;
 import app.pickple.common.ResponseCode;
+import app.pickple.common.StringUtils;
 import app.pickple.error.ApiException;
 import app.pickple.item.domain.AttachType;
 import app.pickple.item.domain.ItemContainer;
@@ -17,6 +18,7 @@ import app.pickple.post.domain.PostStore;
 import app.pickple.post.domain.PostType;
 import app.pickple.vote.domain.VotePercentage;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.KeysetScrollPosition;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
 import org.springframework.stereotype.Service;
@@ -44,6 +46,11 @@ public class PostService {
 
     /** 홈 랜덤 투표 카드의 고정 조각 크기 (§2.2). */
     private static final int RANDOM_SLICE_SIZE = 10;
+
+    /** 검색 결과는 기능명세 §4.5에 따라 항상 10건씩 읽는다. */
+    private static final int SEARCH_SLICE_SIZE = 10;
+    private static final int SEARCH_KEYWORD_MAX_CODE_POINTS = 30;
+    private static final int SEARCH_CURSOR_MAX_LENGTH = 1_024;
 
     private final PostStore postStore;
     private final ItemContainerStore itemContainerStore;
@@ -194,6 +201,29 @@ public class PostService {
         ScrollPosition position = CursorCodec.decode(cursor);
         long initialSeed = position.isInitial() ? randomGenerator.nextLong() : 0L;
         return postStore.findRandomSlice(type, viewerId, position, RANDOM_SLICE_SIZE, initialSeed);
+    }
+
+    /** 상품명·A/B 주제·일반 제목을 검색하고 정확한 전체 건수와 최신순 조각을 반환한다. */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PostSearchResult search(String keyword, String cursor) {
+        String normalizedKeyword = normalizeSearchKeyword(keyword);
+        ScrollPosition position = decodeSearchCursor(cursor);
+        PostStore.PostSearchResult stored =
+                postStore.search(normalizedKeyword, position, SEARCH_SLICE_SIZE);
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<PostSearchItem> content = stored.window().getContent().stream()
+                .map(view -> new PostSearchItem(
+                        view, RelativeTime.of(view.createdAt(), now)))
+                .toList();
+        Window<PostSearchItem> window = Window.from(
+                content, stored.window()::positionAt, stored.window().hasNext());
+        return new PostSearchResult(stored.totalCount(), window);
+    }
+
+    public record PostSearchResult(long totalCount, Window<PostSearchItem> window) {
+    }
+
+    public record PostSearchItem(PostStore.PostSearchView view, String createdAgo) {
     }
 
     /**
@@ -363,6 +393,44 @@ public class PostService {
             return DEFAULT_SIZE;
         }
         return Math.min(size, MAX_SIZE);
+    }
+
+    private static String normalizeSearchKeyword(String raw) {
+        if (raw == null) {
+            throw invalidSearchKeyword();
+        }
+        String keyword = StringUtils.stripEdgeWhitespace(raw);
+        int codePoints = keyword.codePointCount(0, keyword.length());
+        if (codePoints < 1
+                || codePoints > SEARCH_KEYWORD_MAX_CODE_POINTS
+                || keyword.codePoints().anyMatch(Character::isISOControl)) {
+            throw invalidSearchKeyword();
+        }
+        return keyword;
+    }
+
+    private static ScrollPosition decodeSearchCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) {
+            return ScrollPosition.keyset();
+        }
+        if (cursor.length() > SEARCH_CURSOR_MAX_LENGTH) {
+            throw invalidSearchCursor();
+        }
+        ScrollPosition position = CursorCodec.decode(cursor);
+        if (position instanceof KeysetScrollPosition keyset && keyset.getKeys().isEmpty()) {
+            throw invalidSearchCursor();
+        }
+        return position;
+    }
+
+    private static ApiException invalidSearchKeyword() {
+        return new ApiException(
+                ResponseCode.INVALID_REQUEST,
+                "검색어는 양끝 공백을 제외하고 1~30자여야 하며 제어 문자를 포함할 수 없습니다.");
+    }
+
+    private static ApiException invalidSearchCursor() {
+        return new ApiException(ResponseCode.INVALID_REQUEST, "검색 커서 형식이 올바르지 않습니다.");
     }
 
     private static String resolveTitle(PostType type, String requestedTitle, List<ProductCommand> products) {

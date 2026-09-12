@@ -390,6 +390,7 @@ class ArchitectureTest {
         private static final Set<String> PUBLIC_ENDPOINTS = Set.of(
                 "GET /posts",
                 "GET /posts/popular",
+                "GET /posts/search",
                 "GET /posts/random",
                 // 상세는 공개, 같은 경로의 댓글(GET /posts/{id}/comments)은 인증이다 —
                 // 키가 "METHOD 경로" 인 이유가 이것이다 (명세 §6.4).

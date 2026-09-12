@@ -56,6 +56,15 @@ public interface PostStore {
     Window<PostListView> findSlice(PostCategory category, PostSort sort, ScrollPosition position, int size);
 
     /**
+     * 상품명·A/B 주제·일반 제목에서 검색하고 정확한 전체 건수와 최신순 조각을 읽는다.
+     *
+     * @param keyword  입력 검증과 양끝 공백 제거를 마친 검색어
+     * @param position 검색어 문맥과 최신순 경계를 담은 커서. 첫 조각이면 빈 keyset
+     * @param size     고정 조각 크기
+     */
+    PostSearchResult search(String keyword, ScrollPosition position, int size);
+
+    /**
      * 한 유형의 투표 게시글을 시드 기반 임의 순서로 읽는다.
      *
      * @param type        {@link PostType#AGREE} 또는 {@link PostType#A_B}
@@ -117,6 +126,27 @@ public interface PostStore {
             Long authorId,
             String authorNickname,
             Integer authorRanking) {
+    }
+
+    /** 전체 검색 건수와 현재 조각을 묶는다. */
+    record PostSearchResult(long totalCount, Window<PostSearchView> window) {
+
+        public PostSearchResult {
+            if (totalCount < 0) {
+                throw new IllegalArgumentException("검색 결과 전체 건수는 음수일 수 없습니다.");
+            }
+        }
+    }
+
+    /** 검색 화면에 필요한 값만 읽는 전용 뷰. */
+    record PostSearchView(
+            Long id,
+            PostType type,
+            String title,
+            long voteCount,
+            long commentCount,
+            LocalDateTime createdAt,
+            String thumbnailUrl) {
     }
 
     /**

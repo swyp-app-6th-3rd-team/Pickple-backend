@@ -127,6 +127,8 @@ public class SecurityConfig {
                                 // 홈 화면의 인기 게시글 Top 10. /posts 패턴은 이 경로를 덮지 않는다 —
                                 // PathPattern 은 세그먼트가 정확히 맞아야 하므로 따로 적어야 한다.
                                 mvc.matcher(HttpMethod.GET, "/posts/popular"),
+                                // 커뮤니티의 검색 화면. 목록처럼 게스트가 조회할 수 있다.
+                                mvc.matcher(HttpMethod.GET, "/posts/search"),
                                 // 랜덤 투표 카드. 게스트도 보고, 토큰이 있으면 내 투표 결과도 붙인다.
                                 mvc.matcher(HttpMethod.GET, "/posts/random"),
                                 // 목록에서 카드를 탭해 들어오는 상세 (§6.2). 목록이 공개인데

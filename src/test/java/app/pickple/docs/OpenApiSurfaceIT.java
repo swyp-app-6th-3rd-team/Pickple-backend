@@ -46,14 +46,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class OpenApiSurfaceIT {
 
     /**
-     * 응답 스키마를 검증할 대상. 이 사이클이 추가한 게시글 상세 DTO 다.
+     * 응답 스키마를 검증할 대상. 최근 사이클이 추가한 게시글 상세·검색 DTO 다.
      *
      * <p>전체 스키마를 훑지 않는 이유는 <b>기존 부채까지 이 테스트가 떠안으면
      * 빨간불이 상수가 되어 아무도 안 보게 되기 때문</b>이다. 새로 만드는 것부터
      * 결손 0 을 지키고, 목록은 도메인이 정리될 때 넓힌다.
      */
     private static final List<String> DOCUMENTED_SCHEMAS = List.of(
-            "PostDetailResponse", "VoteSection", "ProductItem", "OptionItem");
+            "PostDetailResponse", "VoteSection", "ProductItem", "OptionItem",
+            "PostSearchResponse", "PostSearchItem");
 
     @Autowired
     private WebApplicationContext context;
@@ -127,8 +128,8 @@ class OpenApiSurfaceIT {
     }
 
     @Test
-    @DisplayName("게시글 상세 응답 DTO 는 모든 필드에 설명이 있다")
-    void detailSchemasDocumentEveryField() {
+    @DisplayName("새 게시글 응답 DTO 는 모든 필드에 설명이 있다")
+    void postSchemasDocumentEveryField() {
         // 필드 의미를 지어내지 않기 위한 규율의 뒷면이다 — 근거를 못 찾으면 최소 서술을
         // 남기더라도 빈 칸으로 두지 않는다. 빈 칸은 시간순으로 쌓여 부채가 된다.
         List<String> missing = new ArrayList<>();
@@ -190,6 +191,7 @@ class OpenApiSurfaceIT {
         static final List<String> VALUES = List.of(
                 "GET /posts",
                 "GET /posts/popular",
+                "GET /posts/search",
                 "GET /posts/random",
                 "GET /posts/{id}",
                 "GET /users/nickname/availability",
