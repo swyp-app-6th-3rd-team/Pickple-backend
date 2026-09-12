@@ -630,6 +630,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 | `V14__erase_withdrawn_user_personal_data.sql` | `db/migration` | 항상 |
 | `V15__terms_tables.sql` | `db/migration` | 항상 — 빈 약관·동의 테이블만 생성 |
+| `V16__register_initial_terms.sql` | `db/migration` | 항상 — 약관 열람 URL 추가 및 승인 정본 2건 등록 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -665,11 +666,11 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 ---
 
-### 4.4 약관·동의 이력 2개 (V15)
+### 4.4 약관·동의 이력 2개와 최초 정본 (V15·V16)
 
 | 테이블 | 저장 내용 | 핵심 제약 |
 |---|---|---|
-| `terms` | 종류·버전, 제목, 전체 Markdown 본문, 필수 여부, 시행·등록 시각 | UNIQUE(type, version), UNIQUE(type, effective_at), 필수값 NOT NULL, 빈 문자열/일반 공백만인 값 및 0/1 외 필수 여부 거부 |
+| `terms` | 종류·버전, 제목, 앱 열람 URL, 전체 Markdown 본문, 필수 여부, 시행·등록 시각 | UNIQUE(type, version), UNIQUE(type, effective_at), 필수값 NOT NULL, URL은 비어 있지 않은 HTTPS, 빈 문자열/일반 공백만인 값 및 0/1 외 필수 여부 거부 |
 | `terms_agreement` | 사용자·약관 버전별 최초 동의 시각 | UNIQUE(user_id, terms_id), users·terms FK |
 
 - 시각은 기존 초 단위 Asia/Seoul 계약을 따른다. 종류별 현재 버전은
@@ -681,23 +682,25 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 - 동의 행은 해당 버전의 최초 수락 사실이다. 거절·철회·재수락 이벤트나 현재 유효 동의 상태는 표현하지 않는다.
 - 사용자 물리 DELETE는 동의 행에 CASCADE한다. INACTIVE 전환에는 적용되지 않는다.
   동의 수신 API 활성화 전에 보존·파기 정책과 탈퇴 연동을 확정해야 한다.
-- 본문·동의 시드는 없다. 최종 본문 등록과 조회·실제 동의 저장 API는 후속 구현에서 함께 다룬다.
-  개인정보처리방침의 전문 저장 자체가 선택 수집 항목까지 필수 동의로 묶는다는 뜻은 아니다.
-- 이번 변경은 DB 기반 구조다. API·가입 흐름·노션 링크·OS 권한 계약은 변경하지 않는다.
-  선택 근거와 후속 책임은 [ADR-0048](adr/0048-versioned-terms-and-user-agreement.md)에 둔다.
+- V15는 테이블만 만들며 V16이 승인된 이용약관과 개인정보처리방침을 등록한다. 사용자 동의 시드는 없다.
+  개인정보처리방침의 전문에는 선택 수집 항목도 설명되지만 회원가입의 필수 동의 범위는 제1조의
+  필수 개인정보 수집 항목이며, 문의·이벤트처럼 별도 동의를 받는 항목까지 일괄 동의시키지 않는다.
+- 이번 변경은 DB 기반 정본과 열람 URL까지다. 조회·동의 저장 API와 가입 차단은 후속 구현이다.
+  구조는 [ADR-0048](adr/0048-versioned-terms-and-user-agreement.md), 정본 등록은
+  [ADR-0049](adr/0049-initial-terms-content-and-links.md)에 둔다.
 
-**2026-09-10 사용자 합의 — 후속 등록·앱 연동 방향이며 이번 DB 구현의 동작은 아님:**
+**2026-09-11 승인 정본 등록 계약:**
 
 | 제공 문서 | 처리 방향 |
 |---|---|
-| [개인정보처리방침](https://super-albatross-219.notion.site/PickPle-3c8eab9bfff480a5810deaa3a8d902f8) | 확정된 Markdown 전문을 `terms.content`에 버전별 저장 |
-| [이용약관](https://super-albatross-219.notion.site/PickPle-3c8eab9bfff480b1ad6ef0fe62c21b42) | 확정된 Markdown 전문을 별도 약관 행에 저장 |
+| [개인정보처리방침](https://super-albatross-219.notion.site/PickPle-3c8eab9bfff480a5810deaa3a8d902f8) | `PRIVACY_POLICY` · `2026-09-20` · 필수 · URL과 Markdown 전문 저장 |
+| [이용약관](https://super-albatross-219.notion.site/PickPle-3c8eab9bfff480b1ad6ef0fe62c21b42) | `TERMS_OF_SERVICE` · `2026-09-20` · 필수 · URL과 Markdown 전문 저장 |
 | [앱 버전/업데이트 안내](https://super-albatross-219.notion.site/3c8eab9bfff480fa8cc6f5e127d72d15?pvs=74) | 앱 설정에서 Notion 링크 제공. 약관·동의 테이블에 넣지 않음 |
 
-- 두 약관 문서에서 확인한 시행일은 `2026-09-20`이다. 약관 버전 번호는 없으며 앱 업데이트 안내도 그 출처가 아니다.
-  `type`·`version`·`created_at`은 백엔드 관리 값이다. 실제 필수 여부는 동의 화면의 해당 항목과 맞춘다.
-- Notion은 문서 작성 원본으로 사용한다. 후속 앱은 DB의 해당 버전 본문을 표시하고 같은 `terms_id`로 동의를 보낸다.
-  등록 후 Notion이 수정돼도 과거 동의가 가리키는 DB 본문은 바꾸지 않는다.
+- 두 문서의 시행 시각은 `2026-09-20 00:00:00` Asia/Seoul이다. 문서 자체에 버전 라벨이 없어
+  백엔드 버전은 시행일과 같은 `2026-09-20`을 사용하고, 등록 시각은 V16 적용 시각을 기록한다.
+- 기능명세서 v0.4 §1.6에 따라 앱은 `content_url`의 Notion 문서를 연다. 등록 후 Notion이 수정돼도
+  과거 동의가 가리키는 `content` 스냅샷은 바꾸지 않는다. 후속 동의 API는 같은 `terms_id`를 저장한다.
 - 조항·표·목록·링크를 포함한 전문을 보존한다. 자연어의 보관 기간을 저장하는 것과 실제 파기 기능 구현은 구분한다.
   추가 약관, 관리 화면, 자동 Notion 동기화, 앱 업데이트 관리 테이블은 이번 범위에 추가하지 않는다.
 
@@ -874,6 +877,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 날짜 | 변경 | 계기 |
 |---|---|---|
 | 2026-09-10 | V15로 버전별 약관 본문과 사용자별 최초 동의 테이블 추가(§4.4). 본문·동의 시드 및 API는 없음 | #123 저장 결정의 후속 #147. 최종본 수령 후 본문을 등록하는 DB 기반 구조(ADR-0048) |
+| 2026-09-11 | V16으로 약관 열람 URL을 추가하고 승인된 이용약관·개인정보처리방침 정본을 필수 항목으로 등록(§4.4) | 기능명세서 v0.4 §1.6 및 #150. API와 사용자 동의 시드는 후속 범위(ADR-0049) |
 | 2026-09-08 | `GET /posts/{id}` 추가(ADR-0046). 단일 응답 타입에 투표 섹션만 nullable 중첩, 미투표자·게스트에게 선택지별 집계를 부재로 감춤, 탈퇴 작성자는 비식별 표기. 읽기는 QueryDSL 세 문장 | Issue #20. 첫 판 PR #128 은 `Object[]` + 인덱스 상수 25개라 #130 의 표준으로 다시 구현(PRD-024 작업 단위 6). `users.highest_grade` 를 읽기 전용으로 매핑 |
 | 2026-09-06 | dev QA 아이디·비밀번호 로그인 `/auth/login` 추가. URI에서 환경명을 분리하고 BCrypt 설정 자격증명을 기존 활성 계정에 연결 | Issue #117·PR #120 리뷰 반영. 내부 ID·공유 헤더 키 방식 철회 |
 | 2026-09-06 | 회원 탈퇴가 provider 무관하게 개인정보를 즉시 파기한다(ADR-0040). 다섯 컬럼을 `NULL`로 비우고 도메인 불변식을 `APPLE + INACTIVE` 한정에서 `INACTIVE` 기준으로 넓혔다. V14가 기존 탈퇴자를 소급 파기한다 | Issue #111. 개인정보처리방침 제3조가 "회원 탈퇴 시 지체 없이 파기"를 규정하는데(시행 2026-09-20) `withdraw()`는 상태만 바꿔 이메일·이름·닉네임·프로필 이미지와 카카오 `provider_id`가 무기한 남았다. **원인은 버그가 아니라 도메인 모델 결손이다** — 규칙 표에 R-20("지우지 않는다")만 있어 코드가 표현할 파기 규칙이 없었다. R-27·R-28을 세우고 R-20의 대상을 "콘텐츠와 활동"으로 좁혔다 |
