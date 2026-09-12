@@ -7,7 +7,10 @@ import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
+import app.pickple.comment.domain.Comment;
+import app.pickple.comment.domain.OnePickStore;
 import app.pickple.comment.domain.PostCommenterStore;
+import app.pickple.comment.service.CommentService;
 import app.pickple.post.domain.Post;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostOption;
@@ -100,6 +103,10 @@ class ActivityControllerIT {
     private VoteStore voteStore;
     @Autowired
     private PostCommenterStore commenterStore;
+    @Autowired
+    private CommentService commentService;
+    @Autowired
+    private OnePickStore onePickStore;
     @Autowired
     private JwtService jwtService;
     @Autowired
@@ -194,9 +201,10 @@ class ActivityControllerIT {
         void manyCommentsOnOnePostCountOnce() throws Exception {
             Post post = saveGeneralPost("댓글대상");
 
-            assertThat(commenterStore.recordIfFirst(post.id(), me.id())).isTrue();
-            assertThat(commenterStore.recordIfFirst(post.id(), me.id()))
-                    .as("두 번째 댓글은 인원을 늘리지 않는다").isFalse();
+            writeComment(post, "첫 댓글");
+            writeComment(post, "둘째 댓글");
+            assertThat(countRows("post_commenter", me.id()))
+                    .as("두 번째 댓글은 인원을 늘리지 않는다").isEqualTo(1);
 
             mockMvc.perform(get(SUMMARY).header("Authorization", bearer(me)))
                     .andExpect(jsonPath("$.returnObject.commentCount").value(1));
@@ -221,8 +229,8 @@ class ActivityControllerIT {
             Post removed = saveAgreePost("지워질 글");
             voteOn(alive);
             voteOn(removed);
-            assertThat(commenterStore.recordIfFirst(alive.id(), me.id())).isTrue();
-            assertThat(commenterStore.recordIfFirst(removed.id(), me.id())).isTrue();
+            writeComment(alive, "남는 글 댓글");
+            writeComment(removed, "지워질 글 댓글");
             softDelete(removed);
 
             mockMvc.perform(get(SUMMARY).header("Authorization", bearer(me)))
@@ -230,6 +238,28 @@ class ActivityControllerIT {
                     .andExpect(jsonPath("$.returnObject.commentCount").value(1));
             assertThat(idsOf(VOTES)).hasSize(1);
             assertThat(idsOf(COMMENTS)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("내 댓글을 전부 지운 글은 댓글 갯수에서 빠진다 — 목록과 같은 숫자여야 한다 (#158)")
+        void postWithAllMyCommentsDeletedIsNotCounted() throws Exception {
+            // post_commenter 는 참여 원장이라 댓글을 지워도 행이 남는다. 요약이 그 행을 세면
+            // 칩에는 "2" 가 뜨는데 목록에는 카드가 1장 뜬다 — 사용자가 보는 것은 카드다.
+            Post alive = saveGeneralPost("댓글 남은 글");
+            Post emptied = saveGeneralPost("댓글 전부 지운 글");
+            writeComment(alive, "남는 댓글");
+            Comment removed = writeComment(emptied, "지울 댓글");
+            commentService.delete(removed.id(), me.id());
+
+            assertThat(countRows("post_commenter", me.id()))
+                    .as("원장 행은 그대로 둘이다 — 그래서 목록 쪽에 조건이 필요하다")
+                    .isEqualTo(2);
+
+            mockMvc.perform(get(SUMMARY).header("Authorization", bearer(me)))
+                    .andExpect(jsonPath("$.returnObject.commentCount").value(1));
+            assertThat(idsOf(COMMENTS))
+                    .as("요약과 목록이 같은 기준으로 세야 한다")
+                    .containsExactly(alive.id().intValue());
         }
 
         @Test
@@ -267,7 +297,7 @@ class ActivityControllerIT {
             Post voted = saveAgreePost("투표한 글");
             voteOn(voted);
             Post commented = saveGeneralPost("댓글 단 글");
-            commenterStore.recordIfFirst(commented.id(), me.id());
+            writeComment(commented, "내 댓글");
             Post mine = saveGeneralPost("내가 쓴 글", me);
 
             assertThat(idsOf(VOTES)).containsExactly(voted.id().intValue());
@@ -373,9 +403,9 @@ class ActivityControllerIT {
         @DisplayName("같은 글에 댓글을 여러 개 달아도 목록에 한 번만 나온다 (R-25)")
         void commentedPostAppearsOnce() throws Exception {
             Post post = saveGeneralPost("여러 번 댓글");
-            commenterStore.recordIfFirst(post.id(), me.id());
-            commenterStore.recordIfFirst(post.id(), me.id());
-            commenterStore.recordIfFirst(post.id(), me.id());
+            writeComment(post, "첫 번째");
+            writeComment(post, "두 번째");
+            writeComment(post, "세 번째");
 
             assertThat(idsOf(COMMENTS))
                     .as("comment 로 읽었다면 세 번 나왔을 것이다")
@@ -437,7 +467,7 @@ class ActivityControllerIT {
             List<Integer> all = new ArrayList<>();
             for (int i = 0; i < 23; i++) {
                 Post post = saveGeneralPost("댓글커서" + i);
-                commenterStore.recordIfFirst(post.id(), me.id());
+                writeComment(post, "커서 댓글" + i);
                 jdbcTemplate.update(
                         "UPDATE post_commenter SET created_at = ? WHERE post_id = ? AND user_id = ?",
                         LocalDateTime.now(clock).minusMinutes(1000 - i), post.id(), me.id());
@@ -508,7 +538,7 @@ class ActivityControllerIT {
                 Post voted = saveAgreePost("N+1 투표" + i);
                 voteOn(voted);
                 Post commented = saveGeneralPost("N+1 댓글" + i);
-                commenterStore.recordIfFirst(commented.id(), me.id());
+                writeComment(commented, "N+1 댓글 내용" + i);
                 saveGeneralPost("N+1 내글" + i, me);
             }
 
@@ -530,8 +560,14 @@ class ActivityControllerIT {
                 //      요청당 1회이고 행 수와 무관하다. type=const / key=PRIMARY 로 끝난다.
                 // 투표 경로는 여기에 둘이 더 붙는다 — 선택지와 상품을 조각 전체에
                 // post.id IN 한 문장씩으로 읽는다 (#157). 이 둘도 행 수와 무관하다.
-                // COMMENT·POST 는 그 계약이 없어 셋 그대로다 (#158 소관).
-                long expected = path.equals(VOTES) ? 5L : 3L;
+                // 댓글 경로는 하나가 더 붙는다 — 대표 댓글과 그 원픽 수를 조각 전체에
+                // post_id IN 한 문장으로 읽는다 (#158). 이것도 행 수와 무관하다.
+                // 내 글은 붙는 계약이 없어 셋 그대로다.
+                long expected = switch (path) {
+                    case VOTES -> 5L;
+                    case COMMENTS -> 4L;
+                    default -> 3L;
+                };
                 assertThat(one).as("%s 의 요청당 상수 문장 수", path).isEqualTo(expected);
             }
 
@@ -629,9 +665,9 @@ class ActivityControllerIT {
         @Test
         @DisplayName("댓글·내 글 응답은 그대로다 — 투표 카드에만 필드가 붙는다")
         void otherPathsKeepTheirContract() throws Exception {
-            // #158 이 댓글 카드를 따로 정하므로, 그전까지 두 경로의 계약은 변하지 않아야 한다.
+            // 댓글 카드는 #158 이 대표 댓글·원픽 수를 더했지만, 투표 전용 필드는 여전히 없다.
             Post commented = saveAgreePost("댓글 단 투표글");
-            commenterStore.recordIfFirst(commented.id(), me.id());
+            writeComment(commented, "투표글에 단 댓글");
             Post mine = saveAgreePost("내가 쓴 투표글", me);
 
             mockMvc.perform(get(COMMENTS).header("Authorization", bearer(me)))
@@ -648,6 +684,110 @@ class ActivityControllerIT {
 
             assertThat(idsOf(COMMENTS)).containsExactly(commented.id().intValue());
             assertThat(idsOf(POSTS)).containsExactly(mine.id().intValue());
+        }
+
+        @Test
+        @DisplayName("대표 댓글은 원픽이 가장 많은 한 건이다 (#158)")
+        void representativeCommentHasTheMostPicks() throws Exception {
+            Post post = saveGeneralPost("원픽 3종 글");
+            Comment few = writeComment(post, "원픽 하나");
+            Comment most = writeComment(post, "원픽 셋");
+            Comment none = writeComment(post, "원픽 없음");
+            pickComment(few, 1);
+            pickComment(most, 3);
+
+            assertThat(firstText(COMMENTS, "myComment"))
+                    .as("셋 중 원픽이 가장 많은 댓글이 대표다")
+                    .isEqualTo("원픽 셋");
+            assertThat(firstItem(COMMENTS, "myCommentOnePickCount")).isEqualTo(3);
+            assertThat(none.id()).as("픽이 없는 댓글도 후보에는 들어간다").isNotNull();
+        }
+
+        @Test
+        @DisplayName("원픽 수가 같으면 최신 댓글이 대표다 (#158)")
+        void tieBreaksToTheNewestComment() throws Exception {
+            // Clock 이 초 단위라 두 댓글의 created_at 이 같다 — 그래서 동률 판정이
+            // 시각만으로는 갈리지 않고 id 까지 내려간다. 나중에 쓴 쪽이 id 가 크다.
+            Post post = saveGeneralPost("동률 글");
+            Comment older = writeComment(post, "먼저 쓴 댓글");
+            Comment newer = writeComment(post, "나중에 쓴 댓글");
+            pickComment(older, 2);
+            pickComment(newer, 2);
+
+            assertThat(firstText(COMMENTS, "myComment"))
+                    .as("원픽이 같으면 최신이 대표다")
+                    .isEqualTo("나중에 쓴 댓글");
+            assertThat(firstItem(COMMENTS, "myCommentOnePickCount")).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("원픽 수는 대표 댓글의 것이고 글 전체 합계가 아니다 (#158)")
+        void onePickCountIsTheRepresentativesNotTheSum() throws Exception {
+            // 대표가 아닌 내 댓글에도 원픽이 있다. 합계로 세면 5 가 되므로 3 이어야 구분된다.
+            Post post = saveGeneralPost("합계 아님 글");
+            Comment representative = writeComment(post, "대표 댓글");
+            Comment other = writeComment(post, "대표 아닌 댓글");
+            pickComment(representative, 3);
+            pickComment(other, 2);
+
+            assertThat(firstText(COMMENTS, "myComment")).isEqualTo("대표 댓글");
+            assertThat(firstItem(COMMENTS, "myCommentOnePickCount"))
+                    .as("합계면 5 다 — 대표 한 건의 것이어야 한다")
+                    .isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("내 댓글을 전부 지운 글은 목록에 없다 — 원장 행은 남아 있다 (#158)")
+        void postWithAllMyCommentsDeletedDisappears() throws Exception {
+            Post alive = saveGeneralPost("댓글 남은 글");
+            Post emptied = saveGeneralPost("댓글 전부 지운 글");
+            writeComment(alive, "남는 댓글");
+            Comment first = writeComment(emptied, "지울 댓글 1");
+            Comment second = writeComment(emptied, "지울 댓글 2");
+            commentService.delete(first.id(), me.id());
+            commentService.delete(second.id(), me.id());
+
+            assertThat(countRows("post_commenter", me.id()))
+                    .as("PostCommenterStore 에 삭제 경로가 없어 원장 행은 둘 그대로다")
+                    .isEqualTo(2);
+            assertThat(idsOf(COMMENTS))
+                    .as("보여줄 내 댓글이 없으면 카드도 없다")
+                    .containsExactly(alive.id().intValue());
+        }
+
+        @Test
+        @DisplayName("일부만 지워 살아있는 내 댓글이 남으면 목록에 남고 대표도 그중에서 뽑는다 (#158)")
+        void partiallyDeletedPostStaysWithALiveRepresentative() throws Exception {
+            // 지워진 댓글이 원픽을 더 많이 받았어도 대표가 되면 안 된다 —
+            // 조건이 "살아있는 내 댓글" 이므로 후보 자체에서 빠진다.
+            Post post = saveGeneralPost("일부만 지운 글");
+            Comment deleted = writeComment(post, "지울 인기 댓글");
+            Comment survivor = writeComment(post, "살아남을 댓글");
+            pickComment(deleted, 5);
+            pickComment(survivor, 1);
+            commentService.delete(deleted.id(), me.id());
+
+            assertThat(idsOf(COMMENTS))
+                    .as("살아있는 내 댓글이 남았으니 글은 목록에 있다")
+                    .containsExactly(post.id().intValue());
+            assertThat(firstText(COMMENTS, "myComment"))
+                    .as("지워진 댓글이 원픽 5 로 더 많아도 후보가 아니다")
+                    .isEqualTo("살아남을 댓글");
+            assertThat(firstItem(COMMENTS, "myCommentOnePickCount")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("남이 쓴 댓글은 내 대표가 되지 않는다 (#158)")
+        void othersCommentIsNotMyRepresentative() throws Exception {
+            // 조건에 user_id 가 빠지면 남의 인기 댓글이 내 카드에 올라온다.
+            Post post = saveGeneralPost("남의 댓글 섞인 글");
+            Comment mine = writeComment(post, "내 댓글");
+            Comment theirs = writeComment(post, "남의 댓글", author);
+            pickComment(theirs, 4);
+            pickComment(mine, 1);
+
+            assertThat(firstText(COMMENTS, "myComment")).isEqualTo("내 댓글");
+            assertThat(firstItem(COMMENTS, "myCommentOnePickCount")).isEqualTo(1);
         }
 
         @Test
@@ -674,7 +814,7 @@ class ActivityControllerIT {
             attachPhotos(commented, "https://cdn/commented-1.jpg", "https://cdn/commented-2.jpg");
             attachPhotos(mine, "https://cdn/mine-1.jpg", "https://cdn/mine-2.jpg");
             voteOn(voted);
-            commenterStore.recordIfFirst(commented.id(), me.id());
+            writeComment(commented, "사진 글 댓글");
 
             assertThat(thumbnailsOf(VOTES)).containsExactly("https://cdn/voted-1.jpg");
             assertThat(thumbnailsOf(COMMENTS)).containsExactly("https://cdn/commented-1.jpg");
@@ -863,12 +1003,19 @@ class ActivityControllerIT {
                 jdbcTemplate.update("""
                         INSERT INTO post_commenter (post_id, user_id, created_at) VALUES (?, ?, ?)
                         """, postId, me.id(), now.minusMinutes(i));
+                // 살아있는 내 댓글도 함께 심는다 (#158). 원장 행만 있으면 모집단 조건이
+                // 전부 걸러내 조각이 비고, 계획을 볼 문장 자체가 나오지 않는다.
+                jdbcTemplate.update("""
+                        INSERT INTO comment (post_id, user_id, content, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """, postId, me.id(), "계획 댓글" + i, now.minusMinutes(i), now);
                 if (i == 30) {
                     cursorPostId = postId;
                     cursorAt = now.minusMinutes(i);
                 }
             }
-            jdbcTemplate.execute("ANALYZE TABLE post, vote, post_commenter");
+            // comment 도 통계를 잡는다 — 모집단 조건의 EXISTS 가 인덱스를 고를 근거가 된다.
+            jdbcTemplate.execute("ANALYZE TABLE post, vote, post_commenter, comment");
         }
 
         @Test
@@ -899,11 +1046,15 @@ class ActivityControllerIT {
         }
 
         @Test
-        @DisplayName("댓글 활동도 전용 인덱스를 탄다")
+        @DisplayName("댓글 활동도 전용 인덱스를 탄다 — 모집단 조건을 더해도 정렬은 인덱스가 맡는다")
         void commentLatestSliceUsesActivityIndex() {
             Statements statements = slice(ActivityType.COMMENT, ActivitySort.LATEST);
 
-            assertThat(explain(statements.keys(), me.id(), cursorAt, cursorPostId, SLICE + 1))
+            // 바인딩이 하나 늘었다 (#158). 모집단 조건 EXISTS 의 user_id 가 WHERE 절에서
+            // 활동 테이블의 user_id 다음, keyset 행 값 비교 앞에 온다 — .where(...) 인자 순서다.
+            // 상관 조건의 post_id 는 컬럼이라 ? 가 아니다.
+            assertThat(explain(statements.keys(), me.id(), me.id(), cursorAt, cursorPostId, SLICE + 1))
+                    .as("EXISTS 를 더해도 정렬은 활동 인덱스가 통째로 맡아야 한다")
                     .containsPattern(ACTIVITY_INDEX_LOOKUP.formatted("idx_commenter_user_activity"))
                     .doesNotContain("Sort:");
         }
@@ -1062,6 +1213,33 @@ class ActivityControllerIT {
      */
     private String uniqueNickname(String name) {
         return Long.toString(NICKNAME_SEQUENCE.getAndIncrement(), 36);
+    }
+
+    /**
+     * 내가 이 글에 <b>진짜 댓글</b>을 단다 (#158).
+     *
+     * <p>{@code commenterStore.recordIfFirst} 만 부르던 옛 픽스처와 다르다 — 목록이
+     * "살아있는 내 댓글이 1건 이상" 을 요구하므로 원장 행만으로는 카드가 나오지 않는다.
+     * {@code CommentService.write} 가 댓글과 원장 행을 함께 만들어 운영 경로와 같아진다.
+     */
+    private Comment writeComment(Post post, String content) {
+        return writeComment(post, content, me);
+    }
+
+    private Comment writeComment(Post post, String content, User writer) {
+        return commentService.write(new Comment(post.id(), writer.id(), content, null));
+    }
+
+    /**
+     * 남이 이 댓글을 원픽한다. 픽하는 사람마다 회원을 새로 만드는 이유는 R-05 다 —
+     * {@code uk_pick_user_post} 가 한 사람당 글당 하나만 허용하므로, 같은 글의 댓글
+     * 여럿에 픽을 쌓으려면 사람이 그 수만큼 필요하다. 자기 댓글은 못 고른다(R-07).
+     */
+    private void pickComment(Comment comment, int times) {
+        for (int i = 0; i < times; i++) {
+            User picker = saveUser("act-picker-" + seed + "-" + comment.id() + "-" + i, "픽커");
+            assertThat(onePickStore.saveIfAbsent(comment.pick(picker.id()))).isPresent();
+        }
     }
 
     private Post saveGeneralPost(String title) {
@@ -1282,6 +1460,11 @@ class ActivityControllerIT {
     private int firstItem(String url, String path) throws Exception {
         Number value = JsonPath.read(read(url), "$.returnObject.content[0]." + path);
         return value.intValue();
+    }
+
+    /** 첫 항목의 문자열 필드. {@link #firstItem} 이 {@code int} 로 못박혀 있어 따로 둔다. */
+    private String firstText(String url, String path) throws Exception {
+        return JsonPath.read(read(url), "$.returnObject.content[0]." + path);
     }
 
     /** 게시글 상세의 정수 필드. 활동 목록과 값을 대조할 때 쓴다. */

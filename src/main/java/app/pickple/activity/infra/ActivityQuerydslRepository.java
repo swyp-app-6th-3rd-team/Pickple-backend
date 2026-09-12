@@ -7,6 +7,8 @@ import app.pickple.activity.domain.ActivityQueryStore.ActivitySummary;
 import app.pickple.activity.domain.ActivitySort;
 import app.pickple.activity.domain.ActivityType;
 import app.pickple.auth.infra.QUserEntity;
+import app.pickple.comment.infra.QCommentEntity;
+import app.pickple.comment.infra.QOnePickEntity;
 import app.pickple.comment.infra.QPostCommenterEntity;
 import app.pickple.item.infra.QItemResourceEntity;
 import app.pickple.post.domain.PostType;
@@ -38,9 +40,14 @@ import java.util.stream.Collectors;
 
 /**
  * 내 활동 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0043).
- * <b>투표 활동 경로만 넷</b>이다 — 카드가 선택지별 득표율과 내 선택을 그리므로
+ * <b>유형마다 문장 수가 갈린다.</b> 투표 활동은 넷 — 카드가 선택지별 득표율과 내 선택을 그리므로
  * ({@link #attachVoteDetail} #157) 선택지와 상품을 조각 전체에 한 문장씩 더 붙인다.
- * 늘어난 둘도 행 수에 비례하지 않는다 — 조각 크기가 10 이든 50 이든 문장 수는 같다.
+ * 댓글 활동은 셋 — 카드가 내 대표 댓글과 그 원픽 수를 그리므로
+ * ({@link #attachCommentDetail} #158) 한 문장을 더 붙인다. 내 글은 둘 그대로다.
+ * 늘어난 문장은 모두 행 수에 비례하지 않는다 — 조각 크기가 10 이든 50 이든 문장 수는 같다.
+ *
+ * <p><b>댓글 활동은 모집단도 다르다.</b> 살아있는 내 댓글이 하나도 없는 글은 목록에 나오지
+ * 않는다({@link #hasLiveComment} #158) — 같은 조건을 {@link #summarize} 도 쓴다.
  *
  * <p><b>먼저 자르고 나중에 붙인다.</b> 조각에 들어갈 게시글 id 를 활동 테이블의 인덱스로
  * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 게시글과 대표 사진을 붙인다.
@@ -81,6 +88,10 @@ class ActivityQuerydslRepository {
     private static final QPostEntity POST = QPostEntity.postEntity;
     private static final QVoteEntity VOTE = QVoteEntity.voteEntity;
     private static final QPostCommenterEntity COMMENTER = QPostCommenterEntity.postCommenterEntity;
+    private static final QCommentEntity COMMENT = QCommentEntity.commentEntity;
+    private static final QOnePickEntity PICK = QOnePickEntity.onePickEntity;
+    /** 모집단 조건 안쪽의 두 번째 {@code comment}. 바깥 별칭과 겹치면 안 된다. */
+    private static final QCommentEntity ALIVE = new QCommentEntity("alive");
     private static final QUserEntity USER = QUserEntity.userEntity;
     private static final QPostProductEntity PRODUCT = QPostProductEntity.postProductEntity;
     private static final QPostOptionEntity OPTION = QPostOptionEntity.postOptionEntity;
@@ -139,10 +150,13 @@ class ActivityQuerydslRepository {
         List<ActivityRow> rows = rows(type, userId, page)
                 .orderBy(order(sortKey, sort), order(postId, sort))
                 .fetch();
-        // 선택지·상품은 투표 활동 카드만 그린다 (#157). 다른 두 경로에 붙이면 화면이 쓰지 않는
-        // 값을 위해 문장이 둘 늘고, 그 계약은 #158 이 댓글 카드에 따로 정한다.
-        return new ActivitySlice(
-                type == ActivityType.VOTE ? attachVoteDetail(rows) : rows, hasNext);
+        // 선택지·상품은 투표 활동 카드만, 대표 댓글은 댓글 활동 카드만 그린다 (#157 · #158).
+        // 유형마다 붙이는 것이 달라 문장 수도 갈린다 — 쓰지 않는 값을 위해 문장을 늘리지 않는다.
+        return new ActivitySlice(switch (type) {
+            case VOTE -> attachVoteDetail(rows);
+            case COMMENT -> attachCommentDetail(rows, userId);
+            case POST -> rows;
+        }, hasNext);
     }
 
     /**
@@ -205,13 +219,37 @@ class ActivityQuerydslRepository {
                                 .where(VOTE.userId.eq(userId)),
                         JPAExpressions.select(COMMENTER.count()).from(COMMENTER)
                                 .join(POST).on(POST.id.eq(COMMENTER.postId), POST.deletedAt.isNull())
-                                .where(COMMENTER.userId.eq(userId)),
+                                .where(COMMENTER.userId.eq(userId),
+                                        hasLiveComment(COMMENTER.postId, userId)),
                         JPAExpressions.select(POST.count()).from(POST)
                                 .where(POST.userId.eq(userId), POST.deletedAt.isNull())))
                 .from(USER)
                 .where(USER.id.eq(userId))
                 .fetchOne();
         return Optional.ofNullable(summary).orElseGet(() -> new ActivitySummary(0, 0, 0));
+    }
+
+    /**
+     * <b>살아있는 내 댓글이 하나라도 있는가</b> (#158). 댓글 활동의 모집단을 정하는 조건이다.
+     *
+     * <p>{@code post_commenter} 는 <b>참여 원장</b>이라 댓글을 지워도 행이 사라지지 않는다 —
+     * {@code PostCommenterStore} 에 삭제 경로가 없고({@code recordIfFirst}·{@code countByPost} 뿐),
+     * {@code CommentService.delete} 도 건수만 줄이고 인원은 그대로 둔다. 그 append-only 성질이
+     * 일부러 남긴 것이라 지울 수 없다 — {@code created_at} 이 "이 사람의 <b>첫</b> 댓글 시각" 이고
+     * 그 값이 곧 정렬 키이자 커서다(R-32 · ADR-0036). 행을 지우면 커서가 기준을 잃는다.
+     *
+     * <p>그래서 "내 댓글을 전부 지운 글은 안 보인다" 는 <b>원장을 고치는 것이 아니라
+     * 조건을 더하는 것</b>으로 구현한다. {@code EXISTS} 라 댓글 수만큼 행이 불어나지 않고,
+     * {@code idx_comment_post (post_id, deleted_at, created_at, id)} 가 세 열을 그대로 받는다.
+     *
+     * <p><b>목록과 요약이 같은 조건을 쓴다.</b> 한쪽에만 걸면 칩 숫자와 카드 장수가 어긋난다 —
+     * 사용자가 보는 것은 행이 아니라 카드다(요약이 삭제된 게시글을 빼는 것과 같은 이유).
+     */
+    private static BooleanExpression hasLiveComment(NumberPath<Long> postId, Long userId) {
+        return JPAExpressions.selectOne()
+                .from(ALIVE)
+                .where(ALIVE.postId.eq(postId), ALIVE.userId.eq(userId), ALIVE.deletedAt.isNull())
+                .exists();
     }
 
     /**
@@ -246,7 +284,7 @@ class ActivityQuerydslRepository {
             case COMMENT -> queryFactory.select(COMMENTER.postId)
                     .from(COMMENTER)
                     .join(POST).on(POST.id.eq(COMMENTER.postId), POST.deletedAt.isNull())
-                    .where(COMMENTER.userId.eq(userId));
+                    .where(COMMENTER.userId.eq(userId), hasLiveComment(COMMENTER.postId, userId));
             case POST -> queryFactory.select(POST.id)
                     .from(POST)
                     .where(POST.userId.eq(userId), POST.deletedAt.isNull());
@@ -322,7 +360,13 @@ class ActivityQuerydslRepository {
                         activityAt,
                         selectedOptionId,
                         Expressions.constant(List.<ActivityPostProduct>of()),
-                        Expressions.constant(List.<ActivityPostOption>of())),
+                        Expressions.constant(List.<ActivityPostOption>of()),
+                        // 대표 댓글은 행 문장이 읽지 않는다 — 조각이 확정된 뒤 배치 한 문장이
+                        // 붙인다 (#158 attachCommentDetail). 선택지·상품이 빈 목록으로 자리만
+                        // 잡아 두는 것과 같은 이유다. 이 자리를 비우면 레코드 인자 수가 어긋나
+                        // 컴파일이 아니라 첫 조회에서 ExpressionException 으로 드러난다.
+                        Expressions.nullExpression(String.class),
+                        Expressions.constant(0L)),
                 POST.popularityScore.longValue());
     }
 
@@ -359,6 +403,102 @@ class ActivityQuerydslRepository {
                                 options.getOrDefault(row.view().id(), List.of())),
                         row.popularityScore()))
                 .toList();
+    }
+
+    /**
+     * 대표 댓글과 그 원픽 수를 <b>조각 전체에 한 문장으로</b> 붙인다 (#158). 댓글 활동 경로만 쓴다.
+     *
+     * <p>행 문장에 조인하지 않는 이유는 {@link #attachVoteDetail} 과 같은 <b>팬아웃</b>이다.
+     * 한 글에 내 댓글이 여럿일 수 있어(R-25) 조인하면 게시글 한 줄이 댓글 수만큼 불어나
+     * 조각 크기가 어긋난다. 그렇다고 게시글마다 따로 물으면 그것이 N+1 이다.
+     *
+     * <p>조각이 비어 있을 수 없다 — 키 문장이 <b>살아있는 내 댓글이 있는 글만</b> 확정하므로
+     * ({@link #hasLiveComment}) 모든 행에 대표 댓글이 있다. {@code getOrDefault} 는 그 전제가
+     * 깨졌을 때 예외 대신 빈 카드를 주는 방어일 뿐이다.
+     */
+    private List<ActivityRow> attachCommentDetail(List<ActivityRow> rows, Long userId) {
+        if (rows.isEmpty()) {
+            return rows;
+        }
+        List<Long> postIds = rows.stream().map(row -> row.view().id()).toList();
+        Map<Long, Representative> representatives = representatives(postIds, userId);
+        return rows.stream()
+                .map(row -> {
+                    Representative representative = representatives.get(row.view().id());
+                    return representative == null ? row : new ActivityRow(
+                            row.view().withCommentDetail(
+                                    representative.content(), representative.onePickCount()),
+                            row.popularityScore());
+                })
+                .toList();
+    }
+
+    /**
+     * 조각에 든 게시글들에서 <b>내가 쓴 살아있는 댓글</b>과 각각이 받은 원픽 수.
+     *
+     * <p>대표는 <b>원픽이 가장 많은 한 건, 동률이면 최신</b>이다(기획 확정 2026-09-12).
+     * 그 선별을 SQL 이 아니라 메모리에서 하는 이유는 <b>문장 수</b>다 — 게시글별 1위를 SQL 로
+     * 고르려면 윈도 함수를 쓰거나 게시글마다 상관 서브쿼리를 돌려야 하는데, 후자는 문장 수에
+     * 잡히지 않는 N+1 이다(이 파일과 {@code ActivityControllerIT} 가 함께 경고하는 바로 그 형태).
+     * 한 사람이 한 글에 다는 댓글 수는 사람이 손으로 만드는 값이라 상한이 낮아, 조각 전체의
+     * 내 댓글을 한 문장에 읽고 자바가 고르는 편이 단순하고 예측 가능하다.
+     *
+     * <p><b>원픽 수는 대표 댓글의 것이다.</b> 합계가 아니라 그 한 건이라, 집계를 댓글 단위로
+     * 묶는다({@code GROUP BY c.id}) — {@code idx_pick_comment (comment_id)} 가 받는다.
+     * {@code LEFT JOIN} 이라 원픽이 없는 댓글도 0 으로 남는다.
+     *
+     * <p>정렬을 {@code post_id} 까지 넓히지 않는 이유는 {@link #products} 와 같다 —
+     * 묶는 주체가 SQL 이 아니라 애플리케이션이고, 대표 선별도 자바가 한다.
+     */
+    private Map<Long, Representative> representatives(List<Long> postIds, Long userId) {
+        return queryFactory.select(COMMENT.postId,
+                        Projections.constructor(Representative.class,
+                                COMMENT.content,
+                                PICK.count(),
+                                COMMENT.createdAt,
+                                COMMENT.id))
+                .from(COMMENT)
+                .leftJoin(PICK).on(PICK.commentId.eq(COMMENT.id))
+                .where(COMMENT.postId.in(postIds),
+                        COMMENT.userId.eq(userId),
+                        COMMENT.deletedAt.isNull())
+                .groupBy(COMMENT.postId, COMMENT.id, COMMENT.content, COMMENT.createdAt)
+                .fetch()
+                .stream()
+                .collect(Collectors.toMap(
+                        tuple -> tuple.get(COMMENT.postId),
+                        tuple -> tuple.get(1, Representative.class),
+                        Representative::better));
+    }
+
+    /**
+     * 대표 후보 한 건. <b>원픽 최다, 동률이면 최신</b>이 대표다 (#158).
+     *
+     * <p>{@code createdAt} 과 {@code id} 는 응답에 나가지 않고 <b>대표를 고르는 데만</b> 쓴다 —
+     * {@link ActivityPostView} 에 넣지 않는 이유는 {@link ActivityRow} 가 인기 점수를
+     * 따로 들고 다니는 이유와 같다(화면 계약에 없는 값을 뷰에 끼우지 않는다).
+     *
+     * <p>{@code id} 로 한 번 더 가르는 이유는 {@code datetime(0)} 이다 — 시각이 초 단위라
+     * 같은 초에 쓴 두 댓글이 동률이 되는데, 그때 {@code id} 가 크면 나중에 쓴 것이다.
+     * 이것이 없으면 대표가 실행마다 갈려 테스트가 확률적으로 깨진다.
+     *
+     * <p>{@code public} 인 이유는 QueryDSL 이 생성자를 {@code getConstructors()} 로 찾기 때문이다 —
+     * {@link ActivityRow} 와 같은 제약이다.
+     */
+    public record Representative(
+            String content, long onePickCount, LocalDateTime createdAt, Long id) {
+
+        /** 둘 중 대표. 원픽이 많은 쪽, 같으면 나중에 쓴 쪽이다. */
+        static Representative better(Representative left, Representative right) {
+            if (left.onePickCount != right.onePickCount) {
+                return left.onePickCount > right.onePickCount ? left : right;
+            }
+            int byTime = left.createdAt.compareTo(right.createdAt);
+            if (byTime != 0) {
+                return byTime > 0 ? left : right;
+            }
+            return left.id > right.id ? left : right;
+        }
     }
 
     /**
