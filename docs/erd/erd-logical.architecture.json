@@ -60,7 +60,7 @@
         "focus": [
           "users",
           "terms",
-          "user_agreement"
+          "terms_agreement"
         ],
         "note": "약관은 버전별 본문을 보존하고, 회원 동의는 해당 버전의 최초 수락을 기록한다."
       }
@@ -323,10 +323,10 @@
       ]
     },
     {
-      "id": "user_agreement",
+      "id": "terms_agreement",
       "type": "database",
       "label": "약관 동의",
-      "sublabel": "user_agreement",
+      "sublabel": "terms_agreement",
       "tag": "회원 · 약관 버전별 최초 수락",
       "pos": [
         360,
@@ -478,7 +478,7 @@
     },
     {
       "from": "users",
-      "to": "user_agreement",
+      "to": "terms_agreement",
       "label": "동의",
       "labelAt": [
         284,
@@ -487,7 +487,7 @@
     },
     {
       "from": "terms",
-      "to": "user_agreement",
+      "to": "terms_agreement",
       "label": "버전 수락"
     }
   ],

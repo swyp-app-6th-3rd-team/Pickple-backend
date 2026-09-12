@@ -24,18 +24,18 @@ CREATE TABLE terms (
     CONSTRAINT ck_terms_required_boolean CHECK (is_required IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE user_agreement (
+CREATE TABLE terms_agreement (
     id          BIGINT   NOT NULL AUTO_INCREMENT,
     user_id     BIGINT   NOT NULL,
     terms_id    BIGINT   NOT NULL,
     agreed_at   DATETIME NOT NULL COMMENT '해당 버전에 최초 동의한 서버 접수 시각, Asia/Seoul',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uk_user_agreement_user_terms (user_id, terms_id),
-    KEY idx_user_agreement_terms (terms_id),
+    UNIQUE KEY uk_terms_agreement_user_terms (user_id, terms_id),
+    KEY idx_terms_agreement_terms (terms_id),
     -- 물리 삭제만 CASCADE한다. INACTIVE 전환은 별도의 보존/파기 정책과 연동해야 한다.
-    CONSTRAINT fk_user_agreement_user FOREIGN KEY (user_id) REFERENCES users (id)
+    CONSTRAINT fk_terms_agreement_user FOREIGN KEY (user_id) REFERENCES users (id)
         ON DELETE CASCADE ON UPDATE RESTRICT,
-    CONSTRAINT fk_user_agreement_terms FOREIGN KEY (terms_id) REFERENCES terms (id)
+    CONSTRAINT fk_terms_agreement_terms FOREIGN KEY (terms_id) REFERENCES terms (id)
         ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

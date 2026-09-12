@@ -15,9 +15,9 @@ erDiagram
     users ||--o| user_refresh_token : "세션"
     users ||--o| apple_provider_token : "Apple 연동"
     users ||--o{ post_commenter : "참여"
-    users ||--o{ user_agreement : "약관 동의"
+    users ||--o{ terms_agreement : "약관 동의"
 
-    terms ||--o{ user_agreement : "버전 동의"
+    terms ||--o{ terms_agreement : "버전 동의"
 
     post ||--o{ post_option : "선택지"
     post ||--o{ post_product : "상품"
@@ -214,7 +214,7 @@ erDiagram
         datetime created_at
     }
 
-    user_agreement {
+    terms_agreement {
         bigint id PK
         bigint user_id FK
         bigint terms_id FK

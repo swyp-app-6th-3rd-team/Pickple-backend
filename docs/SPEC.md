@@ -629,7 +629,7 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V12__detach_withdrawn_apple_identity.sql` | `db/migration` | 항상 |
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 | `V14__erase_withdrawn_user_personal_data.sql` | `db/migration` | 항상 |
-| `V15__terms_and_user_agreement.sql` | `db/migration` | 항상 — 빈 약관·동의 테이블만 생성 |
+| `V15__terms_tables.sql` | `db/migration` | 항상 — 빈 약관·동의 테이블만 생성 |
 | `V16__register_initial_terms.sql` | `db/migration` | 항상 — 약관 열람 URL 추가 및 승인 정본 2건 등록 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
@@ -671,7 +671,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 테이블 | 저장 내용 | 핵심 제약 |
 |---|---|---|
 | `terms` | 종류·버전, 제목, 앱 열람 URL, 전체 Markdown 본문, 필수 여부, 시행·등록 시각 | UNIQUE(type, version), UNIQUE(type, effective_at), 필수값 NOT NULL, URL은 비어 있지 않은 HTTPS, 빈 문자열/일반 공백만인 값 및 0/1 외 필수 여부 거부 |
-| `user_agreement` | 사용자·약관 버전별 최초 동의 시각 | UNIQUE(user_id, terms_id), users·terms FK |
+| `terms_agreement` | 사용자·약관 버전별 최초 동의 시각 | UNIQUE(user_id, terms_id), users·terms FK |
 
 - 시각은 기존 초 단위 Asia/Seoul 계약을 따른다. 종류별 현재 버전은
   `effective_at <= now` 중 시행 시각이 가장 늦은 행이다. 문자열 버전으로 정렬하지 않는다.

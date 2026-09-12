@@ -70,7 +70,7 @@ class TermsMigrationIT {
 
             assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("15");
             assertThat(count(isolated, "terms")).isZero();
-            assertThat(count(isolated, "user_agreement")).isZero();
+            assertThat(count(isolated, "terms_agreement")).isZero();
             assertThat(migration.migrate().migrationsExecuted).isZero();
             migration.validate();
         });
@@ -86,7 +86,7 @@ class TermsMigrationIT {
 
             assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("16");
             assertThat(count(isolated, "terms")).isEqualTo(2);
-            assertThat(count(isolated, "user_agreement")).isZero();
+            assertThat(count(isolated, "terms_agreement")).isZero();
             assertInitialTerms(isolated);
             assertThat(migration.migrate().migrationsExecuted).isZero();
             migration.validate();
@@ -135,14 +135,14 @@ class TermsMigrationIT {
                            column_default, extra, generation_expression, collation_name
                     FROM information_schema.columns
                     WHERE table_schema = DATABASE()
-                      AND table_name NOT IN ('terms', 'user_agreement', 'flyway_schema_history')
+                      AND table_name NOT IN ('terms', 'terms_agreement', 'flyway_schema_history')
                     ORDER BY table_name, ordinal_position
                     """;
             String indexesSql = """
                     SELECT table_name, index_name, non_unique, seq_in_index, column_name, sub_part
                     FROM information_schema.statistics
                     WHERE table_schema = DATABASE()
-                      AND table_name NOT IN ('terms', 'user_agreement', 'flyway_schema_history')
+                      AND table_name NOT IN ('terms', 'terms_agreement', 'flyway_schema_history')
                     ORDER BY table_name, index_name, seq_in_index
                     """;
             var columnsBefore = isolated.queryForList(columnsSql);
@@ -151,7 +151,7 @@ class TermsMigrationIT {
                     "SELECT version, checksum FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank");
             assertThat(isolated.queryForObject("""
                     SELECT COUNT(*) FROM information_schema.tables
-                    WHERE table_schema = DATABASE() AND table_name IN ('terms', 'user_agreement')
+                    WHERE table_schema = DATABASE() AND table_name IN ('terms', 'terms_agreement')
                     """, Long.class)).isZero();
 
             Flyway upgrade = migrations(dataSource, "15");
@@ -166,7 +166,7 @@ class TermsMigrationIT {
                     WHERE success = 1 AND version <> '15' ORDER BY installed_rank
                     """)).isEqualTo(history);
             assertThat(count(isolated, "terms")).isZero();
-            assertThat(count(isolated, "user_agreement")).isZero();
+            assertThat(count(isolated, "terms_agreement")).isZero();
             upgrade.validate();
         });
     }
@@ -185,18 +185,18 @@ class TermsMigrationIT {
         agree(jdbc, user, second, acceptedV2);
 
         assertThat(jdbc.queryForList("""
-                SELECT t.content FROM user_agreement a JOIN terms t ON t.id = a.terms_id
+                SELECT t.content FROM terms_agreement a JOIN terms t ON t.id = a.terms_id
                 WHERE a.user_id = ? ORDER BY t.effective_at
                 """, String.class, user)).containsExactly(BODY, "# 개정 본문\n다른 내용입니다.");
         assertThat(jdbc.query("""
-                SELECT agreed_at FROM user_agreement WHERE user_id = ? ORDER BY agreed_at
+                SELECT agreed_at FROM terms_agreement WHERE user_id = ? ORDER BY agreed_at
                 """, (row, index) -> row.getObject(1, LocalDateTime.class), user))
                 .containsExactly(acceptedV1, acceptedV2);
         assertThatThrownBy(() -> agree(jdbc, user, first, acceptedV1.plusDays(2)))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasStackTraceContaining("uk_user_agreement_user_terms");
+                .hasStackTraceContaining("uk_terms_agreement_user_terms");
         assertThat(jdbc.queryForObject(
-                "SELECT agreed_at FROM user_agreement WHERE user_id = ? AND terms_id = ?",
+                "SELECT agreed_at FROM terms_agreement WHERE user_id = ? AND terms_id = ?",
                 LocalDateTime.class, user, first)).isEqualTo(acceptedV1);
     }
 
@@ -310,9 +310,9 @@ class TermsMigrationIT {
         long terms = insertTerms(jdbc, uniqueType(), "v1", V1_START, BODY);
 
         assertDatabaseError(() -> jdbc.update(
-                "INSERT INTO user_agreement (user_id, terms_id) VALUES (?, ?)", user, terms),
+                "INSERT INTO terms_agreement (user_id, terms_id) VALUES (?, ?)", user, terms),
                 1364, "agreed_at");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_agreement WHERE user_id = ?",
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM terms_agreement WHERE user_id = ?",
                 Long.class, user)).isZero();
     }
 
@@ -325,7 +325,7 @@ class TermsMigrationIT {
         agree(jdbc, user, terms, V1_START);
 
         assertThatThrownBy(() -> jdbc.update(
-                "UPDATE user_agreement SET " + column + " = NULL WHERE user_id = ?", user))
+                "UPDATE terms_agreement SET " + column + " = NULL WHERE user_id = ?", user))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -340,7 +340,7 @@ class TermsMigrationIT {
         agree(jdbc, secondUser, terms, V1_START.plusSeconds(1));
 
         assertThat(jdbc.queryForList(
-                "SELECT user_id FROM user_agreement WHERE terms_id = ? ORDER BY agreed_at",
+                "SELECT user_id FROM terms_agreement WHERE terms_id = ? ORDER BY agreed_at",
                 Long.class, terms)).containsExactly(firstUser, secondUser);
     }
 
@@ -351,17 +351,17 @@ class TermsMigrationIT {
         long terms = insertTerms(jdbc, uniqueType(), "v1", V1_START, BODY);
         assertThatThrownBy(() -> agree(jdbc, Long.MAX_VALUE, terms, V1_START))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasStackTraceContaining("fk_user_agreement_user");
+                .hasStackTraceContaining("fk_terms_agreement_user");
         assertThatThrownBy(() -> agree(jdbc, user, Long.MAX_VALUE, V1_START))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasStackTraceContaining("fk_user_agreement_terms");
+                .hasStackTraceContaining("fk_terms_agreement_terms");
         assertThatThrownBy(() -> agree(jdbc, user, terms, null))
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertDatabaseError(() -> jdbc.update(
-                "INSERT INTO user_agreement (terms_id, agreed_at) VALUES (?, ?)", terms, V1_START),
+                "INSERT INTO terms_agreement (terms_id, agreed_at) VALUES (?, ?)", terms, V1_START),
                 1364, "user_id");
         assertDatabaseError(() -> jdbc.update(
-                "INSERT INTO user_agreement (user_id, agreed_at) VALUES (?, ?)", user, V1_START),
+                "INSERT INTO terms_agreement (user_id, agreed_at) VALUES (?, ?)", user, V1_START),
                 1364, "terms_id");
     }
 
@@ -383,7 +383,7 @@ class TermsMigrationIT {
                         throw new AssertionError("동시 INSERT 시작 신호 시간 초과");
                     }
                     try (var statement = connection.prepareStatement(
-                            "INSERT INTO user_agreement (user_id, terms_id, agreed_at) VALUES (?, ?, ?)")) {
+                            "INSERT INTO terms_agreement (user_id, terms_id, agreed_at) VALUES (?, ?, ?)")) {
                         statement.setLong(1, user);
                         statement.setLong(2, terms);
                         statement.setObject(3, V1_START);
@@ -391,7 +391,7 @@ class TermsMigrationIT {
                         return "inserted";
                     } catch (SQLException error) {
                         assertThat(error.getErrorCode()).isEqualTo(1062);
-                        assertThat(error.getMessage()).contains("uk_user_agreement_user_terms");
+                        assertThat(error.getMessage()).contains("uk_terms_agreement_user_terms");
                         return "duplicate";
                     }
                 }
@@ -409,7 +409,7 @@ class TermsMigrationIT {
             } catch (Exception error) {
                 throw new AssertionError("별도 연결 경합 검증 실패", error);
             }
-            assertThat(count(isolated, "user_agreement")).isEqualTo(1);
+            assertThat(count(isolated, "terms_agreement")).isEqualTo(1);
         });
     }
 
@@ -439,14 +439,14 @@ class TermsMigrationIT {
 
         assertThatThrownBy(() -> jdbc.update("DELETE FROM terms WHERE id = ?", terms))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasStackTraceContaining("fk_user_agreement_terms");
+                .hasStackTraceContaining("fk_terms_agreement_terms");
         jdbc.update("UPDATE users SET state = 'INACTIVE' WHERE id = ?", user);
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM user_agreement WHERE user_id = ?", Long.class, user)).isEqualTo(1);
+                "SELECT COUNT(*) FROM terms_agreement WHERE user_id = ?", Long.class, user)).isEqualTo(1);
 
         jdbc.update("DELETE FROM users WHERE id = ?", user);
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM user_agreement WHERE user_id = ?", Long.class, user)).isZero();
+                "SELECT COUNT(*) FROM terms_agreement WHERE user_id = ?", Long.class, user)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM terms WHERE id = ?", Long.class, terms)).isEqualTo(1);
     }
 
@@ -466,7 +466,7 @@ class TermsMigrationIT {
             assertThat(withdrawn.get("name")).isNull();
             assertThat(withdrawn.get("provider_id")).isNull();
             assertThat(jdbc.queryForObject("""
-                    SELECT agreed_at FROM user_agreement WHERE user_id = ? AND terms_id = ?
+                    SELECT agreed_at FROM terms_agreement WHERE user_id = ? AND terms_id = ?
                     """, LocalDateTime.class, user, terms)).isEqualTo(V1_START);
         } finally {
             // 이 테스트가 커밋한 픽스처만 식별자로 정리한다.
@@ -539,7 +539,7 @@ class TermsMigrationIT {
     }
 
     private void agree(JdbcTemplate target, long user, long terms, LocalDateTime agreedAt) {
-        target.update("INSERT INTO user_agreement (user_id, terms_id, agreed_at) VALUES (?, ?, ?)",
+        target.update("INSERT INTO terms_agreement (user_id, terms_id, agreed_at) VALUES (?, ?, ?)",
                 user, terms, agreedAt);
     }
 
