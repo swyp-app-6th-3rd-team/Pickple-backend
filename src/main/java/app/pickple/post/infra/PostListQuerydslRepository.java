@@ -1,6 +1,5 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.infra.QUserEntity;
 import app.pickple.item.infra.QItemResourceEntity;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostSort;
@@ -28,6 +27,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import static app.pickple.auth.infra.QUserEntity.userEntity;
+import static app.pickple.item.infra.QItemResourceEntity.itemResourceEntity;
+import static app.pickple.post.infra.QPostEntity.postEntity;
+import static app.pickple.post.infra.QPostProductEntity.postProductEntity;
 
 /**
  * 게시글 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0045).
@@ -81,10 +85,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 class PostListQuerydslRepository {
 
-    private static final QPostEntity POST = QPostEntity.postEntity;
-    private static final QUserEntity USER = QUserEntity.userEntity;
-    private static final QPostProductEntity PRODUCT = QPostProductEntity.postProductEntity;
-    private static final QItemResourceEntity RESOURCE = QItemResourceEntity.itemResourceEntity;
     /** 대표 사진 서브쿼리 안쪽의 두 번째 {@code item_resource}. 바깥 별칭과 겹치면 안 된다. */
     private static final QItemResourceEntity CANDIDATE = new QItemResourceEntity("candidate");
 
@@ -139,7 +139,11 @@ class PostListQuerydslRepository {
     }
 
     /** 사진 조인으로 반복되는 상품을 productId로 구분하는 배치 조회 행이다. */
-    public record PopularProductRow(Long postId, Long productId, PopularProductView product) {
+    public record PopularProductRow(Long postId, Long productId, int displayOrder, String imageUrl) {
+
+        PopularProductView toProduct() {
+            return new PopularProductView(displayOrder, imageUrl);
+        }
     }
 
     /**
@@ -185,28 +189,31 @@ class PostListQuerydslRepository {
     List<PopularPostView> findPopularTop(int size) {
         requireSnapshot();
         OrderSpecifier<?>[] order = order(sortKey(PostSort.POPULAR));
-        List<Long> ids = keys(null).orderBy(order).limit(size).fetch();
+        List<Long> ids = keys(null)
+                .orderBy(order)
+                .limit(size)
+                .fetch();
         if (ids.isEmpty()) {
             return List.of();
         }
 
-        List<PopularPostRow> rows = queryFactory.select(
-                        Projections.constructor(PopularPostRow.class,
-                                POST.id,
-                                POST.type,
-                                POST.category,
-                                POST.title,
-                                POST.description,
-                                POST.voteCount.longValue(),
-                                POST.commentCount.longValue(),
-                                POST.commenterCount.longValue(),
-                                POST.createdAt,
-                                POST.userId,
-                                authorNickname(),
-                                USER.ranking))
-                .from(POST)
-                .join(USER).on(USER.id.eq(POST.userId))
-                .where(POST.id.in(ids))
+        List<PopularPostRow> rows = queryFactory
+                .select(Projections.constructor(PopularPostRow.class,
+                        postEntity.id,
+                        postEntity.type,
+                        postEntity.category,
+                        postEntity.title,
+                        postEntity.description,
+                        postEntity.voteCount.longValue(),
+                        postEntity.commentCount.longValue(),
+                        postEntity.commenterCount.longValue(),
+                        postEntity.createdAt,
+                        postEntity.userId,
+                        authorNickname(),
+                        userEntity.ranking))
+                .from(postEntity)
+                .join(userEntity).on(userEntity.id.eq(postEntity.userId))
+                .where(postEntity.id.in(ids))
                 .orderBy(order)
                 .fetch();
         Map<Long, List<PopularProductView>> products = popularProducts(ids);
@@ -221,16 +228,18 @@ class PostListQuerydslRepository {
      * LEFT JOIN으로 사진이 없는 상품도 보존하고, 같은 결과로 기존 thumbnailUrl도 채운다.
      */
     private Map<Long, List<PopularProductView>> popularProducts(List<Long> ids) {
-        List<PopularProductRow> candidates = queryFactory.select(
-                        Projections.constructor(PopularProductRow.class,
-                                PRODUCT.post.id,
-                                PRODUCT.id,
-                                Projections.constructor(PopularProductView.class,
-                                        PRODUCT.displayOrder.intValue(), RESOURCE.accessUrl)))
-                .from(PRODUCT)
-                .leftJoin(RESOURCE).on(RESOURCE.container.id.eq(PRODUCT.itemContainerId))
-                .where(PRODUCT.post.id.in(ids))
-                .orderBy(PRODUCT.post.id.asc(), PRODUCT.displayOrder.asc(), RESOURCE.id.asc())
+        List<PopularProductRow> candidates = queryFactory
+                .select(Projections.constructor(PopularProductRow.class,
+                        postProductEntity.post.id,
+                        postProductEntity.id,
+                        postProductEntity.displayOrder.intValue(),
+                        itemResourceEntity.accessUrl))
+                .from(postProductEntity)
+                .leftJoin(itemResourceEntity)
+                .on(itemResourceEntity.container.id.eq(postProductEntity.itemContainerId))
+                .where(postProductEntity.post.id.in(ids))
+                .orderBy(postProductEntity.post.id.asc(),
+                        postProductEntity.displayOrder.asc(), itemResourceEntity.id.asc())
                 .fetch();
 
         Map<Long, PopularProductRow> firstImages = new LinkedHashMap<>();
@@ -239,7 +248,7 @@ class PostListQuerydslRepository {
         }
         return firstImages.values().stream()
                 .collect(Collectors.groupingBy(PopularProductRow::postId,
-                        Collectors.mapping(PopularProductRow::product, Collectors.toList())));
+                        Collectors.mapping(PopularProductRow::toProduct, Collectors.toList())));
     }
 
     /**
@@ -268,9 +277,9 @@ class PostListQuerydslRepository {
      * {@code *_all} 인덱스가 {@code deleted_at} 범위 안에서 정렬까지 맡아 {@code LIMIT} 만큼만 읽는다.
      */
     private JPAQuery<Long> keys(PostCategory category) {
-        return queryFactory.select(POST.id)
-                .from(POST)
-                .where(POST.deletedAt.isNull(), categoryEq(category));
+        return queryFactory.select(postEntity.id)
+                .from(postEntity)
+                .where(postEntity.deletedAt.isNull(), categoryEq(category));
     }
 
     /**
@@ -291,9 +300,9 @@ class PostListQuerydslRepository {
      */
     private JPAQuery<PostListRow> rows(List<Long> ids) {
         return queryFactory.select(projection())
-                .from(POST)
-                .join(USER).on(USER.id.eq(POST.userId))
-                .where(POST.id.in(ids));
+                .from(postEntity)
+                .join(userEntity).on(userEntity.id.eq(postEntity.userId))
+                .where(postEntity.id.in(ids));
     }
 
     /**
@@ -314,31 +323,31 @@ class PostListQuerydslRepository {
     private static Expression<PostListRow> projection() {
         return Projections.constructor(PostListRow.class,
                 listViewProjection(),
-                POST.popularityScore);
+                postEntity.popularityScore);
     }
 
     /** 커뮤니티 목록의 기존 필드와 대표 사진을 투영한다. */
     private static Expression<PostListView> listViewProjection() {
         return Projections.constructor(PostListView.class,
-                POST.id,
-                POST.type,
-                POST.category,
-                POST.title,
-                POST.description,
-                POST.voteCount.longValue(),
-                POST.commentCount.longValue(),
-                POST.createdAt,
+                postEntity.id,
+                postEntity.type,
+                postEntity.category,
+                postEntity.title,
+                postEntity.description,
+                postEntity.voteCount.longValue(),
+                postEntity.commentCount.longValue(),
+                postEntity.createdAt,
                 thumbnailUrl(),
-                POST.userId,
+                postEntity.userId,
                 authorNickname(),
-                USER.ranking);
+                userEntity.ranking);
     }
 
     /** 정렬 키. 작성 시각이거나 게시글의 인기 점수(생성 컬럼)다. */
     private static ComparableExpressionBase<?> sortKey(PostSort sort) {
         return switch (sort) {
-            case LATEST -> POST.createdAt;
-            case POPULAR -> POST.popularityScore;
+            case LATEST -> postEntity.createdAt;
+            case POPULAR -> postEntity.popularityScore;
         };
     }
 
@@ -350,12 +359,12 @@ class PostListQuerydslRepository {
      * 통째로 맡는다. 한쪽만 뒤집으면 filesort 로 떨어진다 — 실행계획 테스트가 그것을 잡는다.
      */
     private static OrderSpecifier<?>[] order(ComparableExpressionBase<?> sortKey) {
-        return new OrderSpecifier<?>[] {sortKey.desc(), POST.id.desc()};
+        return new OrderSpecifier<?>[] {sortKey.desc(), postEntity.id.desc()};
     }
 
     /** 카테고리 필터. 없으면 {@code null} 을 돌려 조건에서 빠진다 — {@code where} 는 null 을 무시한다. */
     private static BooleanExpression categoryEq(PostCategory category) {
-        return category == null ? null : POST.category.eq(category);
+        return category == null ? null : postEntity.category.eq(category);
     }
 
     /**
@@ -375,7 +384,7 @@ class PostListQuerydslRepository {
             return null;
         }
         return Expressions.booleanTemplate("({0}, {1}) < ({2}, {3})",
-                sortKey, POST.id, Expressions.constant(cursor.sortValue()), Expressions.constant(cursor.id()));
+                sortKey, postEntity.id, Expressions.constant(cursor.sortValue()), Expressions.constant(cursor.id()));
     }
 
     /**
@@ -386,8 +395,8 @@ class PostListQuerydslRepository {
      * 바인딩된다 — 이 저장소에는 SQL 로 이어붙이는 문자열이 없다.
      */
     private static Expression<String> authorNickname() {
-        return USER.nickname.nullif("")
-                .coalesce(USER.name.nullif(""), Expressions.constant(UNKNOWN_AUTHOR));
+        return userEntity.nickname.nullif("")
+                .coalesce(userEntity.name.nullif(""), Expressions.constant(UNKNOWN_AUTHOR));
     }
 
     /**
@@ -402,13 +411,13 @@ class PostListQuerydslRepository {
      * 상관 조건 {@code pp.post_id = p.id} 의 {@code p} 는 행 문장의 루트 {@code post} 다.
      */
     private static Expression<String> thumbnailUrl() {
-        return JPAExpressions.select(RESOURCE.accessUrl)
-                .from(RESOURCE)
-                .where(RESOURCE.id.eq(
+        return JPAExpressions.select(itemResourceEntity.accessUrl)
+                .from(itemResourceEntity)
+                .where(itemResourceEntity.id.eq(
                         JPAExpressions.select(CANDIDATE.id.min())
-                                .from(PRODUCT)
-                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))
-                                .where(PRODUCT.post.id.eq(POST.id),
-                                        PRODUCT.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
+                                .from(postProductEntity)
+                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(postProductEntity.itemContainerId))
+                                .where(postProductEntity.post.id.eq(postEntity.id),
+                                        postProductEntity.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
     }
 }
