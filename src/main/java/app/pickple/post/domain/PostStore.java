@@ -55,6 +55,9 @@ public interface PostStore {
      */
     Window<PostListView> findSlice(PostCategory category, PostSort sort, ScrollPosition position, int size);
 
+    /** 인기순 상위 게시글에 상품별 대표 사진과 댓글 작성자 인원을 함께 읽는다 (§2.4). */
+    List<PopularPostView> findPopularTop(int size);
+
     /**
      * 상품명·A/B 주제·일반 제목에서 검색하고 정확한 전체 건수와 최신순 조각을 읽는다.
      *
@@ -147,6 +150,22 @@ public interface PostStore {
             long commentCount,
             LocalDateTime createdAt,
             String thumbnailUrl) {
+    }
+
+    /**
+     * 인기 카드 한 장. 기존 목록 필드와 인기 카드 전용 데이터를 함께 담는다.
+     *
+     * @param commenterCount 댓글을 남긴 서로 다른 사용자 수. 기존 누적 인원 정책을 따른다 (R-25)
+     * @param products 표시 순서대로 찬반 1개, A/B 2개, 일반은 빈 목록
+     */
+    record PopularPostView(
+            PostListView post,
+            long commenterCount,
+            List<PopularProductView> products) {
+    }
+
+    /** 상품별 가장 먼저 등록된 사진. 표시 순서 1은 A, 2는 B다. */
+    record PopularProductView(int displayOrder, String imageUrl) {
     }
 
     /**

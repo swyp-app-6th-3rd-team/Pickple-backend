@@ -4,6 +4,8 @@ import app.pickple.auth.infra.QUserEntity;
 import app.pickple.item.infra.QItemResourceEntity;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostSort;
+import app.pickple.post.domain.PostStore.PopularPostView;
+import app.pickple.post.domain.PostStore.PopularProductView;
 import app.pickple.post.domain.PostStore.PostListView;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.OrderSpecifier;
@@ -21,9 +23,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.Assert;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 게시글 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0045).
+ * 인기 카드는 확정된 게시글의 상품 사진 배치 조회를 더해 세 문장으로 읽는다 (§2.4).
  *
  * <p><b>먼저 자르고 나중에 붙인다.</b> 조각에 들어갈 게시글 id 를 {@code post} 의 정렬 인덱스로
  * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 작성자와 대표 사진을 붙인다.
@@ -102,6 +107,14 @@ class PostListQuerydslRepository {
     public record PostListRow(PostListView view, Integer popularityScore) {
     }
 
+    /** 인기 카드에만 필요한 댓글 작성자 수를 목록 필드와 함께 투영한다. */
+    public record PopularPostRow(PostListView view, long commenterCount) {
+    }
+
+    /** Top 10에 속한 상품을 게시글별로 묶기 위한 배치 조회 행이다. */
+    public record PopularProductRow(Long postId, PopularProductView product) {
+    }
+
     /**
      * 한 조각. {@code hasNext} 는 <b>키 문장</b>이 정한다 — 행 문장의 행 수로 판정하면
      * 두 문장 사이에 게시글이 지워졌을 때 "다음이 있다" 는 사실이 조용히 사라진다.
@@ -136,6 +149,57 @@ class PostListQuerydslRepository {
                 .orderBy(order)
                 .fetch();
         return new PostListSlice(rows, hasNext);
+    }
+
+    /**
+     * 인기 카드: 키 → 행·댓글 인원 → 상품 사진의 세 문장을 같은 스냅샷에서 읽는다.
+     * 상품은 Top N이 확정된 뒤에만 붙이므로 A/B 두 상품이 순위나 카드 수를 바꾸지 않는다.
+     */
+    List<PopularPostView> findPopularTop(int size) {
+        requireSnapshot();
+        OrderSpecifier<?>[] order = order(sortKey(PostSort.POPULAR));
+        List<Long> ids = keys(null).orderBy(order).limit(size).fetch();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        List<PopularPostRow> rows = queryFactory.select(
+                        Projections.constructor(PopularPostRow.class,
+                                listViewProjection(), POST.commenterCount.longValue()))
+                .from(POST)
+                .join(USER).on(USER.id.eq(POST.userId))
+                .where(POST.id.in(ids))
+                .orderBy(order)
+                .fetch();
+        Map<Long, List<PopularProductView>> products = popularProducts(ids);
+        return rows.stream()
+                .map(row -> new PopularPostView(row.view(), row.commenterCount(),
+                        products.getOrDefault(row.view().id(), List.of())))
+                .toList();
+    }
+
+    /** 상품마다 대표 사진 한 장만 읽고, 상품 표시 순서를 보존해 게시글별로 묶는다. */
+    private Map<Long, List<PopularProductView>> popularProducts(List<Long> ids) {
+        return queryFactory.select(Projections.constructor(PopularProductRow.class,
+                        PRODUCT.post.id,
+                        Projections.constructor(PopularProductView.class,
+                                PRODUCT.displayOrder.intValue(), productImageUrl())))
+                .from(PRODUCT)
+                .where(PRODUCT.post.id.in(ids))
+                .orderBy(PRODUCT.post.id.asc(), PRODUCT.displayOrder.asc())
+                .fetch().stream()
+                .collect(Collectors.groupingBy(PopularProductRow::postId,
+                        Collectors.mapping(PopularProductRow::product, Collectors.toList())));
+    }
+
+    /** 상품의 등록 순서는 사진 id로 결정한다. 같은 업로드의 작성 시각은 같을 수 있다 (R-03). */
+    private static Expression<String> productImageUrl() {
+        return JPAExpressions.select(RESOURCE.accessUrl)
+                .from(RESOURCE)
+                .where(RESOURCE.id.eq(
+                        JPAExpressions.select(CANDIDATE.id.min())
+                                .from(CANDIDATE)
+                                .where(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))));
     }
 
     /**
@@ -209,20 +273,25 @@ class PostListQuerydslRepository {
      */
     private static Expression<PostListRow> projection() {
         return Projections.constructor(PostListRow.class,
-                Projections.constructor(PostListView.class,
-                        POST.id,
-                        POST.type,
-                        POST.category,
-                        POST.title,
-                        POST.description,
-                        POST.voteCount.longValue(),
-                        POST.commentCount.longValue(),
-                        POST.createdAt,
-                        thumbnailUrl(),
-                        POST.userId,
-                        authorNickname(),
-                        USER.ranking),
+                listViewProjection(),
                 POST.popularityScore);
+    }
+
+    /** 목록의 기존 필드를 인기 카드에서도 같은 의미로 유지한다. */
+    private static Expression<PostListView> listViewProjection() {
+        return Projections.constructor(PostListView.class,
+                POST.id,
+                POST.type,
+                POST.category,
+                POST.title,
+                POST.description,
+                POST.voteCount.longValue(),
+                POST.commentCount.longValue(),
+                POST.createdAt,
+                thumbnailUrl(),
+                POST.userId,
+                authorNickname(),
+                USER.ranking);
     }
 
     /** 정렬 키. 작성 시각이거나 게시글의 인기 점수(생성 컬럼)다. */
