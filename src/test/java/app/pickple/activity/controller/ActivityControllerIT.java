@@ -860,6 +860,212 @@ class ActivityControllerIT {
     class RecentPosts {
 
         @Test
+        @DisplayName("미투표 작성자도 A/B 결과와 사진 둘을 보고 기존 공통 필드는 유지된다 (#159)")
+        void authorSeesAbResultsWithoutVotingAndKeepsCommonFields() throws Exception {
+            Post post = saveAbPost("내 A/B 결과", "https://cdn/recent-a.jpg", "https://cdn/recent-b.jpg", me);
+            User second = saveUser("act-recent-voter2-" + seed, "투표2");
+            User third = saveUser("act-recent-voter3-" + seed, "투표3");
+            castVote(post, author, 1);
+            castVote(post, second, 2);
+            castVote(post, third, 2);
+            writeComment(post, "결과를 기다리는 댓글", author);
+
+            String body = mockMvc.perform(get(RECENT).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.length()").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].id").value(post.id()))
+                    .andExpect(jsonPath("$.returnObject[0].type").value("A_B"))
+                    .andExpect(jsonPath("$.returnObject[0].title").value("내 A/B 결과"))
+                    .andExpect(jsonPath("$.returnObject[0].commentCount").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].voteCount").value(3))
+                    .andExpect(jsonPath("$.returnObject[0].thumbnailUrl").value("https://cdn/recent-a.jpg"))
+                    .andExpect(jsonPath("$.returnObject[0].products.length()").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].products[0].displayOrder").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].products[0].imageUrl").value("https://cdn/recent-a.jpg"))
+                    .andExpect(jsonPath("$.returnObject[0].products[1].displayOrder").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].products[1].imageUrl").value("https://cdn/recent-b.jpg"))
+                    .andExpect(jsonPath("$.returnObject[0].options.length()").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].optionId").value(optionIdOf(post, 1)))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].displayOrder").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].voteCount").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].percentage").value(33))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].optionId").value(optionIdOf(post, 2)))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].displayOrder").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].voteCount").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].percentage").value(67))
+                    .andReturn().getResponse().getContentAsString();
+
+            Map<String, Object> card = JsonPath.read(body, "$.returnObject[0]");
+            Map<String, Object> common = JsonPath.read(read(POSTS), "$.returnObject.content[0]");
+            assertThat(card).containsAllEntriesOf(common);
+            assertThat(card.keySet()).containsExactlyInAnyOrder(
+                    "id", "type", "category", "title", "description", "commentCount", "voteCount",
+                    "thumbnailUrl", "createdAt", "activityAt", "products", "options");
+            assertThat(card.get("activityAt")).isEqualTo(card.get("createdAt"));
+
+            // 상세의 결과 공개 대상은 여전히 투표자다. 카드의 작성자 예외가 상세까지 번지면 안 된다.
+            String voterDetail = mockMvc.perform(get("/posts/{id}", post.id())
+                            .header("Authorization", bearer(author)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.vote.voterCount").value(3))
+                    .andReturn().getResponse().getContentAsString();
+            for (int i = 0; i < 2; i++) {
+                Map<String, Object> option = JsonPath.read(body, "$.returnObject[0].options[" + i + "]");
+                Map<String, Object> detailed = JsonPath.read(voterDetail, "$.returnObject.vote.options[" + i + "]");
+                assertThat(option.keySet()).containsExactlyInAnyOrder(
+                        "optionId", "label", "displayOrder", "voteCount", "percentage");
+                assertThat(option.get("label")).isNull();
+                assertThat(detailed).containsAllEntriesOf(option);
+            }
+            mockMvc.perform(get("/posts/{id}", post.id()).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.vote.voted").value(false))
+                    .andExpect(jsonPath("$.returnObject.vote.voterCount").value(3))
+                    .andExpect(jsonPath("$.returnObject.vote.options[0].voteCount").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject.vote.options[0].percentage").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject.vote.options[1].voteCount").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject.vote.options[1].percentage").doesNotExist());
+            assertThat(countRows("vote", me.id())).as("결과 조회가 작성자의 투표를 만들지 않는다").isZero();
+        }
+
+        @Test
+        @DisplayName("0표 찬반은 두 선택지 모두 0%이고 상품의 첫 사진 한 장을 준다 (#159)")
+        void zeroVoteAgreePostHasZeroPercentagesAndFirstPhoto() throws Exception {
+            Post post = saveAgreePost("아직 0표", me);
+            attachPhotos(post, "https://cdn/recent-agree-first.jpg", "https://cdn/recent-agree-second.jpg",
+                    "https://cdn/recent-agree-third.jpg");
+
+            mockMvc.perform(get(RECENT).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[0].voteCount").value(0))
+                    .andExpect(jsonPath("$.returnObject[0].selectedOptionId").doesNotExist())
+                    .andExpect(jsonPath("$.returnObject[0].products.length()").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].products[0].displayOrder").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].products[0].imageUrl").value("https://cdn/recent-agree-first.jpg"))
+                    .andExpect(jsonPath("$.returnObject[0].options.length()").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].label").value("사자"))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].displayOrder").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].voteCount").value(0))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].percentage").value(0))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].label").value("말자"))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].displayOrder").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].voteCount").value(0))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].percentage").value(0));
+        }
+
+        @Test
+        @DisplayName("재투표 뒤 최신 투표 카드의 총수는 그대로고 선택지 집계만 옮겨간다 (#159)")
+        void revoteMovesOptionResultsWithoutIncreasingTotal() throws Exception {
+            Post post = saveAgreePost("최근 카드 재투표", me);
+            castVote(post, author, 1);
+
+            mockMvc.perform(get(RECENT).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[0].voteCount").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].percentage").value(100))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].percentage").value(0));
+
+            recastVote(post, author, 1, 2);
+
+            mockMvc.perform(get(RECENT).header("Authorization", bearer(me)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[0].voteCount").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].voteCount").value(0))
+                    .andExpect(jsonPath("$.returnObject[0].options[0].percentage").value(0))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].voteCount").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].options[1].percentage").value(100));
+            assertThat(countRows("vote", author.id())).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("11건 중 작성 시각이 최신인 10건만 준다 (#159)")
+        void returnsOnlyLatestTenPosts() throws Exception {
+            List<Integer> newestFirst = new ArrayList<>();
+            for (int minutesAgo = 0; minutesAgo < 11; minutesAgo++) {
+                Post post = saveAgreePost("최근 상한 " + minutesAgo, me);
+                stampPostCreatedAt(post, minutesAgo);
+                newestFirst.add(post.id().intValue());
+            }
+
+            assertThat(recentIds()).containsExactlyElementsOf(newestFirst.subList(0, 10));
+        }
+
+        @Test
+        @DisplayName("삭제된 내 투표는 결과가 있어도 최근 카드에 나오지 않는다 (#159)")
+        void deletedVotePostIsExcluded() throws Exception {
+            Post alive = saveAgreePost("남은 최근 글", me);
+            Post removed = saveAgreePost("삭제한 최근 글", me);
+            castVote(removed, author, 1);
+            softDelete(removed);
+
+            assertThat(recentIds()).containsExactly(alive.id().intValue());
+        }
+
+        @Test
+        @DisplayName("사진과 결과를 붙여도 최근 카드 1건과 10건의 SQL 수는 같다 (#159)")
+        void statementCountDoesNotGrowWithRecentCardCount() {
+            Post first = saveAbPost("최근 N+1 첫 A/B 카드",
+                    "https://cdn/recent-query-first-a.jpg", "https://cdn/recent-query-first-b.jpg", me);
+            castVote(first, author, 1);
+            List<String> one = recentStatements(1);
+
+            for (int i = 1; i < 10; i++) {
+                Post post;
+                if (i % 2 == 0) {
+                    post = saveAbPost("최근 N+1 A/B " + i,
+                            "https://cdn/recent-query-a-" + i + ".jpg",
+                            "https://cdn/recent-query-b-" + i + ".jpg", me);
+                } else {
+                    post = saveAgreePost("최근 N+1 찬반 " + i, me);
+                    attachPhotos(post, "https://cdn/recent-query-agree-" + i + ".jpg");
+                }
+                castVote(post, author, 1);
+            }
+            List<String> ten = recentStatements(10);
+
+            assertThat(ten).as("행 수가 늘어도 SQL 왕복 수는 일정하다").hasSameSizeAs(one);
+            // 인증 상태 + 게시글 키 + 공통 행 + 선택지 일괄 조회 + 상품 일괄 조회.
+            assertThat(one).hasSize(5);
+            assertThat(one).allSatisfy(sql -> assertThat(sql).doesNotContainPattern("(?i)\\(\\s*select\\b"));
+            assertThat(ten).allSatisfy(sql -> assertThat(sql).doesNotContainPattern("(?i)\\(\\s*select\\b"));
+        }
+
+        @Test
+        @DisplayName("A 상품에 사진이 없어도 상품은 남고 B 사진을 대표 사진으로 대신 쓰지 않는다")
+        void missingFirstProductImageDoesNotUseSecondProductImage() throws Exception {
+            Post post = saveAbPost("A 사진 없음", "https://cdn/remove-a.jpg", "https://cdn/keep-b.jpg", me);
+            Long containerId = jdbcTemplate.queryForObject(
+                    "SELECT item_container_id FROM post_product WHERE post_id = ? AND display_order = 1",
+                    Long.class, post.id());
+            jdbcTemplate.update("DELETE FROM item_resource WHERE item_container_id = ?", containerId);
+
+            String body = read(RECENT);
+            Map<String, Object> card = JsonPath.read(body, "$.returnObject[0]");
+            assertThat(card).containsEntry("thumbnailUrl", null);
+            List<Map<String, Object>> products = JsonPath.read(body, "$.returnObject[0].products");
+            assertThat(products).hasSize(2);
+            assertThat(products.get(0)).containsEntry("displayOrder", 1).containsEntry("imageUrl", null);
+            assertThat(products.get(1)).containsEntry("displayOrder", 2)
+                    .containsEntry("imageUrl", "https://cdn/keep-b.jpg");
+        }
+
+        private List<String> recentStatements(int expectedRows) {
+            return sqlCapture.record(() -> {
+                try {
+                    List<Map<String, Object>> cards = JsonPath.read(read(RECENT), "$.returnObject");
+                    assertThat(cards).hasSize(expectedRows);
+                    for (Map<String, Object> card : cards) {
+                        assertThat((List<?>) card.get("options")).hasSize(2);
+                        assertThat((List<?>) card.get("products"))
+                                .hasSize("A_B".equals(card.get("type")) ? 2 : 1);
+                    }
+                } catch (Exception e) {
+                    throw new AssertionError("최근 투표 카드 요청 실패", e);
+                }
+            });
+        }
+
+        @Test
         @DisplayName("7일 안쪽은 나오고 8일 전은 나오지 않는다")
         void sevenDayBoundary() throws Exception {
             Post inside = saveAgreePost("6일 전", me);
@@ -1294,7 +1500,7 @@ class ActivityControllerIT {
         jdbcTemplate.update("""
                 INSERT INTO item_container (user_id, attach_type, created_at, updated_at)
                 VALUES (?, 'PRODUCT', ?, ?)
-                """, author.id(), now, now);
+                """, post.authorId(), now, now);
         Long containerId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         for (String url : accessUrls) {
             jdbcTemplate.update("""
@@ -1354,15 +1560,19 @@ class ActivityControllerIT {
      * 그릴 수 있는지 보려면 이 연결까지 심어야 한다.
      */
     private Post saveAbPost(String title, String imageA, String imageB) {
+        return saveAbPost(title, imageA, imageB, author);
+    }
+
+    private Post saveAbPost(String title, String imageA, String imageB, User writer) {
         LocalDateTime now = LocalDateTime.now(clock);
         jdbcTemplate.update("""
                 INSERT INTO post (user_id, type, category, title, description, created_at, updated_at)
                 VALUES (?, 'A_B', 'ETC', ?, '설명', ?, ?)
-                """, author.id(), title, now, now);
+                """, writer.id(), title, now, now);
         Long postId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
 
-        Long productA = saveProduct(postId, "A 상품", 1, imageA);
-        Long productB = saveProduct(postId, "B 상품", 2, imageB);
+        Long productA = saveProduct(postId, "A 상품", 1, imageA, writer);
+        Long productB = saveProduct(postId, "B 상품", 2, imageB, writer);
         jdbcTemplate.update("""
                 INSERT INTO post_option (post_id, post_product_id, label, display_order, vote_count, created_at)
                 VALUES (?, ?, NULL, 1, 0, ?), (?, ?, NULL, 2, 0, ?)
@@ -1371,12 +1581,12 @@ class ActivityControllerIT {
     }
 
     /** 상품 한 건과 사진 한 장. 컨테이너가 사진의 부모라 먼저 넣는다. */
-    private Long saveProduct(Long postId, String name, int displayOrder, String accessUrl) {
+    private Long saveProduct(Long postId, String name, int displayOrder, String accessUrl, User writer) {
         LocalDateTime now = LocalDateTime.now(clock);
         jdbcTemplate.update("""
                 INSERT INTO item_container (user_id, attach_type, created_at, updated_at)
                 VALUES (?, 'PRODUCT', ?, ?)
-                """, author.id(), now, now);
+                """, writer.id(), now, now);
         Long containerId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         jdbcTemplate.update("""
                 INSERT INTO item_resource (item_container_id, size, original_file_name, item_key, access_url, created_at, updated_at)
