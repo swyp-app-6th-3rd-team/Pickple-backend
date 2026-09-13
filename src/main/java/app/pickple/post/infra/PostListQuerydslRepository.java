@@ -1,10 +1,12 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.infra.QUserEntity;
 import app.pickple.item.infra.QItemResourceEntity;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostSort;
+import app.pickple.post.domain.PostStore.PopularPostView;
+import app.pickple.post.domain.PostStore.PopularProductView;
 import app.pickple.post.domain.PostStore.PostListView;
+import app.pickple.post.domain.PostType;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.Projections;
@@ -20,10 +22,20 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import static app.pickple.auth.infra.QUserEntity.userEntity;
+import static app.pickple.item.infra.QItemResourceEntity.itemResourceEntity;
+import static app.pickple.post.infra.QPostEntity.postEntity;
+import static app.pickple.post.infra.QPostProductEntity.postProductEntity;
 
 /**
  * 게시글 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0045).
+ * 인기 카드는 확정된 게시글에 투표 유형이 있으면 상품 사진 배치 조회를 더해 세 문장으로 읽는다 (§2.4).
  *
  * <p><b>먼저 자르고 나중에 붙인다.</b> 조각에 들어갈 게시글 id 를 {@code post} 의 정렬 인덱스로
  * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 작성자와 대표 사진을 붙인다.
@@ -73,10 +85,6 @@ import java.util.List;
 @RequiredArgsConstructor
 class PostListQuerydslRepository {
 
-    private static final QPostEntity POST = QPostEntity.postEntity;
-    private static final QUserEntity USER = QUserEntity.userEntity;
-    private static final QPostProductEntity PRODUCT = QPostProductEntity.postProductEntity;
-    private static final QItemResourceEntity RESOURCE = QItemResourceEntity.itemResourceEntity;
     /** 대표 사진 서브쿼리 안쪽의 두 번째 {@code item_resource}. 바깥 별칭과 겹치면 안 된다. */
     private static final QItemResourceEntity CANDIDATE = new QItemResourceEntity("candidate");
 
@@ -100,6 +108,42 @@ class PostListQuerydslRepository {
      * "No constructor found" 가 난다. 감싸는 클래스가 package-private 이라 바깥에는 안 보인다.
      */
     public record PostListRow(PostListView view, Integer popularityScore) {
+    }
+
+    /** 인기 카드의 기본 행. 사진은 다음 배치 조회 결과로 조립한다. */
+    public record PopularPostRow(
+            Long id,
+            PostType type,
+            PostCategory category,
+            String title,
+            String description,
+            long voteCount,
+            long commentCount,
+            long commenterCount,
+            LocalDateTime createdAt,
+            Long authorId,
+            String authorNickname,
+            Integer authorRanking) {
+
+        PopularPostView withProducts(List<PopularProductView> products) {
+            String thumbnail = products.stream()
+                    .filter(product -> product.displayOrder() == REPRESENTATIVE_PRODUCT)
+                    .findFirst()
+                    .map(PopularProductView::imageUrl)
+                    .orElse(null);
+            PostListView post = new PostListView(
+                    id, type, category, title, description, voteCount, commentCount, createdAt,
+                    thumbnail, authorId, authorNickname, authorRanking);
+            return new PopularPostView(post, commenterCount, products);
+        }
+    }
+
+    /** 사진 조인으로 반복되는 상품을 productId로 구분하는 배치 조회 행이다. */
+    public record PopularProductRow(Long postId, Long productId, int displayOrder, String imageUrl) {
+
+        PopularProductView toProduct() {
+            return new PopularProductView(displayOrder, imageUrl);
+        }
     }
 
     /**
@@ -139,6 +183,81 @@ class PostListQuerydslRepository {
     }
 
     /**
+     * 인기 카드: 키 → 행·댓글 인원 → 상품 사진의 세 문장을 같은 스냅샷에서 읽는다.
+     * 상품은 Top N이 확정된 뒤에만 붙이므로 A/B 두 상품이 순위나 카드 수를 바꾸지 않는다.
+     * 일반 게시글만 있으면 상품 조회를 생략한다.
+     */
+    List<PopularPostView> findPopularTop(int size) {
+        requireSnapshot();
+        OrderSpecifier<?>[] order = order(sortKey(PostSort.POPULAR));
+        List<Long> ids = keys(null)
+                .orderBy(order)
+                .limit(size)
+                .fetch();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        List<PopularPostRow> rows = queryFactory
+                .select(Projections.constructor(PopularPostRow.class,
+                        postEntity.id,
+                        postEntity.type,
+                        postEntity.category,
+                        postEntity.title,
+                        postEntity.description,
+                        postEntity.voteCount.longValue(),
+                        postEntity.commentCount.longValue(),
+                        postEntity.commenterCount.longValue(),
+                        postEntity.createdAt,
+                        postEntity.userId,
+                        authorNickname(),
+                        userEntity.ranking))
+                .from(postEntity)
+                .join(userEntity).on(userEntity.id.eq(postEntity.userId))
+                .where(postEntity.id.in(ids))
+                .orderBy(order)
+                .fetch();
+        List<Long> votingPostIds = rows.stream()
+                .filter(row -> row.type().hasVoting())
+                .map(PopularPostRow::id)
+                .toList();
+        Map<Long, List<PopularProductView>> products = votingPostIds.isEmpty()
+                ? Map.of() : popularProducts(votingPostIds);
+        return rows.stream()
+                .map(row -> row.withProducts(products.getOrDefault(row.id(), List.of())))
+                .toList();
+    }
+
+    /**
+     * 확정된 게시글의 상품·사진을 한 번에 읽는다. 사진 id 오름차순에서 상품별 첫 행을
+     * 남기므로 최초 등록 사진을 고르는 데 서브쿼리가 필요 없다.
+     * LEFT JOIN으로 사진이 없는 상품도 보존하고, 같은 결과로 기존 thumbnailUrl도 채운다.
+     */
+    private Map<Long, List<PopularProductView>> popularProducts(List<Long> ids) {
+        List<PopularProductRow> candidates = queryFactory
+                .select(Projections.constructor(PopularProductRow.class,
+                        postProductEntity.post.id,
+                        postProductEntity.id,
+                        postProductEntity.displayOrder.intValue(),
+                        itemResourceEntity.accessUrl))
+                .from(postProductEntity)
+                .leftJoin(itemResourceEntity)
+                .on(itemResourceEntity.container.id.eq(postProductEntity.itemContainerId))
+                .where(postProductEntity.post.id.in(ids))
+                .orderBy(postProductEntity.post.id.asc(),
+                        postProductEntity.displayOrder.asc(), itemResourceEntity.id.asc())
+                .fetch();
+
+        Map<Long, PopularProductRow> firstImages = new LinkedHashMap<>();
+        for (PopularProductRow candidate : candidates) {
+            firstImages.putIfAbsent(candidate.productId(), candidate);
+        }
+        return firstImages.values().stream()
+                .collect(Collectors.groupingBy(PopularProductRow::postId,
+                        Collectors.mapping(PopularProductRow::toProduct, Collectors.toList())));
+    }
+
+    /**
      * 두 문장이 한 스냅샷을 보려면 트랜잭션 안이어야 한다 (ADR-0043·0045). 누가 애노테이션을 지우면
      * 조용히 어긋나는 대신 여기서 즉시 깨진다.
      *
@@ -164,9 +283,9 @@ class PostListQuerydslRepository {
      * {@code *_all} 인덱스가 {@code deleted_at} 범위 안에서 정렬까지 맡아 {@code LIMIT} 만큼만 읽는다.
      */
     private JPAQuery<Long> keys(PostCategory category) {
-        return queryFactory.select(POST.id)
-                .from(POST)
-                .where(POST.deletedAt.isNull(), categoryEq(category));
+        return queryFactory.select(postEntity.id)
+                .from(postEntity)
+                .where(postEntity.deletedAt.isNull(), categoryEq(category));
     }
 
     /**
@@ -187,9 +306,9 @@ class PostListQuerydslRepository {
      */
     private JPAQuery<PostListRow> rows(List<Long> ids) {
         return queryFactory.select(projection())
-                .from(POST)
-                .join(USER).on(USER.id.eq(POST.userId))
-                .where(POST.id.in(ids));
+                .from(postEntity)
+                .join(userEntity).on(userEntity.id.eq(postEntity.userId))
+                .where(postEntity.id.in(ids));
     }
 
     /**
@@ -209,27 +328,32 @@ class PostListQuerydslRepository {
      */
     private static Expression<PostListRow> projection() {
         return Projections.constructor(PostListRow.class,
-                Projections.constructor(PostListView.class,
-                        POST.id,
-                        POST.type,
-                        POST.category,
-                        POST.title,
-                        POST.description,
-                        POST.voteCount.longValue(),
-                        POST.commentCount.longValue(),
-                        POST.createdAt,
-                        thumbnailUrl(),
-                        POST.userId,
-                        authorNickname(),
-                        USER.ranking),
-                POST.popularityScore);
+                listViewProjection(),
+                postEntity.popularityScore);
+    }
+
+    /** 커뮤니티 목록의 기존 필드와 대표 사진을 투영한다. */
+    private static Expression<PostListView> listViewProjection() {
+        return Projections.constructor(PostListView.class,
+                postEntity.id,
+                postEntity.type,
+                postEntity.category,
+                postEntity.title,
+                postEntity.description,
+                postEntity.voteCount.longValue(),
+                postEntity.commentCount.longValue(),
+                postEntity.createdAt,
+                thumbnailUrl(),
+                postEntity.userId,
+                authorNickname(),
+                userEntity.ranking);
     }
 
     /** 정렬 키. 작성 시각이거나 게시글의 인기 점수(생성 컬럼)다. */
     private static ComparableExpressionBase<?> sortKey(PostSort sort) {
         return switch (sort) {
-            case LATEST -> POST.createdAt;
-            case POPULAR -> POST.popularityScore;
+            case LATEST -> postEntity.createdAt;
+            case POPULAR -> postEntity.popularityScore;
         };
     }
 
@@ -241,12 +365,12 @@ class PostListQuerydslRepository {
      * 통째로 맡는다. 한쪽만 뒤집으면 filesort 로 떨어진다 — 실행계획 테스트가 그것을 잡는다.
      */
     private static OrderSpecifier<?>[] order(ComparableExpressionBase<?> sortKey) {
-        return new OrderSpecifier<?>[] {sortKey.desc(), POST.id.desc()};
+        return new OrderSpecifier<?>[] {sortKey.desc(), postEntity.id.desc()};
     }
 
     /** 카테고리 필터. 없으면 {@code null} 을 돌려 조건에서 빠진다 — {@code where} 는 null 을 무시한다. */
     private static BooleanExpression categoryEq(PostCategory category) {
-        return category == null ? null : POST.category.eq(category);
+        return category == null ? null : postEntity.category.eq(category);
     }
 
     /**
@@ -266,7 +390,7 @@ class PostListQuerydslRepository {
             return null;
         }
         return Expressions.booleanTemplate("({0}, {1}) < ({2}, {3})",
-                sortKey, POST.id, Expressions.constant(cursor.sortValue()), Expressions.constant(cursor.id()));
+                sortKey, postEntity.id, Expressions.constant(cursor.sortValue()), Expressions.constant(cursor.id()));
     }
 
     /**
@@ -277,8 +401,8 @@ class PostListQuerydslRepository {
      * 바인딩된다 — 이 저장소에는 SQL 로 이어붙이는 문자열이 없다.
      */
     private static Expression<String> authorNickname() {
-        return USER.nickname.nullif("")
-                .coalesce(USER.name.nullif(""), Expressions.constant(UNKNOWN_AUTHOR));
+        return userEntity.nickname.nullif("")
+                .coalesce(userEntity.name.nullif(""), Expressions.constant(UNKNOWN_AUTHOR));
     }
 
     /**
@@ -293,13 +417,13 @@ class PostListQuerydslRepository {
      * 상관 조건 {@code pp.post_id = p.id} 의 {@code p} 는 행 문장의 루트 {@code post} 다.
      */
     private static Expression<String> thumbnailUrl() {
-        return JPAExpressions.select(RESOURCE.accessUrl)
-                .from(RESOURCE)
-                .where(RESOURCE.id.eq(
+        return JPAExpressions.select(itemResourceEntity.accessUrl)
+                .from(itemResourceEntity)
+                .where(itemResourceEntity.id.eq(
                         JPAExpressions.select(CANDIDATE.id.min())
-                                .from(PRODUCT)
-                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))
-                                .where(PRODUCT.post.id.eq(POST.id),
-                                        PRODUCT.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
+                                .from(postProductEntity)
+                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(postProductEntity.itemContainerId))
+                                .where(postProductEntity.post.id.eq(postEntity.id),
+                                        postProductEntity.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
     }
 }

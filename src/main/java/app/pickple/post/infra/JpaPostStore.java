@@ -145,6 +145,12 @@ public class JpaPostStore implements PostStore {
 
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public List<PopularPostView> findPopularTop(int size) {
+        return listRepository.findPopularTop(size);
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PostSearchResult search(
             String keyword, ScrollPosition position, int size) {
 
