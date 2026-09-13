@@ -155,13 +155,15 @@ public class ActivityController {
     @Operation(summary = "내가 올린 최신 투표",
             description = "7일 이내에 올린 투표 게시글을 최신순으로 준다. 가로 스크롤 캐러셀이라 "
                     + "무한 스크롤이 아니며 최대 10건이다. 기준은 요청 시각이고, "
-                    + "정확히 7일이 지난 글은 빠진다. 일반 게시글은 투표가 없어 대상이 아니다.")
+                    + "정확히 7일이 지난 글은 빠진다. 일반 게시글은 투표가 없어 대상이 아니다. "
+                    + "voteCount는 총 투표수이며, products와 options에 상품 사진과 선택지별 결과를 준다. "
+                    + "이 경로에서는 작성자가 직접 투표하지 않았어도 본인 글의 결과를 볼 수 있다.")
     @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/posts/recent")
-    public ApiResponse<List<ActivityItem>> recentPosts(
+    public ApiResponse<List<RecentVotePostItem>> recentPosts(
             @Parameter(hidden = true) @CurrentUser Long userId) {
         return ApiResponse.success(activityQueryService.findRecentVotePosts(userId).stream()
-                .map(ActivityItem::from)
+                .map(RecentVotePostItem::from)
                 .toList());
     }
 
@@ -227,6 +229,46 @@ public class ActivityController {
     }
 
     /**
+     * 본인이 올린 최근 투표 카드 (§7.4). 작성자가 미투표여도 이 경로에서는 집계를 공개한다.
+     * 기존 카드 필드는 유지하고 상품·선택지를 더한다. 내 선택은 이 화면의 조회 데이터가 아니다.
+     */
+    public record RecentVotePostItem(
+            @Schema(description = "게시글 식별자") Long id,
+            @Schema(description = "AGREE | A_B") PostType type,
+            @Schema(description = "카테고리") PostCategory category,
+            @Schema(description = "찬반=상품명, A/B=주제") String title,
+            @Schema(description = "설명") String description,
+            @Schema(description = "댓글 건수") long commentCount,
+            @Schema(description = "총 투표수. 재투표는 선택 변경이라 늘지 않는다(R-22)") long voteCount,
+            @Schema(description = "대표 상품 사진 1장. 찬반은 가장 처음 등록한 사진, A/B는 A 상품 사진")
+            String thumbnailUrl,
+            @Schema(description = "게시글 작성 시각") LocalDateTime createdAt,
+            @Schema(description = "내가 올린 시각. 작성 시각과 같다") LocalDateTime activityAt,
+            @Schema(description = "투표 대상 상품. 찬반은 1개, A/B는 표시 순서대로 2개(R-02)")
+            List<VoteActivityProduct> products,
+            @Schema(description = "선택지별 득표 현황. 작성자의 투표 여부와 무관하게 정확히 둘 반환(R-04)")
+            List<VoteActivityOption> options) {
+
+        static RecentVotePostItem from(ActivityQueryStore.ActivityPostView view) {
+            return new RecentVotePostItem(
+                    view.id(),
+                    view.type(),
+                    view.category(),
+                    view.title(),
+                    view.description(),
+                    view.commentCount(),
+                    view.voteCount(),
+                    view.thumbnailUrl(),
+                    view.createdAt(),
+                    view.activityAt(),
+                    view.products().stream().map(VoteActivityProduct::from).toList(),
+                    view.options().stream()
+                            .map(option -> VoteActivityOption.from(option, view.voteCount()))
+                            .toList());
+        }
+    }
+
+    /**
      * 내가 투표한 글 한 줄 (§9.2).
      *
      * <p><b>세 유형이 각기 다른 타입이다</b> (ADR-0049). 지금은 필드 구성이 셋 다 같지만
@@ -276,7 +318,7 @@ public class ActivityController {
     }
 
     /**
-     * 투표 활동 카드의 상품 한 건 (§9.2). 상세의 {@code ProductItem} 과 어휘를 맞추되
+     * 투표 활동·최근 투표 카드의 상품 한 건 (§9.2 · §7.4). 상세의 {@code ProductItem} 과 어휘를 맞추되
      * <b>카드가 그리는 두 필드만 둔다</b> — 목록은 사진으로 A/B 를 보여줄 뿐 상품명·가격·URL 을
      * 쓰지 않고, 그 셋은 카드를 탭해 들어간 상세에 있다.
      *
@@ -293,11 +335,12 @@ public class ActivityController {
     }
 
     /**
-     * 투표 활동 카드의 선택지 하나 (§9.2). 상세의 {@code OptionItem} 과 어휘가 같다.
+     * 투표 활동·최근 투표 카드의 선택지 하나 (§9.2 · §7.4). 상세의 {@code OptionItem} 과 어휘가 같다.
      *
      * <p><b>득표 수와 득표율을 감추지 않는다.</b> 상세는 미투표자에게 둘 다 지우지만(ADR-0046)
-     * 이 경로는 <b>내가 투표한 글만</b> 돌려주므로 조회자가 곧 투표자다 — 감출 대상이 존재하지
-     * 않는다. 작성자 예외 논의는 이 계약 밖이다(#159).
+     * 투표 활동은 <b>내가 투표한 글만</b> 돌려주므로 조회자가 곧 투표자다.
+     * 최근 투표 카드는 본인 작성글의 결과를 보는 화면이라 미투표 작성자에게도 공개한다 (#159).
+     * 그 예외는 {@code /users/me/posts/recent} 에 한정하며 상세·랜덤 카드의 정책은 유지한다.
      *
      * <p>득표율은 {@link VotePercentage} 가 계산한다. 상세·투표 직후 응답과 <b>같은 정본</b>을
      * 써야 같은 글을 어느 화면에서 열어도 게이지 값이 같다 — 여기서 직접 나누면 반올림이 갈린다.

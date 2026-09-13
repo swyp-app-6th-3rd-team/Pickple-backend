@@ -29,11 +29,12 @@ import java.util.function.IntFunction;
  * 애노테이션에 적어 두면 격리 수준을 낮추는 변경이 이 파일을 지나가게 된다. 바깥 트랜잭션에
  * 참여하면 그쪽 격리 수준을 따른다 — Spring 은 참여 트랜잭션의 격리를 검증하지 않으므로
  * 이 선언은 새 트랜잭션을 여는 경우에만 강제다. 저장소의 {@code requireSnapshot()} 은 트랜잭션의
- * 존재만 확인한다.
+ * 존재와 명시적인 격리 수준을 확인한다. 명시하지 않은 경우는 MySQL 기본값을 따른다.
  *
  * <p><b>행 변환 코드가 사라졌다.</b> 조회가 {@code Object} 배열 대신 {@link ActivityRow} 를
  * 직접 돌려주므로 컬럼 인덱스 상수와 드라이버 타입 방어({@code toLong}·{@code toLocalDateTime})가
- * 필요 없다. 그 계약은 이제 {@code ActivityQuerydslRepository} 의 프로젝션이 컴파일 시점에 지킨다.
+ * 필요 없다. 생성자 프로젝션은 조회 시 인자 타입을 검사하며, 같은 타입끼리 순서를 바꾼 오류는
+ * 예외 없이 잘못 매핑될 수 있으므로 응답 필드 검증으로 확인한다.
  */
 @Component
 @RequiredArgsConstructor
