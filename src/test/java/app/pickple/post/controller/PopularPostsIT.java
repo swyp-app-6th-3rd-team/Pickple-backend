@@ -31,10 +31,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -121,17 +123,26 @@ class PopularPostsIT {
     }
 
     @Test
-    @DisplayName("게시글이 20개면 정확히 10개만 준다")
+    @DisplayName("상품·사진 수가 다른 게시글 20개에서 인기 Top 10을 중복 없이 준다")
     void returnsAtMostTen() throws Exception {
-        // 완료 판정: "게시글 20개 상황에서 응답 길이 = 10".
+        List<Long> ids = new ArrayList<>();
         for (int i = 0; i < 20; i++) {
-            saveGeneralPost("인기 " + i);
+            Post post = switch (i % 3) {
+                case 0 -> saveGeneralPost("인기 " + i);
+                case 1 -> saveAgreePost("인기 " + i, 3);
+                default -> saveAbPost("인기 " + i);
+            };
+            ids.add(post.id());
         }
         flush();
 
-        mockMvc.perform(get(POPULAR))
+        ResultActions result = mockMvc.perform(get(POPULAR))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(CONTENT + ".length()").value(10));
+        // 모두 점수가 0이므로 id 역순의 10건이다. 사진 조인으로 글이 중복되거나 빠지면 실패한다.
+        for (int i = 0; i < 10; i++) {
+            result.andExpect(jsonPath(CONTENT + "[" + i + "].id").value(ids.get(19 - i)));
+        }
     }
 
     @Test
@@ -288,8 +299,31 @@ class PopularPostsIT {
         // 지키려는 성질은 "1회" 라는 숫자가 아니라 행 수에 비례하지 않는다는 것이다.
         assertThat(tenRows).isEqualTo(fourRows);
         // 키 문장, 작성자·집계 행 문장, Top 10 상품 일괄 조회의 세 문장이다.
-        // SQL 내부의 상관 서브쿼리 실행 비용까지 이 문장 수로 증명하지는 않는다.
+        // 문장 수와 별개로 실제 SQL의 서브쿼리 부재도 아래 테스트에서 확인한다.
         assertThat(fourRows).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("인기 카드의 키·행·상품 SQL에 서브쿼리가 없다")
+    void popularSqlContainsNoSubqueries() throws Exception {
+        saveGeneralPost("일반");
+        saveAgreePost("찬반", 3);
+        saveAbPost("A/B");
+        flush();
+
+        List<String> statements = sqlCapture.record(() -> {
+            try {
+                mockMvc.perform(get(POPULAR))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath(CONTENT + ".length()").value(3));
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(statements).hasSize(3);
+        assertThat(statements).allSatisfy(sql ->
+                assertThat(sql).doesNotContainPattern("(?i)\\(\\s*select\\b"));
     }
 
     @Test

@@ -7,6 +7,7 @@ import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore.PopularPostView;
 import app.pickple.post.domain.PostStore.PopularProductView;
 import app.pickple.post.domain.PostStore.PostListView;
+import app.pickple.post.domain.PostType;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.Projections;
@@ -22,6 +23,8 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -107,12 +110,36 @@ class PostListQuerydslRepository {
     public record PostListRow(PostListView view, Integer popularityScore) {
     }
 
-    /** 인기 카드에만 필요한 댓글 작성자 수를 목록 필드와 함께 투영한다. */
-    public record PopularPostRow(PostListView view, long commenterCount) {
+    /** 인기 카드의 기본 행. 사진은 다음 배치 조회 결과로 조립한다. */
+    public record PopularPostRow(
+            Long id,
+            PostType type,
+            PostCategory category,
+            String title,
+            String description,
+            long voteCount,
+            long commentCount,
+            long commenterCount,
+            LocalDateTime createdAt,
+            Long authorId,
+            String authorNickname,
+            Integer authorRanking) {
+
+        PopularPostView withProducts(List<PopularProductView> products) {
+            String thumbnail = products.stream()
+                    .filter(product -> product.displayOrder() == REPRESENTATIVE_PRODUCT)
+                    .findFirst()
+                    .map(PopularProductView::imageUrl)
+                    .orElse(null);
+            PostListView post = new PostListView(
+                    id, type, category, title, description, voteCount, commentCount, createdAt,
+                    thumbnail, authorId, authorNickname, authorRanking);
+            return new PopularPostView(post, commenterCount, products);
+        }
     }
 
-    /** Top 10에 속한 상품을 게시글별로 묶기 위한 배치 조회 행이다. */
-    public record PopularProductRow(Long postId, PopularProductView product) {
+    /** 사진 조인으로 반복되는 상품을 productId로 구분하는 배치 조회 행이다. */
+    public record PopularProductRow(Long postId, Long productId, PopularProductView product) {
     }
 
     /**
@@ -165,7 +192,18 @@ class PostListQuerydslRepository {
 
         List<PopularPostRow> rows = queryFactory.select(
                         Projections.constructor(PopularPostRow.class,
-                                listViewProjection(), POST.commenterCount.longValue()))
+                                POST.id,
+                                POST.type,
+                                POST.category,
+                                POST.title,
+                                POST.description,
+                                POST.voteCount.longValue(),
+                                POST.commentCount.longValue(),
+                                POST.commenterCount.longValue(),
+                                POST.createdAt,
+                                POST.userId,
+                                authorNickname(),
+                                USER.ranking))
                 .from(POST)
                 .join(USER).on(USER.id.eq(POST.userId))
                 .where(POST.id.in(ids))
@@ -173,33 +211,35 @@ class PostListQuerydslRepository {
                 .fetch();
         Map<Long, List<PopularProductView>> products = popularProducts(ids);
         return rows.stream()
-                .map(row -> new PopularPostView(row.view(), row.commenterCount(),
-                        products.getOrDefault(row.view().id(), List.of())))
+                .map(row -> row.withProducts(products.getOrDefault(row.id(), List.of())))
                 .toList();
     }
 
-    /** 상품마다 대표 사진 한 장만 읽고, 상품 표시 순서를 보존해 게시글별로 묶는다. */
+    /**
+     * 확정된 게시글의 상품·사진을 한 번에 읽는다. 사진 id 오름차순에서 상품별 첫 행을
+     * 남기므로 최초 등록 사진을 고르는 데 서브쿼리가 필요 없다.
+     * LEFT JOIN으로 사진이 없는 상품도 보존하고, 같은 결과로 기존 thumbnailUrl도 채운다.
+     */
     private Map<Long, List<PopularProductView>> popularProducts(List<Long> ids) {
-        return queryFactory.select(Projections.constructor(PopularProductRow.class,
-                        PRODUCT.post.id,
-                        Projections.constructor(PopularProductView.class,
-                                PRODUCT.displayOrder.intValue(), productImageUrl())))
+        List<PopularProductRow> candidates = queryFactory.select(
+                        Projections.constructor(PopularProductRow.class,
+                                PRODUCT.post.id,
+                                PRODUCT.id,
+                                Projections.constructor(PopularProductView.class,
+                                        PRODUCT.displayOrder.intValue(), RESOURCE.accessUrl)))
                 .from(PRODUCT)
+                .leftJoin(RESOURCE).on(RESOURCE.container.id.eq(PRODUCT.itemContainerId))
                 .where(PRODUCT.post.id.in(ids))
-                .orderBy(PRODUCT.post.id.asc(), PRODUCT.displayOrder.asc())
-                .fetch().stream()
+                .orderBy(PRODUCT.post.id.asc(), PRODUCT.displayOrder.asc(), RESOURCE.id.asc())
+                .fetch();
+
+        Map<Long, PopularProductRow> firstImages = new LinkedHashMap<>();
+        for (PopularProductRow candidate : candidates) {
+            firstImages.putIfAbsent(candidate.productId(), candidate);
+        }
+        return firstImages.values().stream()
                 .collect(Collectors.groupingBy(PopularProductRow::postId,
                         Collectors.mapping(PopularProductRow::product, Collectors.toList())));
-    }
-
-    /** 상품의 등록 순서는 사진 id로 결정한다. 같은 업로드의 작성 시각은 같을 수 있다 (R-03). */
-    private static Expression<String> productImageUrl() {
-        return JPAExpressions.select(RESOURCE.accessUrl)
-                .from(RESOURCE)
-                .where(RESOURCE.id.eq(
-                        JPAExpressions.select(CANDIDATE.id.min())
-                                .from(CANDIDATE)
-                                .where(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))));
     }
 
     /**
@@ -277,7 +317,7 @@ class PostListQuerydslRepository {
                 POST.popularityScore);
     }
 
-    /** 목록의 기존 필드를 인기 카드에서도 같은 의미로 유지한다. */
+    /** 커뮤니티 목록의 기존 필드와 대표 사진을 투영한다. */
     private static Expression<PostListView> listViewProjection() {
         return Projections.constructor(PostListView.class,
                 POST.id,
