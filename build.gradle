@@ -3,6 +3,10 @@ plugins {
     id 'org.springframework.boot' version '4.1.0'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'jacoco'
+    // 포털 기준 최신(1.19.0)을 쓴다. Maven Central 은 1.15.0 에서 멈춰 있는데
+    // 그건 이 플러그인이 Gradle Plugin Portal 자체 저장소에 배포되기 때문이고,
+    // 1.15.0(2023) 은 현재 Gradle 9.2.1 에서 깨진다(ADR-0050).
+    id 'info.solidsoft.pitest' version '1.19.0'
 }
 
 group = 'app.pickple'
@@ -30,7 +34,9 @@ ext {
     // Spring Boot 4.1 이 Hibernate 7.4.5 를 관리하므로 본가를 쓰면 빌드가 깨진다.
     querydslVersion = '7.5'
     jjwtVersion = '0.12.6'
-    archunitVersion = '1.4.1'
+    // 1.5.0 부터 JUnit 6 전용 모듈(archunit-junit6)이 나온다. junit5 모듈은 Platform 1.x 로
+    // 빌드돼 junit-bom:5.12.2 제약을 들고 오는데, 그게 launcher 를 1.12.2 로 끌어내린다(ADR-0050).
+    archunitVersion = '1.5.0'
     testcontainersVersion = '1.21.3'
     awsSdkVersion = '2.53.1'
 }
@@ -96,7 +102,9 @@ dependencies {
     testImplementation 'org.testcontainers:mysql'
     testImplementation 'org.testcontainers:localstack'
     testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation "com.tngtech.archunit:archunit-junit5:${archunitVersion}"
+    // junit5 가 아니라 junit6 모듈을 쓴다. Boot 4.1 이 관리하는 JUnit 이 6.0.3 이라
+    // junit5 모듈(Platform 1.x)을 쓰면 pitest 가 launcher 를 올리는 순간 버전이 어긋난다.
+    testImplementation "com.tngtech.archunit:archunit-junit6:${archunitVersion}"
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -132,12 +140,154 @@ tasks.named('test') {
     }
 }
 
+// 유닛만 도는 태스크. Docker 없이 도는 빠른 피드백 경로이고, 뮤테이션 테스트의 대상이다.
+//
+// 유닛과 통합은 클래스 이름 규약으로 가른다. `@IntegrationTest` 는 `@Tag` 가 아니라
+// `@SpringBootTest` 메타 애노테이션이라 JUnit Platform 태그 필터로는 고를 수 없다.
+// 대신 ArchitectureTest 가 "`@IntegrationTest` 면 이름이 IT 로 끝난다" 를 강제하므로
+// 그 규약에 기대어 제외한다. 다만 제외 수단은 이름 필터가 아니라 **클래스 파일 패턴**이다
+// (아래 `exclude` 주석 참조 — 이름 필터는 메서드까지 걸려 규칙을 빼먹는다).
+tasks.register('unitTest', Test) {
+    description = '통합 테스트(*IT)를 제외한 단위·아키텍처 테스트만 실행한다'
+    group = 'verification'
+
+    // 소스셋을 명시하지 않으면 testClassesDirs·classpath 가 비어 Gradle 이 NO-SOURCE 로
+    // 건너뛰고도 BUILD SUCCESSFUL 을 낸다(테스트 0개 실행). 반드시 test 소스셋에 연결한다.
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform()
+
+    // test 와 같은 이유로 타임존을 맞춘다. 빠지면 시간 판정이 9시간 밀린다(위 주석 참조).
+    systemProperty 'user.timezone', 'Asia/Seoul'
+
+    // 클래스 파일 기준으로 제외한다. 이름 필터(`excludeTestsMatching`)를 쓰면 안 된다 —
+    // Gradle 이 패턴을 **메서드 이름에도** 적용해서, `*IT` 는 ArchitectureTest 의
+    // `integrationTestsEndWithIT()` 규칙을 조용히 빼버린다(실측: ArchUnit 24개 -> 23개).
+    // 하필 유닛·통합 분리를 보장하는 그 규칙이라, 분리의 근거가 사라진다.
+    // `*IT.*` 로 고쳐도 이번엔 ActivityControllerIT 가 새어 들어왔다(실측: 476 -> 575개).
+    // 파일 패턴은 클래스에만 걸리므로 두 함정을 모두 피한다.
+    exclude '**/*IT.class'
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
+}
+
+// 뮤테이션 테스트. 커버리지가 답하지 못하는 "단언이 실제로 잡는가" 를 판정한다.
+//
+// 대상을 도메인·서비스로 좁히는 이유: 판정 로직이 거기 있다. 엔티티·설정에 뮤턴트를
+// 만들어도 의미 있는 신호가 나오지 않고 실행 시간만 늘어난다.
+// 테스트는 유닛만 쓴다 — 통합을 넣으면 Testcontainers 가 뮤턴트마다 떠서 시간이 폭발한다.
+pitest {
+    pitestVersion = '1.30.0'
+    junit5PluginVersion = '1.2.3'
+
+    // 플러그인이 detached configuration 에서 고른 launcher 를 testRuntimeOnly 에 **직접 버전까지
+    // 박아** 추가한다. 그러면 launcher 는 6.1.2, engine 은 Boot 가 관리하는 6.0.3 으로 갈려
+    // launcher 가 선언한 engine(6.1.2)이 도로 내려앉는다. 지금은 통과하지만 정렬된 상태는 아니다.
+    // 주입을 끄면 이 저장소가 이미 갖고 있는 버전 없는 launcher 선언이 BOM 을 따라간다.
+    addJUnitPlatformLauncher = false
+
+    // test 와 같은 이유로 타임존을 맞춘다(시간 판정이 9시간 밀린다).
+    jvmArgs = ['-Duser.timezone=Asia/Seoul']
+
+    targetClasses = [
+            'app.pickple.*.domain.*',
+            'app.pickple.*.service.*',
+    ]
+    // JPA 엔티티는 `*/infra/*Entity` 라서 애초에 targetClasses(domain·service)에 들지 않는다.
+    // `*.entity.*` 같은 패턴은 이 저장소에 매칭되는 클래스가 없어(ADR-0008 로 분리) 적지 않는다.
+    excludedClasses = [
+            'app.pickple.config.*',
+            'app.pickple.docs.*',
+    ]
+    // 아키텍처 테스트는 바이트코드를 스캔할 뿐 도메인 로직을 검증하지 않는다.
+    // 뮤턴트를 죽이지 못하면서 매 뮤턴트마다 전체 클래스패스를 훑어 느리다.
+    //
+    // 여기서는 `*IT` 라는 이름 패턴을 써도 안전하다. 위 unitTest 에서 위험했던 것과 계층이 다르다 —
+    // 이건 PIT 자체 DSL 의 **클래스 FQN glob** 이라 메서드 이름에는 닿지 않는다.
+    // 반면 Gradle 의 `excludeTestsMatching` 은 메서드까지 훑어서 규칙 하나를 빼먹었다.
+    // `*IT` 는 PIT 안에서 `^.*IT$` 로 바뀌므로 중첩 클래스(`FooIT$Nested`)는 걸리지 않는다.
+    // 현재 통합 테스트에 중첩 클래스가 없어 새는 것은 없지만, 생기면 조용히 대상에 들어오므로
+    // `*IT$*` 를 함께 둔다.
+    excludedTestClasses = [
+            'app.pickple.architecture.*',
+            'app.pickple.docs.*',
+            '*IT',
+            '*IT$*',
+    ]
+
+    outputFormats = ['XML', 'HTML']
+    timestampedReports = false
+    threads = 4
+
+    // 첫 도입의 바닥값이다. 목표가 아니라 회귀 차단선이다(ADR-0050).
+    mutationThreshold = 60
+}
+
+// 판정할 로직이 없어 분모만 키우는 것들. 커버리지 산정에서 뺀다.
+// - Q* : QueryDSL 이 생성한 클래스(사람이 쓰지 않는다)
+// - config/docs : 설정과 문서 표면. 분기가 거의 없다
+// - PickpleApplication : 엔트리포인트
+def coverageExclusions = [
+        '**/Q*.class',
+        'app/pickple/config/**',
+        'app/pickple/docs/**',
+        'app/pickple/PickpleApplication.class',
+]
+
+// 두 태스크가 같은 제외 목록을 쓴다. 클로저를 복사해 두면 한쪽만 고치고 잊기 쉬워 함수로 뺀다.
+//
+// `afterEvaluate` 는 Task 가 아니라 Project 의 메서드다. task.afterEvaluate 로 쓰면
+// "Could not find method afterEvaluate() ... on task ':jacocoTestReport'" 로 설정 단계에서 깨진다.
+def applyCoverageExclusions = { task ->
+    project.afterEvaluate {
+        task.classDirectories.setFrom(task.classDirectories.files.collect {
+            fileTree(dir: it, exclude: coverageExclusions)
+        })
+    }
+}
+
 jacocoTestReport {
     dependsOn test
     reports {
         xml.required = true
         html.required = true
     }
+}
+applyCoverageExclusions(tasks.named('jacocoTestReport').get())
+
+// 커버리지 하한선. 목표치가 아니라 실측 바로 아래다 — 이 게이트의 목적은
+// 향상 강제가 아니라 회귀 차단이기 때문이다(ADR-0050).
+// 도입 시점 실측: LINE 91.7% / BRANCH 81.4%.
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.90
+            }
+            limit {
+                counter = 'BRANCH'
+                value = 'COVEREDRATIO'
+                minimum = 0.80
+            }
+        }
+    }
+}
+
+// 리포트와 검증이 **같은 클래스 집합**을 봐야 한다. 한쪽에만 제외를 걸면
+// 리포트는 91.5% 인데 게이트는 다른 모수로 판정해, 통과해도 근거가 다른 상태가 된다.
+applyCoverageExclusions(tasks.named('jacocoTestCoverageVerification').get())
+
+// check 에 걸어 기존 CI 의 `./gradlew build` 가 그대로 판정하게 한다(CI 수정 불필요).
+tasks.named('check') {
+    dependsOn jacocoTestCoverageVerification
 }
 
 // 생성된 Q 클래스를 IDE 가 소스로 인식하고, clean 시 함께 지워지도록 한다.
