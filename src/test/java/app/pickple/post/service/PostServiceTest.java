@@ -329,24 +329,19 @@ class PostServiceTest {
     }
 
     @Test
-    @DisplayName("인기 Top 10 은 전체·인기순·첫 조각·10건으로 조회한다")
+    @DisplayName("인기 Top 10 은 인기 카드 전용 경로에 상한 10건을 전달한다")
     void popularTopFixesEveryParameter() {
-        given(postStore.findSlice(
-                isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
-                .willReturn(emptyWindow());
+        given(postStore.findPopularTop(10)).willReturn(List.of());
 
         service.findPopularTop();
 
-        verify(postStore).findSlice(
-                isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10));
+        verify(postStore).findPopularTop(10);
     }
 
     @Test
     @DisplayName("인기 Top 10 은 게시글이 없으면 빈 목록이다")
     void popularTopReturnsEmptyList() {
-        given(postStore.findSlice(
-                isNull(), eq(PostSort.POPULAR), eq(ScrollPosition.keyset()), eq(10)))
-                .willReturn(emptyWindow());
+        given(postStore.findPopularTop(10)).willReturn(List.of());
 
         assertThat(service.findPopularTop()).isEmpty();
     }

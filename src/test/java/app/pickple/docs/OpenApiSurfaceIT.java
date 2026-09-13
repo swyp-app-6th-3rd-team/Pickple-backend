@@ -46,7 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class OpenApiSurfaceIT {
 
     /**
-     * 응답 스키마를 검증할 대상. 최근 사이클이 추가한 게시글 상세·검색 DTO 다.
+     * 응답 스키마를 검증할 대상. 최근 사이클이 추가한 게시글 상세·검색·인기 DTO 다.
      *
      * <p>전체 스키마를 훑지 않는 이유는 <b>기존 부채까지 이 테스트가 떠안으면
      * 빨간불이 상수가 되어 아무도 안 보게 되기 때문</b>이다. 새로 만드는 것부터
@@ -55,6 +55,7 @@ class OpenApiSurfaceIT {
     private static final List<String> DOCUMENTED_SCHEMAS = List.of(
             "PostDetailResponse", "VoteSection", "ProductItem", "OptionItem",
             "PostSearchResponse", "PostSearchItem",
+            "PopularPostItem", "PopularProductItem",
             // 랭킹 세 응답이 공유하는 두 스키마다. 등급 필드를 더하면서 넣었다(#154) —
             // 목록에 없으면 설명이 비어도 아무도 알려주지 않는다.
             "RankingItem", "MyRankingResponse");
@@ -116,6 +117,48 @@ class OpenApiSurfaceIT {
     }
 
     @Test
+    @DisplayName("인기 게시글은 전용 배열 응답과 상품 사진·댓글 인원 스키마를 사용한다")
+    void popularPostsUseTheirOwnCardSchema() {
+        String envelope = schemaPath(spec.read(
+                "$.paths['/posts/popular'].get.responses['200'].content['*/*'].schema['$ref']"));
+        String payloadType = spec.read(envelope + ".properties.returnObject.type");
+        String itemReference = spec.read(envelope + ".properties.returnObject.items['$ref']");
+        assertThat(payloadType).isEqualTo("array");
+        assertThat(itemReference).isEqualTo("#/components/schemas/PopularPostItem");
+
+        Map<String, Object> fields = spec.read("$.components.schemas.PopularPostItem.properties");
+        assertThat(fields.keySet()).containsExactlyInAnyOrder(
+                "id", "type", "category", "title", "description", "commentCount", "commenterCount",
+                "voteCount", "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking",
+                "products");
+        String productReference = spec.read(
+                "$.components.schemas.PopularPostItem.properties.products.items['$ref']");
+        assertThat(productReference).isEqualTo("#/components/schemas/PopularProductItem");
+
+        Map<String, Object> productFields = spec.read("$.components.schemas.PopularProductItem.properties");
+        assertThat(productFields.keySet()).containsExactlyInAnyOrder("displayOrder", "imageUrl");
+        // 같은 자바 중첩 타입명 ProductItem이 상세 상품 스키마를 덮어쓰면 안 된다.
+        Map<String, Object> detailProductFields = spec.read("$.components.schemas.ProductItem.properties");
+        assertThat(detailProductFields.keySet()).containsExactlyInAnyOrder(
+                "id", "name", "price", "linkUrl", "imageUrl", "displayOrder");
+    }
+
+    @Test
+    @DisplayName("일반 게시글 목록은 기존 조각 응답과 필드 집합을 유지한다")
+    void regularPostListKeepsItsExistingSchema() {
+        String envelope = schemaPath(spec.read(
+                "$.paths['/posts'].get.responses['200'].content['*/*'].schema['$ref']"));
+        String scroll = schemaPath(spec.read(envelope + ".properties.returnObject['$ref']"));
+        String itemReference = spec.read(scroll + ".properties.content.items['$ref']");
+        assertThat(itemReference).isEqualTo("#/components/schemas/PostListItem");
+
+        Map<String, Object> fields = spec.read("$.components.schemas.PostListItem.properties");
+        assertThat(fields.keySet()).containsExactlyInAnyOrder(
+                "id", "type", "category", "title", "description", "commentCount", "voteCount",
+                "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking");
+    }
+
+    @Test
     @DisplayName("자동 생성된 *-controller 태그 잔재가 없다")
     void hasNoGeneratedControllerTags() {
         // @Tag 를 빠뜨리면 springdoc 이 클래스명에서 vote-controller 같은 태그를 만들어
@@ -156,6 +199,12 @@ class OpenApiSurfaceIT {
 
         assertThat(missing).as("설명이 빈 필드").isEmpty();
         assertThat(total).as("검사한 필드가 없으면 이 테스트는 아무것도 지키지 않는다").isPositive();
+    }
+
+    private String schemaPath(String reference) {
+        String prefix = "#/components/schemas/";
+        assertThat(reference).startsWith(prefix);
+        return "$.components.schemas." + reference.substring(prefix.length());
     }
 
     /** {@code "GET /posts"} 형태로 모으고 security 유무로 가른다. */
