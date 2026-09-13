@@ -31,10 +31,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -121,17 +123,26 @@ class PopularPostsIT {
     }
 
     @Test
-    @DisplayName("게시글이 20개면 정확히 10개만 준다")
+    @DisplayName("상품·사진 수가 다른 게시글 20개에서 인기 Top 10을 중복 없이 준다")
     void returnsAtMostTen() throws Exception {
-        // 완료 판정: "게시글 20개 상황에서 응답 길이 = 10".
+        List<Long> ids = new ArrayList<>();
         for (int i = 0; i < 20; i++) {
-            saveGeneralPost("인기 " + i);
+            Post post = switch (i % 3) {
+                case 0 -> saveGeneralPost("인기 " + i);
+                case 1 -> saveAgreePost("인기 " + i, 3);
+                default -> saveAbPost("인기 " + i);
+            };
+            ids.add(post.id());
         }
         flush();
 
-        mockMvc.perform(get(POPULAR))
+        ResultActions result = mockMvc.perform(get(POPULAR))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(CONTENT + ".length()").value(10));
+        // 모두 점수가 0이므로 id 역순의 10건이다. 사진 조인으로 글이 중복되거나 빠지면 실패한다.
+        for (int i = 0; i < 10; i++) {
+            result.andExpect(jsonPath(CONTENT + "[" + i + "].id").value(ids.get(19 - i)));
+        }
     }
 
     @Test
@@ -146,6 +157,47 @@ class PopularPostsIT {
         mockMvc.perform(get(POPULAR))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(CONTENT + ".length()").value(3));
+    }
+
+    @Test
+    @DisplayName("인기 카드는 A/B 상품 사진 2개, 찬반 첫 사진 1개, 일반 빈 상품 배열을 준다")
+    void returnsProductImagesByPostType() throws Exception {
+        Post general = saveGeneralPost("일반 카드");
+        Post agree = saveAgreePost("찬반 카드", 3);
+        Post ab = saveAbPost("A/B 카드");
+        flush();
+
+        // 모두 점수가 0이므로 id 내림차순이다. 상품은 등록 순서와 무관하게 A, B 순서다.
+        mockMvc.perform(get(POPULAR))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(CONTENT + ".length()").value(3))
+                .andExpect(jsonPath(CONTENT + "[0].id").value(ab.id()))
+                .andExpect(jsonPath(CONTENT + "[0].type").value("A_B"))
+                .andExpect(jsonPath(CONTENT + "[0].products.length()").value(2))
+                .andExpect(jsonPath(CONTENT + "[0].products[0].displayOrder").value(1))
+                .andExpect(jsonPath(CONTENT + "[0].products[0].imageUrl")
+                        .value("https://cdn.test/ab-a-1-" + seed))
+                .andExpect(jsonPath(CONTENT + "[0].products[1].displayOrder").value(2))
+                .andExpect(jsonPath(CONTENT + "[0].products[1].imageUrl")
+                        .value("https://cdn.test/ab-b-1-" + seed))
+                .andExpect(jsonPath(CONTENT + "[0].thumbnailUrl")
+                        .value("https://cdn.test/ab-a-1-" + seed))
+                .andExpect(jsonPath(CONTENT + "[1].id").value(agree.id()))
+                .andExpect(jsonPath(CONTENT + "[1].type").value("AGREE"))
+                .andExpect(jsonPath(CONTENT + "[1].products.length()").value(1))
+                .andExpect(jsonPath(CONTENT + "[1].products[0].displayOrder").value(1))
+                .andExpect(jsonPath(CONTENT + "[1].products[0].imageUrl")
+                        .value("https://cdn.test/agree-1-" + seed))
+                .andExpect(jsonPath(CONTENT + "[1].thumbnailUrl")
+                        .value("https://cdn.test/agree-1-" + seed))
+                .andExpect(jsonPath(CONTENT + "[2].id").value(general.id()))
+                .andExpect(jsonPath(CONTENT + "[2].type").value("GENERAL"))
+                .andExpect(jsonPath(CONTENT + "[2].products").isArray())
+                .andExpect(jsonPath(CONTENT + "[2].products").isEmpty())
+                .andExpect(jsonPath(CONTENT + "[2].thumbnailUrl").doesNotExist())
+                .andExpect(jsonPath(CONTENT + "[2].voteCount").doesNotExist())
+                .andExpect(jsonPath(CONTENT + "[2].commentCount").value(0))
+                .andExpect(jsonPath(CONTENT + "[2].commenterCount").value(0));
     }
 
     @Test
@@ -177,8 +229,10 @@ class PopularPostsIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(CONTENT + "[0].id").value(few.id()))
                 .andExpect(jsonPath(CONTENT + "[0].commentCount").value(2))
+                .andExpect(jsonPath(CONTENT + "[0].commenterCount").value(2))
                 .andExpect(jsonPath(CONTENT + "[1].id").value(many.id()))
-                .andExpect(jsonPath(CONTENT + "[1].commentCount").value(5));
+                .andExpect(jsonPath(CONTENT + "[1].commentCount").value(5))
+                .andExpect(jsonPath(CONTENT + "[1].commenterCount").value(1));
     }
 
     @Test
@@ -223,34 +277,92 @@ class PopularPostsIT {
     }
 
     @Test
-    @DisplayName("응답이 4건이든 10건이든 SQL 횟수는 그대로다 — N+1 이 없다")
+    @DisplayName("세 유형이 섞인 응답이 4건이든 10건이든 SQL 문장은 3개다")
     void statementCountDoesNotGrowWithResultSize() throws Exception {
-        // 목록 조회 경로를 그대로 타므로 "먼저 자르고 나중에 붙인다" 가 여기도 적용된다.
-        // 작성자·랭킹·대표 사진이 행마다 붙으면(N+1) 건수에 비례해 늘어난다.
+        // "먼저 자르고 나중에 붙인다" 가 인기 전용 상품 배열에도 적용된다.
+        // 작성자·랭킹·상품 사진이 행마다 붙으면(N+1) 건수에 비례해 늘어난다.
         // 유형을 섞는다 — 상품이 있는 글에서만 추가 조회가 붙는 경우를 잡기 위해서다.
         // Top 10 은 크기가 고정이라 요청으로 변주할 수 없으니 심는 건수를 변주한다.
-        for (int i = 0; i < 2; i++) {
-            saveGeneralPost("일반 " + i);
-            saveAgreePost("찬반 " + i);
-        }
+        saveGeneralPost("일반 0");
+        saveAgreePost("찬반 0");
+        saveAbPost("A/B 0");
+        saveGeneralPost("일반 1");
         long fourRows = countStatements(4);
 
-        for (int i = 2; i < 5; i++) {
+        for (int i = 2; i < 4; i++) {
             saveGeneralPost("일반 " + i);
             saveAgreePost("찬반 " + i);
+            saveAbPost("A/B " + i);
         }
         long tenRows = countStatements(10);
 
         // 지키려는 성질은 "1회" 라는 숫자가 아니라 행 수에 비례하지 않는다는 것이다.
         assertThat(tenRows).isEqualTo(fourRows);
-        // 그 상수는 키 문장과 행 문장 둘이다 (ADR-0045). 늘어나면 이유를 대야 한다.
-        assertThat(fourRows).isEqualTo(2L);
+        // 키 문장, 작성자·집계 행 문장, Top 10 상품 일괄 조회의 세 문장이다.
+        // 문장 수와 별개로 실제 SQL의 서브쿼리 부재도 아래 테스트에서 확인한다.
+        assertThat(fourRows).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("인기 카드의 키·행·상품 SQL에 서브쿼리가 없다")
+    void popularSqlContainsNoSubqueries() throws Exception {
+        saveGeneralPost("일반");
+        saveAgreePost("찬반", 3);
+        saveAbPost("A/B");
+        flush();
+
+        List<String> statements = sqlCapture.record(() -> {
+            try {
+                mockMvc.perform(get(POPULAR))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath(CONTENT + ".length()").value(3));
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(statements).hasSize(3);
+        assertThat(statements).allSatisfy(sql ->
+                assertThat(sql).doesNotContainPattern("(?i)\\(\\s*select\\b"));
+    }
+
+    @Test
+    @DisplayName("Top 10이 모두 일반 게시글이면 순위 밖 상품이 있어도 상품 SQL을 생략한다")
+    void skipsProductsWhenTopTenContainsOnlyGeneralPosts() throws Exception {
+        // 상품이 DB에 존재해도 실제 Top 10에 투표 유형이 없으면 읽지 않는다.
+        saveAgreePost("순위 밖 찬반", 3);
+        saveAbPost("순위 밖 A/B");
+        for (int i = 0; i < 10; i++) {
+            saveGeneralPost("일반 " + i);
+        }
+        flush();
+
+        List<String> statements = sqlCapture.record(() -> {
+            try {
+                ResultActions response = mockMvc.perform(get(POPULAR))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath(CONTENT + ".length()").value(10));
+                for (int i = 0; i < 10; i++) {
+                    response.andExpect(jsonPath(CONTENT + "[" + i + "].type").value("GENERAL"))
+                            .andExpect(jsonPath(CONTENT + "[" + i + "].products").isArray())
+                            .andExpect(jsonPath(CONTENT + "[" + i + "].products").isEmpty())
+                            .andExpect(jsonPath(CONTENT + "[" + i + "].thumbnailUrl").doesNotExist());
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(statements).hasSize(2);
+        assertThat(statements).allSatisfy(sql -> assertThat(sql)
+                .doesNotContain("post_product", "item_resource")
+                .doesNotContainPattern("(?i)\\(\\s*select\\b"));
     }
 
     @Test
     @DisplayName("커서를 돌려주지 않는다 — Top 10 이 전부다")
     void carriesNoCursorEnvelope() throws Exception {
-        // 목록과 같은 항목 스키마를 쓰되 봉투는 벗는다. hasNext 를 실어 보내면
+        // 인기 전용 항목을 배열로 준다. hasNext 를 실어 보내면
         // 11번째 글이 있을 때 true 가 되고, 클라이언트가 그 커서로 다시 부르면
         // 이 엔드포인트가 정의하지 않은 동작이 된다. 더 보기는 목록 API 로 간다.
         for (int i = 0; i < 12; i++) {
@@ -308,7 +420,7 @@ class PopularPostsIT {
     /**
      * 인기순 조회가 실제로 어떤 인덱스를 타는지 본다.
      *
-     * <p>Hibernate 가 실제로 내보낸 키 문장({@link SqlCapture})에 같은 값(LIMIT 11)을 바인딩해
+     * <p>Hibernate 가 실제로 내보낸 키 문장({@link SqlCapture})에 같은 값(LIMIT 10)을 바인딩해
      * {@code EXPLAIN FORMAT=TREE} 한다. 베껴 둔 문장을 쓰면 저장소가 바뀌어도 테스트가 초록색으로 남는다.
      */
     private String explainPopular() throws Exception {
@@ -321,21 +433,25 @@ class PopularPostsIT {
         });
         String keys = statements.stream().filter(sql -> sql.contains("limit ?")).findFirst().orElseThrow();
         assertThat(keys.chars().filter(c -> c == '?').count()).isEqualTo(1);
-        return String.join(" ", jdbcTemplate.queryForList("EXPLAIN FORMAT=TREE " + keys, String.class, 11));
+        return String.join(" ", jdbcTemplate.queryForList("EXPLAIN FORMAT=TREE " + keys, String.class, 10));
     }
 
     /** 방금 심은 글을 흘려보내고 Top 10 한 번이 내는 prepared statement 수를 센다. */
     private long countStatements(int expectedRows) throws Exception {
         flush();
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean wasEnabled = statistics.isStatisticsEnabled();
         statistics.setStatisticsEnabled(true);
-        statistics.clear();
-
-        mockMvc.perform(get(POPULAR))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath(CONTENT + ".length()").value(expectedRows));
-
-        return statistics.getPrepareStatementCount();
+        try {
+            statistics.clear();
+            mockMvc.perform(get(POPULAR))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(CONTENT + ".length()").value(expectedRows));
+            return statistics.getPrepareStatementCount();
+        } finally {
+            statistics.setStatisticsEnabled(wasEnabled);
+            statistics.clear();
+        }
     }
 
     private int popularityScore(Long postId) {
@@ -370,11 +486,24 @@ class PopularPostsIT {
     }
 
     private Post saveAgreePost(String title) {
+        return saveAgreePost(title, 1);
+    }
+
+    private Post saveAgreePost(String title, int photoCount) {
         Post post = new Post(author.id(), PostType.AGREE, PostCategory.LIVING, title, "설명")
-                .addProduct(new PostProduct(newContainer("agree", 1), "상품", 10_000L, null, 1))
+                .addProduct(new PostProduct(newContainer("agree", photoCount), "상품", 10_000L, null, 1))
                 .addOption(PostOption.ofLabel("사자", 1))
                 .addOption(PostOption.ofLabel("말자", 2));
         return postStore.save(post);
+    }
+
+    private Post saveAbPost(String title) {
+        // B를 먼저 저장해도 응답은 displayOrder 순서여야 한다.
+        return postStore.save(new Post(author.id(), PostType.A_B, PostCategory.FASHION, title, "설명")
+                .addProduct(new PostProduct(newContainer("ab-b", 1), "B 상품", 20_000L, null, 2))
+                .addProduct(new PostProduct(newContainer("ab-a", 1), "A 상품", 10_000L, null, 1))
+                .addOption(PostOption.ofProductDisplayOrder(1, 1))
+                .addOption(PostOption.ofProductDisplayOrder(2, 2)));
     }
 
     /** 사진 여러 장을 등록 순서대로 담은 상품용 컨테이너. */

@@ -176,15 +176,13 @@ public class PostService {
     /**
      * 홈 화면의 인기 게시글 Top 10 (§2.4).
      *
-     * <p>커서 없는 인기순 첫 조각을 그대로 사용하되, Top 10 계약에는 다음 조각이 없으므로
-     * 커서 봉투를 벗기고 내용만 반환한다. 더 보기는 {@code GET /posts?sort=POPULAR} 로 간다.
-     * 목록과 같은 두 문장 경로라 격리 수준도 같이 선언한다.
+     * <p>인기순 상위 10건을 확정한 뒤 상품별 사진과 댓글 작성자 수를 붙인다.
+     * 키·행·상품 조회가 같은 스냅샷을 보도록 REPEATABLE READ로 묶는다.
+     * 더 보기는 {@code GET /posts?sort=POPULAR} 로 간다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public List<PostStore.PostListView> findPopularTop() {
-        return postStore
-                .findSlice(null, PostSort.POPULAR, ScrollPosition.keyset(), POPULAR_TOP_SIZE)
-                .getContent();
+    public List<PostStore.PopularPostView> findPopularTop() {
+        return postStore.findPopularTop(POPULAR_TOP_SIZE);
     }
 
     /**
