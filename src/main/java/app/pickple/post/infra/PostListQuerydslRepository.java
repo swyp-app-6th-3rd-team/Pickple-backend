@@ -35,7 +35,7 @@ import static app.pickple.post.infra.QPostProductEntity.postProductEntity;
 
 /**
  * 게시글 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0045).
- * 인기 카드는 확정된 게시글의 상품 사진 배치 조회를 더해 세 문장으로 읽는다 (§2.4).
+ * 인기 카드는 확정된 게시글에 투표 유형이 있으면 상품 사진 배치 조회를 더해 세 문장으로 읽는다 (§2.4).
  *
  * <p><b>먼저 자르고 나중에 붙인다.</b> 조각에 들어갈 게시글 id 를 {@code post} 의 정렬 인덱스로
  * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 작성자와 대표 사진을 붙인다.
@@ -185,6 +185,7 @@ class PostListQuerydslRepository {
     /**
      * 인기 카드: 키 → 행·댓글 인원 → 상품 사진의 세 문장을 같은 스냅샷에서 읽는다.
      * 상품은 Top N이 확정된 뒤에만 붙이므로 A/B 두 상품이 순위나 카드 수를 바꾸지 않는다.
+     * 일반 게시글만 있으면 상품 조회를 생략한다.
      */
     List<PopularPostView> findPopularTop(int size) {
         requireSnapshot();
@@ -216,7 +217,12 @@ class PostListQuerydslRepository {
                 .where(postEntity.id.in(ids))
                 .orderBy(order)
                 .fetch();
-        Map<Long, List<PopularProductView>> products = popularProducts(ids);
+        List<Long> votingPostIds = rows.stream()
+                .filter(row -> row.type().hasVoting())
+                .map(PopularPostRow::id)
+                .toList();
+        Map<Long, List<PopularProductView>> products = votingPostIds.isEmpty()
+                ? Map.of() : popularProducts(votingPostIds);
         return rows.stream()
                 .map(row -> row.withProducts(products.getOrDefault(row.id(), List.of())))
                 .toList();

@@ -327,6 +327,39 @@ class PopularPostsIT {
     }
 
     @Test
+    @DisplayName("Top 10이 모두 일반 게시글이면 순위 밖 상품이 있어도 상품 SQL을 생략한다")
+    void skipsProductsWhenTopTenContainsOnlyGeneralPosts() throws Exception {
+        // 상품이 DB에 존재해도 실제 Top 10에 투표 유형이 없으면 읽지 않는다.
+        saveAgreePost("순위 밖 찬반", 3);
+        saveAbPost("순위 밖 A/B");
+        for (int i = 0; i < 10; i++) {
+            saveGeneralPost("일반 " + i);
+        }
+        flush();
+
+        List<String> statements = sqlCapture.record(() -> {
+            try {
+                ResultActions response = mockMvc.perform(get(POPULAR))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath(CONTENT + ".length()").value(10));
+                for (int i = 0; i < 10; i++) {
+                    response.andExpect(jsonPath(CONTENT + "[" + i + "].type").value("GENERAL"))
+                            .andExpect(jsonPath(CONTENT + "[" + i + "].products").isArray())
+                            .andExpect(jsonPath(CONTENT + "[" + i + "].products").isEmpty())
+                            .andExpect(jsonPath(CONTENT + "[" + i + "].thumbnailUrl").doesNotExist());
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(statements).hasSize(2);
+        assertThat(statements).allSatisfy(sql -> assertThat(sql)
+                .doesNotContain("post_product", "item_resource")
+                .doesNotContainPattern("(?i)\\(\\s*select\\b"));
+    }
+
+    @Test
     @DisplayName("커서를 돌려주지 않는다 — Top 10 이 전부다")
     void carriesNoCursorEnvelope() throws Exception {
         // 인기 전용 항목을 배열로 준다. hasNext 를 실어 보내면
