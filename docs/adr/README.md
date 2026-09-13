@@ -51,7 +51,8 @@
 | [0041](0041-read-only-mapping-for-derived-columns.md) | 유도·생성 컬럼은 엔티티에 읽기 전용으로 매핑한다 | Accepted |
 | [0043](0043-activity-list-two-statement-split.md) | 내 활동 목록은 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
 | [0045](0045-post-list-two-statement-split.md) | 게시글 목록도 키 확정과 행 조립 두 문장으로 읽는다 | Accepted |
-| [0046](0046-post-detail-single-type-with-nested-vote-section.md) | 게시글 상세는 단일 응답 타입에 투표 섹션만 중첩하고, 미투표자에게는 집계를 감춘다 | Accepted (선례 표의 `ActivityItem` 항목만 0049 가 부분 대체) |
+| [0046](0046-post-detail-single-type-with-nested-vote-section.md) | 게시글 상세는 단일 응답 타입에 투표 섹션만 중첩하고, 미투표자에게는 집계를 감춘다 | Accepted (선례 표의 `ActivityItem` 항목은 0049 가 부분 대체, 최근 투표 카드의 작성자 집계 예외는 0051 이 보완) |
 | [0047](0047-post-update-whitelist-schema.md) | 게시글 수정 요청은 수정 가능한 세 필드만 받는 화이트리스트 스키마이고, 수정·삭제는 행을 잠그고 한다 | Accepted |
 | [0048](0048-versioned-terms-and-user-agreement.md) | 약관 본문은 버전별로, 사용자 동의는 버전의 최초 수락으로 저장한다 | Accepted (DB 기반 구조, 0003·0040 보완) |
 | [0049](0049-activity-list-splits-by-type-into-paths-and-response-types.md) | 내 활동 목록은 유형별 경로와 응답 타입으로 갈리고, 커서는 유형을 싣는다 | Accepted (0036·0046 의 응답 형태 항목을 부분 대체) |
+| [0051](0051-recent-vote-card-author-results.md) | 최근 투표 카드는 작성자의 투표 여부와 무관하게 본인 글의 집계를 제공한다 | Accepted (0046 의 집계 노출 정책을 `/users/me/posts/recent` 범위에서 보완) |

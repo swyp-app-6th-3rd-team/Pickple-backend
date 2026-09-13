@@ -6,16 +6,10 @@ import app.pickple.activity.domain.ActivityQueryStore.ActivityPostView;
 import app.pickple.activity.domain.ActivityQueryStore.ActivitySummary;
 import app.pickple.activity.domain.ActivitySort;
 import app.pickple.activity.domain.ActivityType;
-import app.pickple.auth.infra.QUserEntity;
 import app.pickple.comment.infra.QCommentEntity;
-import app.pickple.comment.infra.QOnePickEntity;
-import app.pickple.comment.infra.QPostCommenterEntity;
 import app.pickple.item.infra.QItemResourceEntity;
 import app.pickple.post.domain.PostType;
 import app.pickple.post.infra.QPostEntity;
-import app.pickple.post.infra.QPostOptionEntity;
-import app.pickple.post.infra.QPostProductEntity;
-import app.pickple.vote.infra.QVoteEntity;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.Projections;
@@ -29,14 +23,29 @@ import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
+
+import static app.pickple.auth.infra.QUserEntity.userEntity;
+import static app.pickple.comment.infra.QCommentEntity.commentEntity;
+import static app.pickple.comment.infra.QOnePickEntity.onePickEntity;
+import static app.pickple.comment.infra.QPostCommenterEntity.postCommenterEntity;
+import static app.pickple.item.infra.QItemResourceEntity.itemResourceEntity;
+import static app.pickple.post.infra.QPostEntity.postEntity;
+import static app.pickple.post.infra.QPostOptionEntity.postOptionEntity;
+import static app.pickple.post.infra.QPostProductEntity.postProductEntity;
+import static app.pickple.vote.infra.QVoteEntity.voteEntity;
 
 /**
  * 내 활동 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0043).
@@ -44,6 +53,7 @@ import java.util.stream.Collectors;
  * ({@link #attachVoteDetail} #157) 선택지와 상품을 조각 전체에 한 문장씩 더 붙인다.
  * 댓글 활동은 셋 — 카드가 내 대표 댓글과 그 원픽 수를 그리므로
  * ({@link #attachCommentDetail} #158) 한 문장을 더 붙인다. 내 글은 둘 그대로다.
+ * 최근 투표 카드는 내 글에서 최대 10건을 확정하고 선택지·상품을 붙여 넷이다 (#159).
  * 늘어난 문장은 모두 행 수에 비례하지 않는다 — 조각 크기가 10 이든 50 이든 문장 수는 같다.
  *
  * <p><b>댓글 활동은 모집단도 다르다.</b> 살아있는 내 댓글이 하나도 없는 글은 목록에 나오지
@@ -85,17 +95,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 class ActivityQuerydslRepository {
 
-    private static final QPostEntity POST = QPostEntity.postEntity;
-    private static final QVoteEntity VOTE = QVoteEntity.voteEntity;
-    private static final QPostCommenterEntity COMMENTER = QPostCommenterEntity.postCommenterEntity;
-    private static final QCommentEntity COMMENT = QCommentEntity.commentEntity;
-    private static final QOnePickEntity PICK = QOnePickEntity.onePickEntity;
     /** 모집단 조건 안쪽의 두 번째 {@code comment}. 바깥 별칭과 겹치면 안 된다. */
     private static final QCommentEntity ALIVE = new QCommentEntity("alive");
-    private static final QUserEntity USER = QUserEntity.userEntity;
-    private static final QPostProductEntity PRODUCT = QPostProductEntity.postProductEntity;
-    private static final QPostOptionEntity OPTION = QPostOptionEntity.postOptionEntity;
-    private static final QItemResourceEntity RESOURCE = QItemResourceEntity.itemResourceEntity;
     /** 대표 사진 서브쿼리 안쪽의 두 번째 {@code item_resource}. 바깥 별칭과 겹치면 안 된다. */
     private static final QItemResourceEntity CANDIDATE = new QItemResourceEntity("candidate");
 
@@ -166,27 +167,34 @@ class ActivityQuerydslRepository {
      * 서비스가 정해 넘기므로 이 자리는 비교만 한다 — {@code NOW()} 를 쓰면
      * DB 세션 타임존이 하루를 정해 애플리케이션이 보는 시각과 갈린다(SPEC §5.1 과 같은 이유).
      *
-     * <p>여기도 두 문장이다. 옛 네이티브 SQL 도 파생 테이블로 먼저 자른 뒤 대표 사진을 붙였으므로
-     * 이 분할은 그 구조를 옮긴 것이지 새 비용이 아니다. JPQL 한 문장으로 쓰려면 대표 사진
-     * 서브쿼리를 정렬·LIMIT 과 같은 문장에 두어야 하는데, 이 정렬은 {@code Sort} 가 남는 경로라
-     * (ADR-0036 "POST 최신순") 그 서브쿼리가 잘리기 전의 행 전체에 대해 돌 위험이 있다.
-     * 두 문장이므로 {@link #findSlice} 와 같은 스냅샷 전제가 있다.
+     * <p>키·기본 행을 읽은 뒤 선택지와 상품을 확정된 최대 10건에 두 배치 문장으로 붙인다 (#159).
+     * 기본 행은 대표 사진 서브쿼리를 사용하지 않는다. 상품 배치에서 읽은 첫 상품 사진이
+     * 대표 사진이므로 같은 사진을 두 번 조회할 필요가 없다.
+     * 작성자 본인의 투표 여부와 무관하게 집계를 읽으며, {@link #findSlice} 와 같은 스냅샷 전제가 있다.
      */
     List<ActivityPostView> findRecentVotePosts(Long userId, LocalDateTime since, int limit) {
         requireSnapshot();
 
         List<Long> ids = keys(ActivityType.POST, userId)
-                .where(POST.type.ne(PostType.GENERAL), POST.createdAt.gt(since))
-                .orderBy(POST.createdAt.desc(), POST.id.desc())
+                .where(
+                        postEntity.type.ne(PostType.GENERAL),
+                        postEntity.createdAt.gt(since))
+                .orderBy(postEntity.createdAt.desc(), postEntity.id.desc())
                 .limit(limit)
                 .fetch();
         if (ids.isEmpty()) {
             return List.of();
         }
-        return rows(ActivityType.POST, userId, ids)
-                .orderBy(POST.createdAt.desc(), POST.id.desc())
-                .fetch()
-                .stream()
+        List<ActivityRow> rows = queryFactory
+                .select(projection(
+                        postEntity.createdAt,
+                        Expressions.nullExpression(Long.class),
+                        Expressions.nullExpression(String.class)))
+                .from(postEntity)
+                .where(postEntity.id.in(ids), postEntity.userId.eq(userId))
+                .orderBy(postEntity.createdAt.desc(), postEntity.id.desc())
+                .fetch();
+        return attachVoteDetail(rows).stream()
                 .map(ActivityRow::view)
                 .toList();
     }
@@ -214,17 +222,17 @@ class ActivityQuerydslRepository {
     ActivitySummary summarize(Long userId) {
         ActivitySummary summary = queryFactory
                 .select(Projections.constructor(ActivitySummary.class,
-                        JPAExpressions.select(VOTE.count()).from(VOTE)
-                                .join(POST).on(POST.id.eq(VOTE.postId), POST.deletedAt.isNull())
-                                .where(VOTE.userId.eq(userId)),
-                        JPAExpressions.select(COMMENTER.count()).from(COMMENTER)
-                                .join(POST).on(POST.id.eq(COMMENTER.postId), POST.deletedAt.isNull())
-                                .where(COMMENTER.userId.eq(userId),
-                                        hasLiveComment(COMMENTER.postId, userId)),
-                        JPAExpressions.select(POST.count()).from(POST)
-                                .where(POST.userId.eq(userId), POST.deletedAt.isNull())))
-                .from(USER)
-                .where(USER.id.eq(userId))
+                        JPAExpressions.select(voteEntity.count()).from(voteEntity)
+                                .join(postEntity).on(postEntity.id.eq(voteEntity.postId), postEntity.deletedAt.isNull())
+                                .where(voteEntity.userId.eq(userId)),
+                        JPAExpressions.select(postCommenterEntity.count()).from(postCommenterEntity)
+                                .join(postEntity).on(postEntity.id.eq(postCommenterEntity.postId), postEntity.deletedAt.isNull())
+                                .where(postCommenterEntity.userId.eq(userId),
+                                        hasLiveComment(postCommenterEntity.postId, userId)),
+                        JPAExpressions.select(postEntity.count()).from(postEntity)
+                                .where(postEntity.userId.eq(userId), postEntity.deletedAt.isNull())))
+                .from(userEntity)
+                .where(userEntity.id.eq(userId))
                 .fetchOne();
         return Optional.ofNullable(summary).orElseGet(() -> new ActivitySummary(0, 0, 0));
     }
@@ -253,13 +261,18 @@ class ActivityQuerydslRepository {
     }
 
     /**
-     * 두 문장이 한 스냅샷을 보려면 트랜잭션 안이어야 한다 (ADR-0043). 호출자 {@code JpaActivityQueryStore}
-     * 의 {@code @Transactional(readOnly = true)} 가 그 트랜잭션이다 — 누가 애노테이션을 지우면
-     * 조용히 어긋나는 대신 여기서 즉시 깨진다.
+     * 키·행·추가 집계가 한 스냅샷을 보려면 REPEATABLE READ 이상의 트랜잭션 안이어야 한다 (ADR-0043).
+     * 격리 수준은 가장 바깥 트랜잭션이 정한다. 상세·검색과 같이 명시적인 낮은 격리는 거부하고,
+     * 명시하지 않았으면({@code null}) MySQL 기본 격리 수준을 따른다.
      */
     private static void requireSnapshot() {
         Assert.state(TransactionSynchronizationManager.isActualTransactionActive(),
                 "키 문장과 행 문장이 같은 스냅샷을 보려면 트랜잭션 안이어야 한다");
+        Integer isolation = TransactionSynchronizationManager.getCurrentTransactionIsolationLevel();
+        Assert.state(isolation == null
+                        || isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ
+                        || isolation == TransactionDefinition.ISOLATION_SERIALIZABLE,
+                "키·행·추가 집계가 같은 스냅샷을 보려면 REPEATABLE READ 이상이어야 한다: " + isolation);
     }
 
     /**
@@ -277,17 +290,17 @@ class ActivityQuerydslRepository {
      */
     private JPAQuery<Long> keys(ActivityType type, Long userId) {
         return switch (type) {
-            case VOTE -> queryFactory.select(VOTE.postId)
-                    .from(VOTE)
-                    .join(POST).on(POST.id.eq(VOTE.postId), POST.deletedAt.isNull())
-                    .where(VOTE.userId.eq(userId));
-            case COMMENT -> queryFactory.select(COMMENTER.postId)
-                    .from(COMMENTER)
-                    .join(POST).on(POST.id.eq(COMMENTER.postId), POST.deletedAt.isNull())
-                    .where(COMMENTER.userId.eq(userId), hasLiveComment(COMMENTER.postId, userId));
-            case POST -> queryFactory.select(POST.id)
-                    .from(POST)
-                    .where(POST.userId.eq(userId), POST.deletedAt.isNull());
+            case VOTE -> queryFactory.select(voteEntity.postId)
+                    .from(voteEntity)
+                    .join(postEntity).on(postEntity.id.eq(voteEntity.postId), postEntity.deletedAt.isNull())
+                    .where(voteEntity.userId.eq(userId));
+            case COMMENT -> queryFactory.select(postCommenterEntity.postId)
+                    .from(postCommenterEntity)
+                    .join(postEntity).on(postEntity.id.eq(postCommenterEntity.postId), postEntity.deletedAt.isNull())
+                    .where(postCommenterEntity.userId.eq(userId), hasLiveComment(postCommenterEntity.postId, userId));
+            case POST -> queryFactory.select(postEntity.id)
+                    .from(postEntity)
+                    .where(postEntity.userId.eq(userId), postEntity.deletedAt.isNull());
         };
     }
 
@@ -308,24 +321,24 @@ class ActivityQuerydslRepository {
      */
     private JPAQuery<ActivityRow> rows(ActivityType type, Long userId, List<Long> ids) {
         return switch (type) {
-            case VOTE -> queryFactory.select(projection(VOTE.createdAt, VOTE.postOptionId))
-                    .from(POST)
-                    .join(VOTE).on(VOTE.postId.eq(POST.id), VOTE.userId.eq(userId))
-                    .where(POST.id.in(ids));
-            case COMMENT -> queryFactory.select(projection(COMMENTER.createdAt))
-                    .from(POST)
-                    .join(COMMENTER).on(COMMENTER.postId.eq(POST.id), COMMENTER.userId.eq(userId))
-                    .where(POST.id.in(ids));
-            case POST -> queryFactory.select(projection(POST.createdAt))
-                    .from(POST)
-                    .where(POST.id.in(ids), POST.userId.eq(userId));
+            case VOTE -> queryFactory.select(projection(voteEntity.createdAt, voteEntity.postOptionId))
+                    .from(postEntity)
+                    .join(voteEntity).on(voteEntity.postId.eq(postEntity.id), voteEntity.userId.eq(userId))
+                    .where(postEntity.id.in(ids));
+            case COMMENT -> queryFactory.select(projection(postCommenterEntity.createdAt))
+                    .from(postEntity)
+                    .join(postCommenterEntity).on(postCommenterEntity.postId.eq(postEntity.id), postCommenterEntity.userId.eq(userId))
+                    .where(postEntity.id.in(ids));
+            case POST -> queryFactory.select(projection(postEntity.createdAt))
+                    .from(postEntity)
+                    .where(postEntity.id.in(ids), postEntity.userId.eq(userId));
         };
     }
 
     /**
-     * 행 문장의 프로젝션. 생성자 인자 순서가 {@link ActivityPostView} 와 어긋나면
-     * <b>애플리케이션 기동 시</b>가 아니라 첫 조회에서 {@code ExpressionException} 으로 드러난다 —
-     * 그래도 옛 컬럼 인덱스 상수처럼 엉뚱한 값이 조용히 들어가는 일은 없다.
+     * 행 문장의 생성자 프로젝션. 조회 필드는 {@link ActivityPostView} 생성자의 타입과 순서에 맞춘다.
+     * 타입이 맞지 않으면 조회 시 {@code ExpressionException} 이 발생하지만, 같은 타입끼리의
+     * 순서 오류는 예외 없이 잘못 매핑될 수 있으므로 응답 필드 검증으로 확인한다.
      *
      * <p>카운터와 인기 점수는 스키마가 {@code INT UNSIGNED} 라 {@code Integer} 로 읽고
      * 도메인 계약인 {@code long} 으로 넓힌다. 이 {@code longValue()} 는 SQL 에 {@code cast} 로
@@ -346,17 +359,24 @@ class ActivityQuerydslRepository {
      */
     private static Expression<ActivityRow> projection(
             DateTimePath<LocalDateTime> activityAt, Expression<Long> selectedOptionId) {
+        return projection(activityAt, selectedOptionId, thumbnailUrl());
+    }
+
+    /** 최근 카드는 상품 배치가 대표 사진도 채우므로 기본 행의 사진 표현식은 null로 둔다. */
+    private static Expression<ActivityRow> projection(
+            DateTimePath<LocalDateTime> activityAt, Expression<Long> selectedOptionId,
+            Expression<String> thumbnail) {
         return Projections.constructor(ActivityRow.class,
                 Projections.constructor(ActivityPostView.class,
-                        POST.id,
-                        POST.type,
-                        POST.category,
-                        POST.title,
-                        POST.description,
-                        POST.voteCount.longValue(),
-                        POST.commentCount.longValue(),
-                        POST.createdAt,
-                        thumbnailUrl(),
+                        postEntity.id,
+                        postEntity.type,
+                        postEntity.category,
+                        postEntity.title,
+                        postEntity.description,
+                        postEntity.voteCount.longValue(),
+                        postEntity.commentCount.longValue(),
+                        postEntity.createdAt,
+                        thumbnail,
                         activityAt,
                         selectedOptionId,
                         Expressions.constant(List.<ActivityPostProduct>of()),
@@ -367,11 +387,12 @@ class ActivityQuerydslRepository {
                         // 컴파일이 아니라 첫 조회에서 ExpressionException 으로 드러난다.
                         Expressions.nullExpression(String.class),
                         Expressions.constant(0L)),
-                POST.popularityScore.longValue());
+                postEntity.popularityScore.longValue());
     }
 
     /**
-     * 선택지와 상품을 <b>조각 전체에 한 문장씩</b> 붙인다 (#157). 투표 활동 경로만 쓴다.
+     * 선택지와 상품을 <b>조각 전체에 한 문장씩</b> 붙인다 (#157 · #159).
+     * 투표 활동과 본인이 올린 최근 투표 카드가 쓴다.
      *
      * <p>행 문장에 조인하지 않는 이유는 <b>팬아웃</b>이다. 선택지는 게시글당 둘(R-04), 상품은
      * 최대 둘(R-02)이라 한 문장에 둘 다 조인하면 게시글 한 줄이 <b>서로를 곱해</b> 최대 넉 줄이
@@ -451,22 +472,22 @@ class ActivityQuerydslRepository {
      * 묶는 주체가 SQL 이 아니라 애플리케이션이고, 대표 선별도 자바가 한다.
      */
     private Map<Long, Representative> representatives(List<Long> postIds, Long userId) {
-        return queryFactory.select(COMMENT.postId,
+        return queryFactory.select(commentEntity.postId,
                         Projections.constructor(Representative.class,
-                                COMMENT.content,
-                                PICK.count(),
-                                COMMENT.createdAt,
-                                COMMENT.id))
-                .from(COMMENT)
-                .leftJoin(PICK).on(PICK.commentId.eq(COMMENT.id))
-                .where(COMMENT.postId.in(postIds),
-                        COMMENT.userId.eq(userId),
-                        COMMENT.deletedAt.isNull())
-                .groupBy(COMMENT.postId, COMMENT.id, COMMENT.content, COMMENT.createdAt)
+                                commentEntity.content,
+                                onePickEntity.count(),
+                                commentEntity.createdAt,
+                                commentEntity.id))
+                .from(commentEntity)
+                .leftJoin(onePickEntity).on(onePickEntity.commentId.eq(commentEntity.id))
+                .where(commentEntity.postId.in(postIds),
+                        commentEntity.userId.eq(userId),
+                        commentEntity.deletedAt.isNull())
+                .groupBy(commentEntity.postId, commentEntity.id, commentEntity.content, commentEntity.createdAt)
                 .fetch()
                 .stream()
                 .collect(Collectors.toMap(
-                        tuple -> tuple.get(COMMENT.postId),
+                        tuple -> tuple.get(commentEntity.postId),
                         tuple -> tuple.get(1, Representative.class),
                         Representative::better));
     }
@@ -505,24 +526,37 @@ class ActivityQuerydslRepository {
      * 조각에 든 게시글들의 상품과 그 대표 사진 1장 (§9.2). 표시 순서대로다 — 찬반은 1개,
      * A/B 는 A·B 둘 (R-02).
      *
-     * <p>{@code post_id} 를 함께 읽어 게시글별로 묶는다. 정렬을 {@code post_id} 까지 넓히지 않는
-     * 이유는 묶는 주체가 SQL 이 아니라 애플리케이션이고, {@code groupingBy} 가 값의 순서를
-     * 유지하므로 {@code display_order} 하나면 게시글 안의 순서가 정해지기 때문이다.
+     * <p>검색 목록의 장식 조회처럼 상품·사진을 LEFT JOIN으로 한 번에 읽는다.
+     * 이미 게시글 ID와 개수를 확정했으므로 사진 수가 목록의 LIMIT을 바꾸지 않는다.
+     * 사진 ID 오름차순에서 상품별 첫 행만 채택하며, 사진이 없는 상품도 null 사진으로 남긴다.
      */
     private Map<Long, List<ActivityPostProduct>> products(List<Long> postIds) {
-        return queryFactory.select(PRODUCT.post.id,
-                        Projections.constructor(ActivityPostProduct.class,
-                                PRODUCT.displayOrder.intValue(),
-                                imageUrl()))
-                .from(PRODUCT)
-                .where(PRODUCT.post.id.in(postIds))
-                .orderBy(PRODUCT.displayOrder.asc())
-                .fetch()
-                .stream()
-                .collect(Collectors.groupingBy(
-                        tuple -> tuple.get(PRODUCT.post.id),
-                        Collectors.mapping(
-                                tuple -> tuple.get(1, ActivityPostProduct.class), Collectors.toList())));
+        List<ProductImageRow> candidates = queryFactory
+                .select(Projections.constructor(ProductImageRow.class,
+                        postProductEntity.id,
+                        postProductEntity.post.id,
+                        postProductEntity.displayOrder.intValue(),
+                        itemResourceEntity.accessUrl))
+                .from(postProductEntity)
+                .leftJoin(itemResourceEntity)
+                .on(itemResourceEntity.container.id.eq(postProductEntity.itemContainerId))
+                .where(postProductEntity.post.id.in(postIds))
+                .orderBy(postProductEntity.displayOrder.asc(), itemResourceEntity.id.asc())
+                .fetch();
+
+        Map<Long, List<ActivityPostProduct>> products = new HashMap<>();
+        Set<Long> seenProducts = new HashSet<>();
+        for (ProductImageRow candidate : candidates) {
+            if (seenProducts.add(candidate.productId())) {
+                products.computeIfAbsent(candidate.postId(), ignored -> new ArrayList<>())
+                        .add(new ActivityPostProduct(candidate.displayOrder(), candidate.imageUrl()));
+            }
+        }
+        return products;
+    }
+
+    /** 상품별 첫 사진을 고르기 위한 조회 행. QueryDSL 생성자 프로젝션이 사용하므로 public이다. */
+    public record ProductImageRow(Long productId, Long postId, int displayOrder, String imageUrl) {
     }
 
     /**
@@ -532,34 +566,22 @@ class ActivityQuerydslRepository {
      * 한다 — 상세가 세운 분담과 같다(ADR-0046). 여기서 계산하면 같은 글의 게이지에 정본이 둘이 된다.
      */
     private Map<Long, List<ActivityPostOption>> options(List<Long> postIds) {
-        return queryFactory.select(OPTION.post.id,
+        return queryFactory
+                .select(postOptionEntity.post.id,
                         Projections.constructor(ActivityPostOption.class,
-                                OPTION.id,
-                                OPTION.label,
-                                OPTION.displayOrder.intValue(),
-                                OPTION.voteCount.longValue()))
-                .from(OPTION)
-                .where(OPTION.post.id.in(postIds))
-                .orderBy(OPTION.displayOrder.asc())
+                                postOptionEntity.id,
+                                postOptionEntity.label,
+                                postOptionEntity.displayOrder.intValue(),
+                                postOptionEntity.voteCount.longValue()))
+                .from(postOptionEntity)
+                .where(postOptionEntity.post.id.in(postIds))
+                .orderBy(postOptionEntity.displayOrder.asc())
                 .fetch()
                 .stream()
                 .collect(Collectors.groupingBy(
-                        tuple -> tuple.get(OPTION.post.id),
+                        tuple -> tuple.get(postOptionEntity.post.id),
                         Collectors.mapping(
                                 tuple -> tuple.get(1, ActivityPostOption.class), Collectors.toList())));
-    }
-
-    /**
-     * 상품의 대표 사진 — 가장 먼저 등록된 한 장 (§9.2). {@code PostDetailQuerydslRepository} 와
-     * 같은 정의다. 상관 조건의 {@code PRODUCT} 는 {@link #products} 의 루트다.
-     */
-    private static Expression<String> imageUrl() {
-        return JPAExpressions.select(RESOURCE.accessUrl)
-                .from(RESOURCE)
-                .where(RESOURCE.id.eq(
-                        JPAExpressions.select(CANDIDATE.id.min())
-                                .from(CANDIDATE)
-                                .where(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))));
     }
 
     /**
@@ -570,9 +592,9 @@ class ActivityQuerydslRepository {
      */
     private static DateTimePath<LocalDateTime> activityAtOf(ActivityType type) {
         return switch (type) {
-            case VOTE -> VOTE.createdAt;
-            case COMMENT -> COMMENTER.createdAt;
-            case POST -> POST.createdAt;
+            case VOTE -> voteEntity.createdAt;
+            case COMMENT -> postCommenterEntity.createdAt;
+            case POST -> postEntity.createdAt;
         };
     }
 
@@ -590,15 +612,15 @@ class ActivityQuerydslRepository {
      */
     private static NumberPath<Long> postIdOf(ActivityType type) {
         return switch (type) {
-            case VOTE -> VOTE.postId;
-            case COMMENT -> COMMENTER.postId;
-            case POST -> POST.id;
+            case VOTE -> voteEntity.postId;
+            case COMMENT -> postCommenterEntity.postId;
+            case POST -> postEntity.id;
         };
     }
 
     /** 정렬 키. 활동 시각이거나 게시글의 인기 점수다. */
     private static ComparableExpressionBase<?> sortKey(ActivityType type, ActivitySort sort) {
-        return sort.byActivityTime() ? activityAtOf(type) : POST.popularityScore;
+        return sort.byActivityTime() ? activityAtOf(type) : postEntity.popularityScore;
     }
 
     /**
@@ -641,13 +663,13 @@ class ActivityQuerydslRepository {
      * 상관 조건 {@code pp.post_id = p.id} 의 {@code p} 는 행 문장의 루트 {@code post} 다.
      */
     private static Expression<String> thumbnailUrl() {
-        return JPAExpressions.select(RESOURCE.accessUrl)
-                .from(RESOURCE)
-                .where(RESOURCE.id.eq(
+        return JPAExpressions.select(itemResourceEntity.accessUrl)
+                .from(itemResourceEntity)
+                .where(itemResourceEntity.id.eq(
                         JPAExpressions.select(CANDIDATE.id.min())
-                                .from(PRODUCT)
-                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))
-                                .where(PRODUCT.post.id.eq(POST.id),
-                                        PRODUCT.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
+                                .from(postProductEntity)
+                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(postProductEntity.itemContainerId))
+                                .where(postProductEntity.post.id.eq(postEntity.id),
+                                        postProductEntity.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
     }
 }

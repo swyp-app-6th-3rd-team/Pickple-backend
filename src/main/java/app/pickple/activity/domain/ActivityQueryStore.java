@@ -43,6 +43,7 @@ public interface ActivityQueryStore {
      * 최근에 올린 투표 게시글 (§7.4).
      *
      * <p>가로 스크롤 캐러셀이라 무한 스크롤이 아니다 — 고정 개수만 준다.
+     * 작성자의 투표 여부와 무관하게 상품 사진과 선택지별 득표 수를 함께 읽는다 (#159).
      *
      * @param userId 조회 대상
      * @param since  이 시각 <b>이후</b>에 올린 것만. 경계 판정은 호출자가 정한다
@@ -87,9 +88,9 @@ public interface ActivityQueryStore {
      *                     그 경로는 조회자가 곧 투표자라 언제나 값이 있고(R-09),
      *                     댓글·내 글 경로는 투표 여부를 묻지 않으므로 {@code null} 이다.
      *                     재투표는 {@code vote} 한 행의 UPDATE 라 이 값이 곧 최신 선택이다 (R-22)
-     * @param products     투표 대상 상품. 투표 활동 경로의 투표 게시글에만 있고
-     *                     그 밖에는 빈 목록이다 (§9.2)
-     * @param options      선택지와 득표 수. 투표 활동 경로의 투표 게시글에만 있고
+     * @param products     투표 대상 상품. 투표 활동과 최근 투표 카드의 투표 게시글에 있고
+     *                     그 밖에는 빈 목록이다 (§9.2 · §7.4)
+     * @param options      선택지와 득표 수. 투표 활동과 최근 투표 카드의 투표 게시글에 있고
      *                     그 밖에는 빈 목록이다. 정확히 둘이다 (R-04)
      * @param myComment    내가 그 글에 남긴 <b>대표 댓글</b>. 원픽이 가장 많은 한 건이고
      *                     동률이면 최신이다 (#158). <b>댓글 활동 경로에만 값이 있다</b> —
@@ -129,11 +130,16 @@ public interface ActivityQueryStore {
                     null, 0);
         }
 
-        /** 선택지·상품을 붙인 사본. 배치 문장이 읽어 온 값을 행에 얹는다. */
+        /** 선택지·상품을 붙인 사본. 대표 사진도 첫 상품의 배치 조회 결과를 사용한다. */
         public ActivityPostView withVoteDetail(
                 List<ActivityPostProduct> products, List<ActivityPostOption> options) {
+            String firstProductImage = products.stream()
+                    .filter(product -> product.displayOrder() == 1)
+                    .findFirst()
+                    .map(ActivityPostProduct::imageUrl)
+                    .orElse(null);
             return new ActivityPostView(id, type, category, title, description, voteCount,
-                    commentCount, createdAt, thumbnailUrl, activityAt, selectedOptionId,
+                    commentCount, createdAt, firstProductImage, activityAt, selectedOptionId,
                     products, options, myComment, myCommentOnePickCount);
         }
 
@@ -149,7 +155,7 @@ public interface ActivityQueryStore {
     }
 
     /**
-     * 투표 활동 카드의 상품 한 건 (§9.2). 찬반은 1개, A/B 는 표시 순서대로 2개다 (R-02).
+     * 투표 활동·최근 투표 카드의 상품 한 건 (§9.2 · §7.4). 찬반은 1개, A/B 는 표시 순서대로 2개다 (R-02).
      *
      * <p>{@code PostStore.PostDetailProduct} 와 <b>필드가 다르다</b> — 카드는 사진만 쓰고
      * 상품명·가격·URL 을 그리지 않는다. 상세의 타입을 그대로 가져오면 이 화면이 쓰지 않는
@@ -162,7 +168,7 @@ public interface ActivityQueryStore {
     }
 
     /**
-     * 투표 활동 카드의 선택지 한 건 (§9.2). 투표 게시글은 정확히 둘이다 (R-04).
+     * 투표 활동·최근 투표 카드의 선택지 한 건 (§9.2 · §7.4). 투표 게시글은 정확히 둘이다 (R-04).
      *
      * <p><b>득표율을 여기서 계산하지 않는다.</b> 저장소는 읽은 득표 수를 그대로 올리고
      * 퍼센트 환산은 컨트롤러가 {@code VotePercentage} 로 한다 — 상세가 세운 분담과 같다

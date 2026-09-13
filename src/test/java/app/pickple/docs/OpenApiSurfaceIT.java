@@ -57,7 +57,8 @@ class OpenApiSurfaceIT {
             "PostSearchResponse", "PostSearchItem",
             // 랭킹 세 응답이 공유하는 두 스키마다. 등급 필드를 더하면서 넣었다(#154) —
             // 목록에 없으면 설명이 비어도 아무도 알려주지 않는다.
-            "RankingItem", "MyRankingResponse");
+            "RankingItem", "MyRankingResponse",
+            "RecentVotePostItem", "VoteActivityProduct", "VoteActivityOption");
 
     @Autowired
     private WebApplicationContext context;
@@ -113,6 +114,27 @@ class OpenApiSurfaceIT {
 
         List<String> tags = spec.read("$.paths['/posts/{id}'].get.tags");
         assertThat(tags).containsExactly("Post");
+    }
+
+    @Test
+    @DisplayName("최근 투표는 인증된 본인 카드 전용 스키마로 총 투표수와 선택지별 결과를 문서화한다")
+    void recentVotePostsUseDedicatedSchema() {
+        List<Map<String, Object>> security = spec.read("$.paths['/users/me/posts/recent'].get.security");
+        assertThat(security).anySatisfy(requirement -> assertThat(requirement).containsKey("bearerAuth"));
+
+        String responseRef = spec.read(
+                "$.paths['/users/me/posts/recent'].get.responses['200'].content['*/*'].schema['$ref']");
+        String responseSchema = responseRef.substring(responseRef.lastIndexOf('/') + 1);
+        String itemRef = spec.read("$.components.schemas." + responseSchema
+                + ".properties.returnObject.items['$ref']");
+        assertThat(itemRef).isEqualTo("#/components/schemas/RecentVotePostItem");
+
+        Map<String, Map<String, Object>> properties =
+                spec.read("$.components.schemas.RecentVotePostItem.properties");
+        assertThat(properties).containsOnlyKeys("id", "type", "category", "title", "description",
+                "commentCount", "voteCount", "thumbnailUrl", "createdAt", "activityAt", "products", "options");
+        assertThat(properties.get("voteCount").get("description")).asString().contains("총 투표수");
+        assertThat(properties.get("options").get("description")).asString().contains("투표 여부와 무관");
     }
 
     @Test
