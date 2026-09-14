@@ -435,9 +435,9 @@ SHA-256은 `b9d04da3cb3195b9a7b2f052a22d91e554d5178b93b702767a112e63275d0a39`이
 앱의 `PROFILE_DEFAULT_IMAGE_URLS`가 비어 있으면 `FILE_PUBLIC_BASE_URL` 아래 네 경로를 쓴다.
 별도 목록을 지정하면 그 목록을 우선한다. 두 설정이 모두 없으면 잘못된 URL을 반환하지 않고 기동에 실패한다.
 `FILE_PUBLIC_BASE_URL`은 기존 Terraform → fetch-secrets.sh → Compose 경로로 이미 전달된다.
-이 수정은 인스턴스 user_data나 Secrets Manager 키를 추가하지 않는다. 선택 설정인
-`PROFILE_DEFAULT_IMAGE_URLS`를 EC2 `.env`에 수동 추가했다면 fetch-secrets.sh가 재생성할 때
-유지되지 않으므로 운영자가 다시 주입해야 한다. 기본 동작에는 이 수동 설정이 필요 없다.
+표준 EC2 배포는 이 주소에서 네 후보를 파생하므로 인스턴스 user_data나 Secrets Manager 키를
+추가하지 않는다. `PROFILE_DEFAULT_IMAGE_URLS`는 로컬 실행이나 별도 배포 구성이 명시적으로
+환경변수를 전달할 때만 사용하는 선택 설정이다.
 
 배포 시 순서:
 

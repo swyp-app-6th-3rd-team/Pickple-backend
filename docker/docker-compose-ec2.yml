@@ -98,7 +98,6 @@ services:
       FILE_S3_BUCKET: ${FILE_S3_BUCKET:-not-configured}
       # 기본 프로필도 이 CDN을 쓴다. 별도 프로필 후보가 없으면 반드시 설정한다.
       FILE_PUBLIC_BASE_URL: ${FILE_PUBLIC_BASE_URL:-}
-      PROFILE_DEFAULT_IMAGE_URLS: ${PROFILE_DEFAULT_IMAGE_URLS:-}
       AWS_REGION: ${AWS_REGION:-ap-northeast-2}
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       AUTH_COOKIE_SECURE: "true"
