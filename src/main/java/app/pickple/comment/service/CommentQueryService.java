@@ -3,6 +3,7 @@ package app.pickple.comment.service;
 import app.pickple.comment.domain.CommentQueryStore;
 import app.pickple.comment.domain.OnePickStore;
 import app.pickple.common.RelativeTime;
+import app.pickple.grade.domain.Grade;
 import app.pickple.post.service.ActivePostGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -56,7 +57,8 @@ public class CommentQueryService {
                 relativeTime(comment.createdAt(), now),
                 comment.content(),
                 comment.onePickCount(),
-                viewerId != null && viewerId.equals(comment.authorId()));
+                viewerId != null && viewerId.equals(comment.authorId()),
+                comment.authorGrade());
     }
 
     /**
@@ -89,6 +91,7 @@ public class CommentQueryService {
             String createdAgo,
             String content,
             long onePickCount,
-            boolean mine) {
+            boolean mine,
+            Grade authorGrade) {
     }
 }

@@ -423,7 +423,9 @@ public class PostController {
             @Schema(description = "작성자 식별자") Long authorId,
             @Schema(description = "작성자 닉네임") String authorNickname,
             @Schema(description = "작성자 TOP 피커 순위. 아직 산정되지 않았으면 null (최대 5분 지연)")
-            Integer authorRanking) {
+            Integer authorRanking,
+            @Schema(description = "작성자의 현재 저장 등급 레벨. 1~5이며 탈퇴 후에도 유지") int authorGradeLevel,
+            @Schema(description = "작성자의 현재 저장 등급 명칭. LV.1~LV.5이며 탈퇴 후에도 유지") String authorGradeName) {
 
         static PostListItem from(PostStore.PostListView view) {
             return new PostListItem(
@@ -438,7 +440,9 @@ public class PostController {
                     view.createdAt(),
                     view.authorId(),
                     view.authorNickname(),
-                    view.authorRanking());
+                    view.authorRanking(),
+                    view.authorGrade().level(),
+                    view.authorGrade().displayName());
         }
     }
 

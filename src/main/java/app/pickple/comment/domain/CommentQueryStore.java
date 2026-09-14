@@ -1,5 +1,7 @@
 package app.pickple.comment.domain;
 
+import app.pickple.grade.domain.Grade;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -21,6 +23,7 @@ public interface CommentQueryStore {
             String nickname,
             LocalDateTime createdAt,
             String content,
-            long onePickCount) {
+            long onePickCount,
+            Grade authorGrade) {
     }
 }

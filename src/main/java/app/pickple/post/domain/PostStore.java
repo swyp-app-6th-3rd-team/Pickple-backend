@@ -128,7 +128,8 @@ public interface PostStore {
             String thumbnailUrl,
             Long authorId,
             String authorNickname,
-            Integer authorRanking) {
+            Integer authorRanking,
+            Grade authorGrade) {
     }
 
     /** 전체 검색 건수와 현재 조각을 묶는다. */

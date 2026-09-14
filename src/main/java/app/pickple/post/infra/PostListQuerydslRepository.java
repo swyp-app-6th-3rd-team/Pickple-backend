@@ -1,6 +1,7 @@
 package app.pickple.post.infra;
 
 import app.pickple.item.infra.QItemResourceEntity;
+import app.pickple.grade.domain.Grade;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore.PopularPostView;
@@ -107,7 +108,34 @@ class PostListQuerydslRepository {
      * 레코드의 정규 생성자는 레코드와 접근 수준이 같아, package-private 이면 런타임에
      * "No constructor found" 가 난다. 감싸는 클래스가 package-private 이라 바깥에는 안 보인다.
      */
-    public record PostListRow(PostListView view, Integer popularityScore) {
+    public record PostListRow(PostListProjection projection, Integer popularityScore) {
+
+        PostListView view() {
+            return projection.toView();
+        }
+    }
+
+    /** DB 숫자 등급을 도메인 등급으로 복원하는 목록 조회 행. */
+    public record PostListProjection(
+            Long id,
+            PostType type,
+            PostCategory category,
+            String title,
+            String description,
+            long voteCount,
+            long commentCount,
+            LocalDateTime createdAt,
+            String thumbnailUrl,
+            Long authorId,
+            String authorNickname,
+            Integer authorRanking,
+            Byte authorGradeLevel) {
+
+        PostListView toView() {
+            return new PostListView(id, type, category, title, description, voteCount, commentCount,
+                    createdAt, thumbnailUrl, authorId, authorNickname, authorRanking,
+                    Grade.ofLevel(authorGradeLevel));
+        }
     }
 
     /** 인기 카드의 기본 행. 사진은 다음 배치 조회 결과로 조립한다. */
@@ -123,7 +151,8 @@ class PostListQuerydslRepository {
             LocalDateTime createdAt,
             Long authorId,
             String authorNickname,
-            Integer authorRanking) {
+            Integer authorRanking,
+            Byte authorGradeLevel) {
 
         PopularPostView withProducts(List<PopularProductView> products) {
             String thumbnail = products.stream()
@@ -133,7 +162,8 @@ class PostListQuerydslRepository {
                     .orElse(null);
             PostListView post = new PostListView(
                     id, type, category, title, description, voteCount, commentCount, createdAt,
-                    thumbnail, authorId, authorNickname, authorRanking);
+                    thumbnail, authorId, authorNickname, authorRanking,
+                    Grade.ofLevel(authorGradeLevel));
             return new PopularPostView(post, commenterCount, products);
         }
     }
@@ -211,7 +241,8 @@ class PostListQuerydslRepository {
                         postEntity.createdAt,
                         postEntity.userId,
                         authorNickname(),
-                        userEntity.ranking))
+                        userEntity.ranking,
+                        userEntity.highestGrade))
                 .from(postEntity)
                 .join(userEntity).on(userEntity.id.eq(postEntity.userId))
                 .where(postEntity.id.in(ids))
@@ -333,8 +364,8 @@ class PostListQuerydslRepository {
     }
 
     /** 커뮤니티 목록의 기존 필드와 대표 사진을 투영한다. */
-    private static Expression<PostListView> listViewProjection() {
-        return Projections.constructor(PostListView.class,
+    private static Expression<PostListProjection> listViewProjection() {
+        return Projections.constructor(PostListProjection.class,
                 postEntity.id,
                 postEntity.type,
                 postEntity.category,
@@ -346,7 +377,8 @@ class PostListQuerydslRepository {
                 thumbnailUrl(),
                 postEntity.userId,
                 authorNickname(),
-                userEntity.ranking);
+                userEntity.ranking,
+                userEntity.highestGrade);
     }
 
     /** 정렬 키. 작성 시각이거나 게시글의 인기 점수(생성 컬럼)다. */

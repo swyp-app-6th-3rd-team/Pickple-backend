@@ -54,7 +54,7 @@ class OpenApiSurfaceIT {
      */
     private static final List<String> DOCUMENTED_SCHEMAS = List.of(
             "PostDetailResponse", "VoteSection", "ProductItem", "OptionItem",
-            "PostSearchResponse", "PostSearchItem",
+            "PostSearchResponse", "PostSearchItem", "PostListItem", "CommentResponse",
             "PopularPostItem", "PopularProductItem",
             // 랭킹 세 응답이 공유하는 두 스키마다. 등급 필드를 더하면서 넣었다(#154) —
             // 목록에 없으면 설명이 비어도 아무도 알려주지 않는다.
@@ -166,7 +166,7 @@ class OpenApiSurfaceIT {
     }
 
     @Test
-    @DisplayName("일반 게시글 목록은 기존 조각 응답과 필드 집합을 유지한다")
+    @DisplayName("일반 게시글 목록은 기존 조각 응답과 필드에 작성자 등급을 추가한다")
     void regularPostListKeepsItsExistingSchema() {
         String envelope = schemaPath(spec.read(
                 "$.paths['/posts'].get.responses['200'].content['*/*'].schema['$ref']"));
@@ -177,7 +177,16 @@ class OpenApiSurfaceIT {
         Map<String, Object> fields = spec.read("$.components.schemas.PostListItem.properties");
         assertThat(fields.keySet()).containsExactlyInAnyOrder(
                 "id", "type", "category", "title", "description", "commentCount", "voteCount",
-                "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking");
+                "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking",
+                "authorGradeLevel", "authorGradeName");
+    }
+
+    @Test
+    void authorGradesUseTheSameFieldsAcrossListDetailAndComments() {
+        for (String schema : List.of("PostListItem", "PostDetailResponse", "CommentResponse")) {
+            Map<String, Object> fields = spec.read("$.components.schemas." + schema + ".properties");
+            assertThat(fields).containsKeys("authorGradeLevel", "authorGradeName");
+        }
     }
 
     @Test

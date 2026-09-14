@@ -3,6 +3,7 @@ package app.pickple.comment.infra;
 import app.pickple.comment.domain.Comment;
 import app.pickple.comment.domain.CommentQueryStore;
 import app.pickple.comment.domain.CommentStore;
+import app.pickple.grade.domain.Grade;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,7 +56,8 @@ public class JpaCommentStore implements CommentStore, CommentQueryStore {
                         row.getNickname(),
                         row.getCreatedAt(),
                         row.getContent(),
-                        row.getOnePickCount() == null ? 0L : row.getOnePickCount()))
+                        row.getOnePickCount() == null ? 0L : row.getOnePickCount(),
+                        Grade.ofLevel(row.getAuthorGradeLevel())))
                 .toList();
     }
 }
