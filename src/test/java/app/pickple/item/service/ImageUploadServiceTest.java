@@ -51,6 +51,17 @@ class ImageUploadServiceTest {
     }
 
     @Test
+    @DisplayName("PROFILE 복수 파일은 S3·DB 호출 전에 거부한다")
+    void rejectsMultipleProfileImagesBeforeUpload() {
+        assertThatThrownBy(() -> service.upload(1L, AttachType.PROFILE,
+                List.of(image("a.jpg"), image("b.jpg"))))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).code())
+                .isEqualTo(app.pickple.common.ResponseCode.INVALID_REQUEST);
+        verifyNoInteractions(objectStorage, containerStore);
+    }
+
+    @Test
     @DisplayName("DB 저장이 실패하면 이미 업로드한 S3 객체를 모두 보상 삭제한다")
     void compensatesObjectsWhenDatabaseSaveFails() {
         when(objectStorage.put(anyString(), any(byte[].class), anyString()))

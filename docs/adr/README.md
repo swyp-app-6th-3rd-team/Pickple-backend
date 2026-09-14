@@ -56,3 +56,4 @@
 | [0048](0048-versioned-terms-and-user-agreement.md) | 약관 본문은 버전별로, 사용자 동의는 버전의 최초 수락으로 저장한다 | Accepted (DB 기반 구조, 0003·0040 보완) |
 | [0049](0049-activity-list-splits-by-type-into-paths-and-response-types.md) | 내 활동 목록은 유형별 경로와 응답 타입으로 갈리고, 커서는 유형을 싣는다 | Accepted (0036·0046 의 응답 형태 항목을 부분 대체) |
 | [0051](0051-recent-vote-card-author-results.md) | 최근 투표 카드는 작성자의 투표 여부와 무관하게 본인 글의 집계를 제공한다 | Accepted (0046 의 집계 노출 정책을 `/users/me/posts/recent` 범위에서 보완) |
+| [0052](0052-profile-image-upload-url-validation.md) | 프로필 사진은 기존 업로드와 URL 계약을 재사용하고 소유자·용도를 검증한다 | Accepted (0019·0027을 PROFILE 업로드·프로필 입력 범위에서 보완) |

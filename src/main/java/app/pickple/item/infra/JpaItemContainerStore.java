@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -39,6 +40,14 @@ public class JpaItemContainerStore implements ItemContainerStore {
     @Transactional(readOnly = true)
     public Optional<ItemContainer> findById(Long id) {
         return repository.findById(id).map(ItemContainerEntity::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ItemContainer> findAllByOwnerIdAndResourceAccessUrl(Long ownerId, String accessUrl) {
+        return repository.findAllByOwnerIdAndResourceAccessUrl(ownerId, accessUrl).stream()
+                .map(ItemContainerEntity::toDomain)
+                .toList();
     }
 
     @Override

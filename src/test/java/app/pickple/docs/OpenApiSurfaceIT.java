@@ -60,7 +60,7 @@ class OpenApiSurfaceIT {
             // 랭킹 세 응답이 공유하는 두 스키마다. 등급 필드를 더하면서 넣었다(#154) —
             // 목록에 없으면 설명이 비어도 아무도 알려주지 않는다.
             "RankingItem", "MyRankingResponse",
-            "RecentVotePostItem", "VoteActivityProduct", "VoteActivityOption");
+            "RecentVotePostItem", "VoteActivityProduct", "VoteActivityOption", "ProfileRequest");
 
     @Autowired
     private WebApplicationContext context;
@@ -74,6 +74,26 @@ class OpenApiSurfaceIT {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         spec = JsonPath.parse(body);
+    }
+
+    @Test
+    @DisplayName("PROFILE 업로드 허용 값과 기존 URL 기반 프로필 연결 계약을 문서화한다")
+    void documentsProfileImageUpload() {
+        List<Map<String, Object>> parameters = spec.read("$.paths['/images'].post.parameters");
+        Map<String, Object> attachType = parameters.stream()
+                .filter(parameter -> "attachType".equals(parameter.get("name"))).findFirst().orElseThrow();
+        assertThat(attachType.get("required")).isEqualTo(true);
+        Map<String, Object> schema = (Map<String, Object>) attachType.get("schema");
+        assertThat((List<String>) schema.get("enum")).containsExactly("PRODUCT", "COMMENT", "PROFILE");
+        String containerIdDescription = spec.read(
+                "$.components.schemas.ImageUploadResponse.properties.itemContainerId.description");
+        assertThat(containerIdDescription).contains("상품", "댓글", "PROFILE", "사용하지 않음");
+        String description = spec.read("$.components.schemas.ProfileRequest.properties.profileImageUrl.description");
+        assertThat(description).contains("PROFILE", "accessUrl", "null", "기존", "기본");
+        for (String method : List.of("post", "patch")) {
+            String operationDescription = spec.read("$.paths['/users/profile']." + method + ".description");
+            assertThat(operationDescription).contains("PROFILE", "INVALID_REQUEST");
+        }
     }
 
     @Test
