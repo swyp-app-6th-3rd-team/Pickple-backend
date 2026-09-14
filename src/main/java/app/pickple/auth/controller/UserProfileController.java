@@ -66,7 +66,9 @@ public class UserProfileController {
 
     @Operation(summary = "프로필 등록",
             description = "회원가입 직후 닉네임과 프로필 이미지를 등록한다. "
-                    + "이미지를 주지 않으면 랜덤 기본 프로필이 채워진다.")
+                    + "POST /images?attachType=PROFILE 응답의 images[0].accessUrl을 profileImageUrl로 전달한다. "
+                    + "이미지를 주지 않으면 기존 이미지 또는 랜덤 기본 프로필이 채워진다. "
+                    + "타인 소유·다른 용도·미등록 URL은 INVALID_REQUEST(400)다.")
     @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/users/profile")
     public ResponseEntity<ApiResponse<UserProfileResponse>> registerProfile(
@@ -78,7 +80,9 @@ public class UserProfileController {
     }
 
     @Operation(summary = "프로필 수정",
-            description = "닉네임과 프로필 이미지를 바꾼다. 이미지를 주지 않으면 쓰던 이미지를 유지한다.")
+            description = "닉네임과 프로필 이미지를 바꾼다. 본인이 PROFILE로 업로드한 accessUrl을 사용한다. "
+                    + "이미지 생략·null·빈 문자열은 기존 이미지 유지, 설정된 기본 이미지 URL은 기본 이미지로 복귀한다. "
+                    + "타인 소유·다른 용도·미등록 URL은 INVALID_REQUEST(400)이며 기존 프로필은 보존된다.")
     @SecurityRequirement(name = "bearerAuth")
     @PatchMapping("/users/profile")
     public ApiResponse<UserProfileResponse> editProfile(
@@ -94,7 +98,8 @@ public class UserProfileController {
             @Pattern(regexp = NICKNAME_PATTERN, message = "닉네임은 5자 이내의 한글·영문·숫자만 쓸 수 있습니다.")
             String nickname,
 
-            @Schema(description = "주지 않으면 쓰던 이미지를 유지한다")
+            @Schema(description = "본인이 PROFILE로 업로드한 images[0].accessUrl 또는 설정된 기본 이미지 URL. "
+                    + "생략·null·빈 문자열은 기존 값 유지, 기존 값도 없으면 기본 이미지 선택. 현재 URL 재전송 허용")
             @Size(max = 500) String profileImageUrl) {
     }
 

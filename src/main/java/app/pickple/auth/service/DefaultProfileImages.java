@@ -32,4 +32,8 @@ public class DefaultProfileImages {
     public String pick() {
         return candidates.get(random.nextInt(candidates.size()));
     }
+
+    public boolean contains(String imageUrl) {
+        return candidates.contains(imageUrl);
+    }
 }

@@ -307,10 +307,10 @@ class UserProfileControllerIT {
             mockMvc.perform(patch("/users/profile")
                             .header("Authorization", bearer(token))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"nickname\":\"" + changed + "\",\"profileImageUrl\":\"https://cdn/new.png\"}"))
+                            .content("{\"nickname\":\"" + changed + "\",\"profileImageUrl\":\"https://images.local.test/defaults/profile-1.png\"}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.returnObject.nickname").value(changed))
-                    .andExpect(jsonPath("$.returnObject.profileImageUrl").value("https://cdn/new.png"));
+                    .andExpect(jsonPath("$.returnObject.profileImageUrl").value("https://images.local.test/defaults/profile-1.png"));
 
             // 놓아준 닉네임은 다시 사용 가능해야 한다.
             assertThat(activeNicknameCount(nickname)).isZero();

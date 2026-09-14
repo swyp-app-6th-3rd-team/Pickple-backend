@@ -15,7 +15,10 @@ public enum AttachType {
     PRODUCT("product-images"),
 
     /** 댓글 사진. 댓글에는 없을 수 있다. */
-    COMMENT("comment-images");
+    COMMENT("comment-images"),
+
+    /** 회원 프로필 사진. 한 번에 한 장만 업로드한다. */
+    PROFILE("profile-images");
 
     /**
      * S3 객체 키의 최상위 접두어.
