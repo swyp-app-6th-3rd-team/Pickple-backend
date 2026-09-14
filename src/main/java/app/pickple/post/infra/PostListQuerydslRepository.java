@@ -1,5 +1,6 @@
 package app.pickple.post.infra;
 
+import app.pickple.grade.domain.Grade;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore.PopularPostView;
@@ -101,6 +102,33 @@ class PostListQuerydslRepository {
      * "No constructor found" 가 난다. 감싸는 클래스가 package-private 이라 바깥에는 안 보인다.
      */
     public record PostListRow(PostListView view, Integer popularityScore) {
+
+        public PostListRow(PostListProjection projection, Integer popularityScore) {
+            this(projection.toView(), popularityScore);
+        }
+    }
+
+    /** DB 숫자 등급을 도메인 등급으로 복원하는 목록 조회 행. */
+    public record PostListProjection(
+            Long id,
+            PostType type,
+            PostCategory category,
+            String title,
+            String description,
+            long voteCount,
+            long commentCount,
+            LocalDateTime createdAt,
+            String thumbnailUrl,
+            Long authorId,
+            String authorNickname,
+            Integer authorRanking,
+            Byte authorGradeLevel) {
+
+        PostListView toView() {
+            return new PostListView(id, type, category, title, description, voteCount, commentCount,
+                    createdAt, thumbnailUrl, authorId, authorNickname, authorRanking,
+                    Grade.ofLevel(authorGradeLevel));
+        }
     }
 
     /** 인기 카드의 기본 행. 사진은 다음 배치 조회 결과로 조립한다. */
@@ -116,12 +144,14 @@ class PostListQuerydslRepository {
             LocalDateTime createdAt,
             Long authorId,
             String authorNickname,
-            Integer authorRanking) {
+            Integer authorRanking,
+            Byte authorGradeLevel) {
 
         PopularPostView withProducts(List<PostProductImageView> productImages) {
             PostListView post = new PostListView(
                     id, type, category, title, description, voteCount, commentCount, createdAt,
-                    null, authorId, authorNickname, authorRanking).withProducts(productImages);
+                    null, authorId, authorNickname, authorRanking,
+                    Grade.ofLevel(authorGradeLevel)).withProducts(productImages);
             List<PopularProductView> products = productImages.stream()
                     .map(image -> new PopularProductView(image.displayOrder(), image.imageUrl()))
                     .toList();
@@ -214,7 +244,8 @@ class PostListQuerydslRepository {
                         postEntity.createdAt,
                         postEntity.userId,
                         authorNickname(),
-                        userEntity.ranking))
+                        userEntity.ranking,
+                        userEntity.highestGrade))
                 .from(postEntity)
                 .join(userEntity).on(userEntity.id.eq(postEntity.userId))
                 .where(postEntity.id.in(ids))
@@ -315,7 +346,7 @@ class PostListQuerydslRepository {
     }
 
     /**
-     * 행 문장의 프로젝션. 생성자 인자 순서가 {@link PostListView} 와 어긋나면
+     * 행 문장의 프로젝션. {@link PostListProjection} 생성자 인자 순서가 조회 식과 어긋나면
      * <b>애플리케이션 기동 시</b>가 아니라 첫 조회에서 {@code ExpressionException} 으로 드러난다 —
      * 그래도 옛 컬럼 인덱스 상수처럼 엉뚱한 값이 조용히 들어가는 일은 없다.
      *
@@ -336,8 +367,8 @@ class PostListQuerydslRepository {
     }
 
     /** 커뮤니티 기본 행. 대표 사진과 상품 목록은 같은 배치 결과로 채운다. */
-    private static Expression<PostListView> listViewProjection() {
-        return Projections.constructor(PostListView.class,
+    private static Expression<PostListProjection> listViewProjection() {
+        return Projections.constructor(PostListProjection.class,
                 postEntity.id,
                 postEntity.type,
                 postEntity.category,
@@ -349,7 +380,8 @@ class PostListQuerydslRepository {
                 Expressions.nullExpression(String.class),
                 postEntity.userId,
                 authorNickname(),
-                userEntity.ranking);
+                userEntity.ranking,
+                userEntity.highestGrade);
     }
 
     /** 정렬 키. 작성 시각이거나 게시글의 인기 점수(생성 컬럼)다. */

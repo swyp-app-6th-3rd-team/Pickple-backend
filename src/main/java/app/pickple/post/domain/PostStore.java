@@ -111,6 +111,7 @@ public interface PostStore {
      * @param products      페이지 확정 후 붙이는 상품별 첫 사진. 찬반 1개, A/B 2개, 일반은 빈 목록
      * @param authorRanking 작성자의 TOP 피커 순위. 배치가 미리 매겨둔 값이며
      *                      아직 산정되지 않았으면 {@code null} 이다 (ADR-0028)
+     * @param authorGrade   작성자의 현재 저장 등급. 가입 기본값과 DB 제약으로 비지 않는다
      *
      * <p><b>랭킹은 조회 시점에 세지 않는다.</b> 순위는 전역 값이라 요청마다 구하면
      * 회원 전체를 정렬해야 한다(200k 실측 97.6ms/조각). 배치가 사전 계산한
@@ -130,15 +131,16 @@ public interface PostStore {
             Long authorId,
             String authorNickname,
             Integer authorRanking,
+            Grade authorGrade,
             List<PostProductImageView> products) {
 
         /** 기본 행 프로젝션. 상품 사진은 페이지 확정 후 배치 결과로 채운다. */
         public PostListView(Long id, PostType type, PostCategory category, String title,
                             String description, long voteCount, long commentCount,
                             LocalDateTime createdAt, String thumbnailUrl, Long authorId,
-                            String authorNickname, Integer authorRanking) {
+                            String authorNickname, Integer authorRanking, Grade authorGrade) {
             this(id, type, category, title, description, voteCount, commentCount, createdAt,
-                    thumbnailUrl, authorId, authorNickname, authorRanking, List.of());
+                    thumbnailUrl, authorId, authorNickname, authorRanking, authorGrade, List.of());
         }
 
         public PostListView withProducts(List<PostProductImageView> products) {
@@ -148,7 +150,8 @@ public interface PostStore {
                     .map(PostProductImageView::imageUrl)
                     .orElse(null);
             return new PostListView(id, type, category, title, description, voteCount, commentCount,
-                    createdAt, thumbnail, authorId, authorNickname, authorRanking, List.copyOf(products));
+                    createdAt, thumbnail, authorId, authorNickname, authorRanking, authorGrade,
+                    List.copyOf(products));
         }
     }
 

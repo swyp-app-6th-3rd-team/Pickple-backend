@@ -160,7 +160,9 @@ public class CommentController {
             @Schema(description = "댓글 내용") String content,
             @Schema(description = "이 댓글이 받은 원픽 수") long onePickCount,
             @Schema(description = "현재 요청자가 쓴 댓글인지")
-            boolean mine) {
+            boolean mine,
+            @Schema(description = "작성자의 현재 저장 등급 레벨. 1~5이며 탈퇴 후에도 유지") int authorGradeLevel,
+            @Schema(description = "작성자의 현재 저장 등급 명칭. LV.1~LV.5이며 탈퇴 후에도 유지") String authorGradeName) {
 
         static CommentResponse from(CommentQueryService.CommentResult comment) {
             return new CommentResponse(
@@ -172,7 +174,9 @@ public class CommentController {
                     comment.createdAgo(),
                     comment.content(),
                     comment.onePickCount(),
-                    comment.mine());
+                    comment.mine(),
+                    comment.authorGrade().level(),
+                    comment.authorGrade().displayName());
         }
     }
 }

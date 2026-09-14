@@ -25,6 +25,7 @@ interface CommentRepository extends JpaRepository<CommentEntity, Long> {
                    COALESCE(NULLIF(u.nickname, ''), NULLIF(u.name, ''), '알 수 없음') AS nickname,
                    c.created_at AS createdAt,
                    c.content AS content,
+                   u.highest_grade AS authorGradeLevel,
                    COUNT(cp.id) AS onePickCount
               FROM comment c
               JOIN users u ON u.id = c.user_id
@@ -32,7 +33,7 @@ interface CommentRepository extends JpaRepository<CommentEntity, Long> {
              WHERE c.post_id = :postId
                AND c.deleted_at IS NULL
              GROUP BY c.id, c.user_id, u.profile_image_url, u.nickname, u.name,
-                      c.created_at, c.content
+                      c.created_at, c.content, u.highest_grade
              ORDER BY c.created_at ASC, c.id ASC
             """, nativeQuery = true)
     List<CommentListRow> findAllActiveWithAuthorAndPickCount(@Param("postId") Long postId);
@@ -52,5 +53,7 @@ interface CommentRepository extends JpaRepository<CommentEntity, Long> {
         String getContent();
 
         Long getOnePickCount();
+
+        Byte getAuthorGradeLevel();
     }
 }

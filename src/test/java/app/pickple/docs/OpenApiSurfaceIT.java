@@ -54,7 +54,7 @@ class OpenApiSurfaceIT {
      */
     private static final List<String> DOCUMENTED_SCHEMAS = List.of(
             "PostDetailResponse", "VoteSection", "ProductItem", "OptionItem",
-            "PostSearchResponse", "PostSearchItem",
+            "PostSearchResponse", "PostSearchItem", "CommentResponse",
             "PopularPostItem", "PopularProductItem",
             "PostListItem", "PostListProductItem",
             // 랭킹 세 응답이 공유하는 두 스키마다. 등급 필드를 더하면서 넣었다(#154) —
@@ -167,8 +167,8 @@ class OpenApiSurfaceIT {
     }
 
     @Test
-    @DisplayName("커뮤니티 목록은 기존 필드를 유지하고 상품 사진 스키마를 추가한다")
-    void regularPostListAddsProductImagesToExistingSchema() {
+    @DisplayName("커뮤니티 목록은 기존 필드를 유지하고 상품 사진과 작성자 등급을 추가한다")
+    void regularPostListAddsProductImagesAndAuthorGradeToExistingSchema() {
         String envelope = schemaPath(spec.read(
                 "$.paths['/posts'].get.responses['200'].content['*/*'].schema['$ref']"));
         String scroll = schemaPath(spec.read(envelope + ".properties.returnObject['$ref']"));
@@ -178,7 +178,8 @@ class OpenApiSurfaceIT {
         Map<String, Object> fields = spec.read("$.components.schemas.PostListItem.properties");
         assertThat(fields.keySet()).containsExactlyInAnyOrder(
                 "id", "type", "category", "title", "description", "commentCount", "voteCount",
-                "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking", "products");
+                "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking",
+                "authorGradeLevel", "authorGradeName", "products");
         String productReference = spec.read(
                 "$.components.schemas.PostListItem.properties.products.items['$ref']");
         assertThat(productReference).isEqualTo("#/components/schemas/PostListProductItem");
@@ -186,6 +187,14 @@ class OpenApiSurfaceIT {
         assertThat(productFields.keySet()).containsExactlyInAnyOrder("displayOrder", "imageUrl");
         String description = spec.read("$.components.schemas.PostListProductItem.properties.imageUrl.description");
         assertThat(description).contains("사진이 없으면 null");
+    }
+
+    @Test
+    void authorGradesUseTheSameFieldsAcrossListDetailAndComments() {
+        for (String schema : List.of("PostListItem", "PostDetailResponse", "CommentResponse")) {
+            Map<String, Object> fields = spec.read("$.components.schemas." + schema + ".properties");
+            assertThat(fields).containsKeys("authorGradeLevel", "authorGradeName");
+        }
     }
 
     @Test

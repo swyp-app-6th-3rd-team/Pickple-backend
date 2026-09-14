@@ -2,6 +2,7 @@ package app.pickple.comment.service;
 
 import app.pickple.comment.domain.CommentQueryStore;
 import app.pickple.comment.domain.OnePickStore;
+import app.pickple.grade.domain.Grade;
 import app.pickple.post.service.ActivePostGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,7 +48,7 @@ class CommentQueryServiceTest {
         given(commentQueryStore.findAllByPostId(10L)).willReturn(List.of(
                 new CommentQueryStore.CommentView(
                         1L, 20L, "https://image.example/profile.png", "피커", createdAt,
-                        "도움이 돼요", 2L)));
+                        "도움이 돼요", 2L, Grade.LV4)));
         given(onePickStore.findPickedCommentId(20L, 10L)).willReturn(Optional.empty());
 
         CommentQueryService.CommentListResult result = queryService.findAll(10L, 20L);
@@ -58,6 +59,7 @@ class CommentQueryServiceTest {
             assertThat(comment.onePickCount()).isEqualTo(2L);
             assertThat(comment.createdAgo()).isEqualTo("7분 전");
             assertThat(comment.mine()).isTrue();
+            assertThat(comment.authorGrade()).isEqualTo(Grade.LV4);
         });
     }
 
@@ -66,7 +68,7 @@ class CommentQueryServiceTest {
         LocalDateTime createdAt = LocalDateTime.ofInstant(NOW, ZONE);
         given(commentQueryStore.findAllByPostId(10L)).willReturn(List.of(
                 new CommentQueryStore.CommentView(
-                        1L, 20L, null, "피커", createdAt, "내용", 0L)));
+                        1L, 20L, null, "피커", createdAt, "내용", 0L, Grade.LV1)));
         given(onePickStore.findPickedCommentId(null, 10L)).willReturn(Optional.empty());
 
         assertThat(queryService.findAll(10L, null).comments().getFirst().mine()).isFalse();

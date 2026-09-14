@@ -412,6 +412,8 @@ public class PostController {
      * @param products      상품별 대표 사진. 찬반 1개, A/B는 A·B 순서로 2개, 일반은 빈 배열
      * @param authorRanking 작성자의 TOP 피커 순위. 배치가 매기기 전이거나 탈퇴한 회원이면
      *                      {@code null} 이다 — 0 이나 꼴찌 순위를 지어내지 않는다 (ADR-0028)
+     * @param authorGradeLevel 작성자의 현재 저장 등급 레벨. 1~5다
+     * @param authorGradeName  작성자의 현재 저장 등급 명칭. LV.1~LV.5다
      */
     public record PostListItem(
             @Schema(description = "게시글 식별자") Long id,
@@ -427,6 +429,8 @@ public class PostController {
             @Schema(description = "작성자 닉네임") String authorNickname,
             @Schema(description = "작성자 TOP 피커 순위. 아직 산정되지 않았으면 null (최대 5분 지연)")
             Integer authorRanking,
+            @Schema(description = "작성자의 현재 저장 등급 레벨. 1~5이며 탈퇴 후에도 유지") int authorGradeLevel,
+            @Schema(description = "작성자의 현재 저장 등급 명칭. LV.1~LV.5이며 탈퇴 후에도 유지") String authorGradeName,
             @Schema(description = "상품별 대표 사진. 찬반 1개, A/B는 A·B 순서로 2개, 일반은 빈 배열")
             List<PostListProductItem> products) {
 
@@ -444,6 +448,8 @@ public class PostController {
                     view.authorId(),
                     view.authorNickname(),
                     view.authorRanking(),
+                    view.authorGrade().level(),
+                    view.authorGrade().displayName(),
                     view.products().stream().map(PostListProductItem::from).toList());
         }
     }
