@@ -76,30 +76,34 @@ public class UserProfileService {
     }
 
     private String resolveImage(User user, String requested) {
-        if (!hasImage(requested)) {
+        String normalizedRequested = defaultProfileImages.resolveLegacy(requested);
+        String normalizedCurrent = defaultProfileImages.resolveLegacy(user.profileImageUrl());
+        if (!hasImage(normalizedRequested)) {
             return orDefault(user.profileImageUrl());
         }
         // 기존 소셜/기본 이미지의 재전송을 허용하고, 설정된 기본 이미지로 복귀할 수 있다.
-        if (requested.equals(user.profileImageUrl()) || defaultProfileImages.contains(requested)) {
-            return requested;
+        if (normalizedRequested.equals(normalizedCurrent)
+                || defaultProfileImages.contains(normalizedRequested)) {
+            return normalizedRequested;
         }
         boolean ownedProfileImage = containerStore
-                .findAllByOwnerIdAndResourceAccessUrl(user.id(), requested).stream()
+                .findAllByOwnerIdAndResourceAccessUrl(user.id(), normalizedRequested).stream()
                 .anyMatch(container -> user.id().equals(container.ownerId())
                         && container.attachType() == AttachType.PROFILE
                         && container.photoCount() == 1
                         // MySQL 문자열 비교는 대소문자를 무시할 수 있지만 객체 키는 구분한다.
-                        && requested.equals(container.resources().getFirst().accessUrl()));
+                        && normalizedRequested.equals(container.resources().getFirst().accessUrl()));
         if (!ownedProfileImage) {
             throw new ApiException(ResponseCode.INVALID_REQUEST,
                     "본인이 PROFILE 용도로 업로드한 이미지 URL을 사용해야 합니다.");
         }
-        return requested;
+        return normalizedRequested;
     }
 
     /** 이미 기본 프로필이 있으면 유지한다. 수정할 때마다 이미지가 바뀌면 사용자가 잃어버린 줄 안다. */
     private String orDefault(String current) {
-        return hasImage(current) ? current : defaultProfileImages.pick();
+        String normalized = defaultProfileImages.resolveLegacy(current);
+        return hasImage(normalized) ? normalized : defaultProfileImages.pick();
     }
 
     private boolean hasImage(String url) {
