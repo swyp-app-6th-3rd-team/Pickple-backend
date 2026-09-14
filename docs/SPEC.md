@@ -95,6 +95,41 @@ app/pickple/
 | POST | `/users/profile` | 필요 | 프로필 등록. 이미지 생략 시 랜덤 기본 프로필 |
 | PATCH | `/users/profile` | 필요 | 프로필 수정. 이미지 생략 시 쓰던 이미지 유지 |
 
+**프로필 사진 등록·수정 (F01, #173)**
+
+- 기존 업로드와 URL 계약을 재사용한다. `POST /images?attachType=PROFILE`에
+  multipart `images` 한 장을 보내고, 응답 `returnObject.images[0].accessUrl`을
+  `POST /users/profile`(등록) 또는 `PATCH /users/profile`(수정)의
+  `profileImageUrl`로 전달한다. `nickname`은 기존처럼 필수다.
+- `GET /users/me`의 `returnObject.profileImageUrl`로 저장된 사진을 조회한다.
+  요청·응답 필드명은 바뀌지 않으며 프로필에는 `itemContainerId`를 보내지 않는다.
+- 새 사진은 **본인 소유 PROFILE 컨테이너의 한 장짜리 리소스 URL과 정확히 일치**해야 한다.
+  타인 소유·다른 용도·미등록 URL·대소문자 변조·복수 리소스는
+  `INVALID_REQUEST`(400)로 거부하고 기존 닉네임·사진을 보존한다.
+- 생략·null·빈 문자열·공백은 기존 사진 유지다. 기존 사진도 없으면 기존 기본 이미지 정책을 따른다.
+  현재 저장 URL 재전송도 허용한다. 명시적으로 기본 이미지로 돌아가려면 설정된 기본 이미지 URL을
+  전달한다. 새 임의 외부 URL은 허용하지 않는다.
+- 닉네임 충돌은 기존 `NICKNAME_ALREADY_IN_USE`(409), 미인증은 401이다.
+  실패한 변경은 기존 프로필을 보존한다.
+- F01은 자동 이미지 정리기나 스케줄러를 추가하지 않는다. 교체·탈퇴·미연결로 더 이상 쓰지 않는
+  PROFILE 객체는 운영자가 활성 `users.profile_image_url` 참조를 확인한 뒤 S3 객체와
+  `item_container`를 직접 정리한다. `item_resource`는 컨테이너 삭제 시 CASCADE로 정리된다.
+  자동 식별·재시도와 CloudFront 캐시 무효화는 후속 FIX 범위다. 자동화 전까지 탈퇴 이미지의
+  수동 정리는 지체 없이 수행한다.
+- DB·호환성 결정: [ADR-0052](adr/0052-profile-image-upload-url-validation.md).
+  F02 기본 이미지 URL 접근 문제 및 실제 앱 표시 검증은 별도 범위다.
+
+등록·수정 JSON 예시 (`profileImageUrl`은 업로드 응답 값을 그대로 사용):
+
+```json
+{
+  "nickname": "피클",
+  "profileImageUrl": "https://images.pickple.app/profile-images/123/uploaded-photo.png"
+}
+```
+
+위 URL은 형식을 보여주는 예시이며 실제 업로드 없이 보내면 거부된다.
+
 **Kakao 네이티브 로그인 응답**
 
 - `returnObject.accessToken` · `returnObject.refreshToken` — Pickple JWT다. Kakao token과 구분해
@@ -111,7 +146,7 @@ app/pickple/
   `FILE_PUBLIC_BASE_URL` 아래 `defaults/profile-1.png` ~ `profile-4.png`를 사용한다.
   두 설정이 모두 없거나 후보 주소 형식이 잘못되면 기동 시 실패한다. URL 검증은 실제 파일 접근을 보장하지 않는다.
 - 제공받은 PNG 한 장을 기존 S3·CloudFront의 네 후보 경로에서 동일하게 제공한다.
-- Flyway V16 Java 마이그레이션은 활성 회원에게 저장된
+- Flyway V17 Java 마이그레이션은 활성 회원에게 저장된
   `https://images.pickple.app/defaults/profile-{1..4}.png`와 정확히 일치하는 값만 새 후보로 바꾼다.
   후보 목록을 별도 지정한 경우 기존 1~4번을 목록 순서대로 순환 대응한다. 사용자 사진·null·탈퇴 정보는 보존한다.
   앱이 캐시한 옛 기본 URL을 프로필 저장 요청에 보내도 같은 대응 규칙으로 정상화한다.
@@ -481,13 +516,15 @@ app/pickple/
 | POST | `/images` | 필요 | 이미지 업로드 후 부착용 `itemContainerId` 반환 |
 
 - `multipart/form-data` 로 `images`(파일, 복수)와 `attachType`(폼 필드)을 받는다.
-- **`attachType` 은 필수이며 기본값이 없다.** `PRODUCT`(상품 사진) 또는 `COMMENT`(댓글 사진).
+- **`attachType` 은 필수이며 기본값이 없다.** `PRODUCT`(상품 사진), `COMMENT`(댓글 사진),
+  `PROFILE`(프로필 사진). 대문자로 전달하며 PROFILE은 정확히 한 장만 허용한다.
   기본값을 두면 용도를 넘기지 않은 호출이 조용히 상품으로 분류되므로 두지 않는다.
   누락하거나 알 수 없는 값이면 `INVALID_REQUEST`(400)다.
 - JPEG·PNG 만 허용하고 Content-Type 과 실제 파일 시그니처가 다르면 `INVALID_IMAGE`(400),
   파일당 5MB 를 넘으면 `IMAGE_TOO_LARGE`(413)다.
 - 객체 키 접두어는 용도에 따라 갈린다 — `product-images/{userId}/{uuid}.{ext}`,
-  `comment-images/{userId}/{uuid}.{ext}`. 접두어는 `AttachType` 상수가 소유한다.
+  `comment-images/{userId}/{uuid}.{ext}`, `profile-images/{userId}/{uuid}.{ext}`.
+  접두어는 `AttachType` 상수가 소유한다.
 - 응답의 `accessUrl` 은 CloudFront 도메인 기준이며 `item_resource` 에 영속된다(ADR-0021, ADR-0027).
   만료되지 않아야 하므로 presigned URL 을 쓰지 않는다.
 - S3 와 DB 사이에 분산 트랜잭션이 없다. 업로드 후 저장이 실패하면 이번 요청에서 만든 객체를
@@ -1026,7 +1063,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 날짜 | 변경 | 계기 |
 |---|---|---|
 | 2026-09-14 | 커뮤니티 `GET /posts`에 상품별 사진 `products` 추가. 기존 썸네일·정렬·커서 유지, 인기 카드 배치 조회 재사용 | Issue #175·F03. A/B 사진 2장과 좌우 구분, 사진 누락 시 상품 순서와 null 보존 |
-| 2026-09-14 | 기본 프로필 URL이 기존 파일 CDN을 재사용하도록 교정. 제공 PNG를 네 기본 경로에 배치하고 V16으로 활성 회원의 정확한 옛 기본 URL만 복구 | Issue #174, F02. 기존 미등록 도메인의 DNS 조회 실패를 확인. 랜덤 선택·현재 이미지 유지·사용자 사진 보존 |
+| 2026-09-14 | 기본 프로필 URL이 기존 파일 CDN을 재사용하도록 교정. 제공 PNG를 네 기본 경로에 배치하고 V17로 활성 회원의 정확한 옛 기본 URL만 복구 | Issue #174, F02. 기존 미등록 도메인의 DNS 조회 실패를 확인. 랜덤 선택·현재 이미지 유지·사용자 사진 보존 |
 | 2026-09-13 | 인기 Top 10의 찬반·A/B id에만 상품 사진 조회를 적용. 빈 결과 1문장·일반만 있으면 2문장·투표 유형 포함 시 3문장으로 구분하고 상품 SQL 실행계획 검증 추가 | Issue #153·PR #171. 불필요한 상품 조회 생략과 인덱스 접근 회귀 검증. 서브쿼리 없는 응답 계약 유지 |
 | 2026-09-13 | 인기 카드의 상품·썸네일 서브쿼리를 제거하고 `LEFT JOIN` 배치 결과에서 상품별 첫 사진을 조립. 세 SQL 문장과 기존 응답 유지 | Issue #153·PR #171. 서브쿼리 제거 요청 및 실제 SQL 회귀 검증 |
 | 2026-09-13 | `GET /posts/popular`를 전용 `PopularPostItem` 응답으로 분리하고 상품별 사진 `products` 및 댓글 작성자 수 `commenterCount` 추가. 기존 필드와 `GET /posts` 계약 유지 | Issue #153, B03·B04. A/B 사진 2장과 댓글 인원을 목록 계약과 구분해 제공 |
@@ -1085,3 +1122,4 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 | 2026-09-12 | 댓글 목록 응답 최상위에 `myOnePickCommentId` 추가(§3.4). 요청당 문장 수 3 → 4 | Issue #155. 목록 문장에 실으려 했으나 `mysql:8.4` 실측에서 두 경우가 표현 불가로 확인됐다 — 픽한 댓글이 삭제되면 `deleted_at IS NULL` 이 그 행을 걸러 값이 사라지고(NULL), 활성 댓글이 0건이면 행 자체가 0개라 실을 자리가 없다. 픽이 댓글보다 오래 살아(R-06) 게시글 단위로 따로 읽는다 |
 | 2026-09-13 | 최근 투표 카드 전용 응답에 상품 사진·선택지별 득표 수와 득표율 추가(§3.10). 최상위 `voteCount` 총 투표 수와 기존 필드는 유지 | Issue #159·B06. 작성자가 미투표자여도 이 경로에서는 본인 글의 결과를 제공한다(ADR-0051). 상품·선택지를 배치로 붙여 비어 있지 않은 최근 카드 조회는 2 → 4문장이고 스키마 변경은 없다 |
 | 2026-09-14 | 게시글·댓글 목록에 현재 저장 등급 `authorGradeLevel`·`authorGradeName` 추가(§3.3·§3.4), 기존 상세 계약 유지 | Issue #176·F04. `users.highest_grade`와 `Grade`를 재사용하고 기존 작성자 조인에서 함께 조회. 포인트 재계산·작성 당시 등급 저장 없이 탈퇴 후에도 등급 유지 |
+| 2026-09-14 | PROFILE 한 장 업로드와 기존 profileImageUrl 기반 등록·수정 연결, 소유자·용도·정확한 URL 검사 및 V16 추가 | Issue #173(F01), ADR-0052. 기존 업로드·프로필 DTO 재사용, 이미지 생략 유지 및 실패 시 프로필 보존 |

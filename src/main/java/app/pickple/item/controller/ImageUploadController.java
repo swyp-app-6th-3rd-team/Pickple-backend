@@ -33,13 +33,15 @@ public class ImageUploadController {
 
     private final ImageUploadService imageUploadService;
 
-    @Operation(summary = "이미지 업로드", description = "multipart images를 S3에 저장하고 부착에 쓸 itemContainerId를 반환합니다.")
+    @Operation(summary = "이미지 업로드", description = "multipart images를 저장하고 itemContainerId와 images[].accessUrl을 반환한다. "
+            + "JPEG·PNG, 파일당 최대 5MB. PROFILE은 한 장만 허용하며 반환된 images[0].accessUrl을 "
+            + "POST/PATCH /users/profile의 profileImageUrl로 전달한다.")
     @SecurityRequirement(name = "bearerAuth")
     @PostMapping(path = "/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ImageUploadResponse> upload(
             @Parameter(hidden = true) @CurrentUser Long userId,
-            @Parameter(description = "이미지 용도", required = true) @RequestParam AttachType attachType,
+            @Parameter(description = "이미지 용도 PRODUCT | COMMENT | PROFILE. 대문자 필수", required = true) @RequestParam AttachType attachType,
             @RequestPart("images") List<MultipartFile> images) {
         ItemContainer container = imageUploadService.upload(userId, attachType, toUploadImages(images));
         return ApiResponse.of(ResponseCode.CREATED, ImageUploadResponse.from(container));

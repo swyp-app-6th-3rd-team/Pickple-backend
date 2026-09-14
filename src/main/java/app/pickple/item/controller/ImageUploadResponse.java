@@ -6,9 +6,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
-/** 게시글 작성에서 참조할 컨테이너 식별자와 업로드 결과. */
+/** 이미지 업로드 결과. 상품·댓글은 컨테이너 식별자를, 프로필은 파일 접근 URL을 사용한다. */
 public record ImageUploadResponse(
-        @Schema(description = "게시글·댓글에 부착할 때 넘기는 컨테이너 식별자") Long itemContainerId,
+        @Schema(description = "상품·댓글 부착용 컨테이너 식별자. PROFILE에서는 사용하지 않음")
+        Long itemContainerId,
         @Schema(description = "이번 요청으로 올라간 파일들") List<ImageResourceResponse> images) {
 
     static ImageUploadResponse from(ItemContainer container) {
@@ -21,7 +22,7 @@ public record ImageUploadResponse(
             @Schema(description = "업로드된 파일 식별자") Long resourceId,
             @Schema(description = "원본 파일명") String originalFileName,
             @Schema(description = "파일 크기. 파일당 5MB 를 넘으면 413 이다") long size,
-            @Schema(description = "CloudFront 접근 URL. 만료되지 않는다") String accessUrl
+            @Schema(description = "CloudFront 접근 URL. 만료되지 않는다. PROFILE은 프로필 요청의 profileImageUrl에 전달") String accessUrl
     ) {
         static ImageResourceResponse from(ItemResource resource) {
             return new ImageResourceResponse(

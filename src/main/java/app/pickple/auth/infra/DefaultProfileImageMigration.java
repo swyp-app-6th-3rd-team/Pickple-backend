@@ -7,7 +7,7 @@ import org.flywaydb.core.api.migration.JavaMigration;
 import java.sql.PreparedStatement;
 import java.util.Map;
 
-/** V16: 미등록 도메인으로 저장한 기본 프로필만 환경에 맞는 공개 이미지 URL로 복구한다. */
+/** V17: 미등록 도메인으로 저장한 기본 프로필만 환경에 맞는 공개 이미지 URL로 복구한다. */
 public final class DefaultProfileImageMigration implements JavaMigration {
 
     private static final String UPDATE = """
@@ -23,7 +23,7 @@ public final class DefaultProfileImageMigration implements JavaMigration {
 
     @Override
     public MigrationVersion getVersion() {
-        return MigrationVersion.fromVersion("16");
+        return MigrationVersion.fromVersion("17");
     }
 
     @Override

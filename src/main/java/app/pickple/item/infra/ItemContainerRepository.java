@@ -16,6 +16,16 @@ interface ItemContainerRepository extends JpaRepository<ItemContainerEntity, Lon
     @Query("""
             select distinct container
             from ItemContainerEntity container
+            join container.resources matched
+            left join fetch container.resources
+            where container.userId = :ownerId and matched.accessUrl = :accessUrl
+            """)
+    List<ItemContainerEntity> findAllByOwnerIdAndResourceAccessUrl(
+            @Param("ownerId") Long ownerId, @Param("accessUrl") String accessUrl);
+
+    @Query("""
+            select distinct container
+            from ItemContainerEntity container
             left join fetch container.resources
             where container.id in :ids
             """)

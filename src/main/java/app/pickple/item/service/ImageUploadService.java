@@ -51,6 +51,9 @@ public class ImageUploadService {
         if (images == null || images.isEmpty()) {
             throw new ApiException(ResponseCode.INVALID_REQUEST, "업로드할 이미지가 없습니다.");
         }
+        if (attachType == AttachType.PROFILE && images.size() != 1) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST, "프로필 사진은 한 장만 업로드할 수 있습니다.");
+        }
 
         List<String> uploadedKeys = new ArrayList<>();
         registerTransactionRollbackCompensation(uploadedKeys);

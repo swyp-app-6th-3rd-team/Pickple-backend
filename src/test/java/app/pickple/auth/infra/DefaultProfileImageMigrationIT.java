@@ -22,12 +22,12 @@ class DefaultProfileImageMigrationIT {
     @Autowired private Flyway applicationFlyway;
 
     @Test
-    void springRegistersV16AndFreshDatabaseValidates() {
+    void springRegistersV17AndFreshDatabaseValidates() {
         assertThat(applicationFlyway.info().all())
                 .extracting(info -> info.getVersion() == null ? null : info.getVersion().getVersion())
-                .contains("16");
+                .contains("17");
         withIsolatedSchema(source -> {
-            Flyway flyway = migrations(source, "16");
+            Flyway flyway = migrations(source, "17");
             flyway.migrate();
             flyway.validate();
             assertThat(flyway.migrate().migrationsExecuted).isZero();
@@ -37,7 +37,7 @@ class DefaultProfileImageMigrationIT {
     @Test
     void upgradesOnlyExactActiveLegacyImagesAndPreservesEveryOtherUserColumn() {
         withIsolatedSchema(source -> {
-            migrations(source, "15").migrate();
+            migrations(source, "16").migrate();
             JdbcTemplate jdbc = new JdbcTemplate(source);
             for (int index = 1; index <= 4; index++) {
                 insert(jdbc, "legacy-" + index, "ACTIVE",
@@ -52,7 +52,7 @@ class DefaultProfileImageMigrationIT {
             insert(jdbc, "inactive-legacy", "INACTIVE", "https://images.pickple.app/defaults/profile-2.png");
             var before = jdbc.queryForList("SELECT * FROM users ORDER BY id");
 
-            Flyway flyway = migrations(source, "16");
+            Flyway flyway = migrations(source, "17");
             assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
 
             var after = jdbc.queryForList("SELECT * FROM users ORDER BY id");

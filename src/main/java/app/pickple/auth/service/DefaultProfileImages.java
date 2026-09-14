@@ -58,6 +58,10 @@ public class DefaultProfileImages {
         return candidates.get(random.nextInt(candidates.size()));
     }
 
+    public boolean contains(String imageUrl) {
+        return candidates.contains(imageUrl);
+    }
+
     /** 과거 기본 URL 네 개만 복구한다. 별도 후보가 더 적으면 순서대로 순환 대응한다. */
     public Map<String, String> legacyReplacements() {
         Map<String, String> replacements = new LinkedHashMap<>();

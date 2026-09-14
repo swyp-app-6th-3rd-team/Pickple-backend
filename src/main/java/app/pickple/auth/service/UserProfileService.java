@@ -5,6 +5,8 @@ import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
+import app.pickple.item.domain.AttachType;
+import app.pickple.item.domain.ItemContainerStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +18,7 @@ public class UserProfileService {
 
     private final UserStore userStore;
     private final DefaultProfileImages defaultProfileImages;
+    private final ItemContainerStore containerStore;
 
     /**
      * 입력 중 닉네임이 쓸 수 있는지 알린다 (명세 §1.5).
@@ -47,13 +50,11 @@ public class UserProfileService {
      * <p><b>이 메서드에 {@code @Transactional} 을 붙이지 않는다.</b> 저장소가 닉네임
      * 제약 위반을 잡아 "저장되지 않았다" 는 사실로 바꾸는데, 바깥 트랜잭션이 열려 있으면
      * 그 위반이 트랜잭션을 rollback-only 로 만들어 커밋 단계에서 다시 터진다.
-     * 이 흐름은 조회 한 번과 쓰기 한 번이라 묶어야 할 원자 구간도 없다.
+     * 이미지 검증은 저장 전에 끝내고 기존 프로필 쓰기 트랜잭션 경계를 유지한다.
      */
     public User saveProfile(Long userId, String nickname, String profileImageUrl) {
         User user = activeUser(userId);
-        String imageUrl = defaultProfileImages.resolveLegacy(hasImage(profileImageUrl)
-                ? profileImageUrl
-                : orDefault(user.profileImageUrl()));
+        String imageUrl = resolveImage(user, profileImageUrl);
         user.registerProfile(new Nickname(nickname), imageUrl);
 
         // 저장소는 "저장됐다 / 안 됐다" 는 사실만 알린다.
@@ -74,9 +75,35 @@ public class UserProfileService {
         return user;
     }
 
+    private String resolveImage(User user, String requested) {
+        String normalizedRequested = defaultProfileImages.resolveLegacy(requested);
+        String normalizedCurrent = defaultProfileImages.resolveLegacy(user.profileImageUrl());
+        if (!hasImage(normalizedRequested)) {
+            return orDefault(user.profileImageUrl());
+        }
+        // 기존 소셜/기본 이미지의 재전송을 허용하고, 설정된 기본 이미지로 복귀할 수 있다.
+        if (normalizedRequested.equals(normalizedCurrent)
+                || defaultProfileImages.contains(normalizedRequested)) {
+            return normalizedRequested;
+        }
+        boolean ownedProfileImage = containerStore
+                .findAllByOwnerIdAndResourceAccessUrl(user.id(), normalizedRequested).stream()
+                .anyMatch(container -> user.id().equals(container.ownerId())
+                        && container.attachType() == AttachType.PROFILE
+                        && container.photoCount() == 1
+                        // MySQL 문자열 비교는 대소문자를 무시할 수 있지만 객체 키는 구분한다.
+                        && normalizedRequested.equals(container.resources().getFirst().accessUrl()));
+        if (!ownedProfileImage) {
+            throw new ApiException(ResponseCode.INVALID_REQUEST,
+                    "본인이 PROFILE 용도로 업로드한 이미지 URL을 사용해야 합니다.");
+        }
+        return normalizedRequested;
+    }
+
     /** 이미 기본 프로필이 있으면 유지한다. 수정할 때마다 이미지가 바뀌면 사용자가 잃어버린 줄 안다. */
     private String orDefault(String current) {
-        return hasImage(current) ? current : defaultProfileImages.pick();
+        String normalized = defaultProfileImages.resolveLegacy(current);
+        return hasImage(normalized) ? normalized : defaultProfileImages.pick();
     }
 
     private boolean hasImage(String url) {

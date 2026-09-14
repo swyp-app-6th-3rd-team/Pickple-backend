@@ -5,9 +5,13 @@ import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
-import app.pickple.config.ProfileProperties;
 import app.pickple.config.FileStorageProperties;
+import app.pickple.config.ProfileProperties;
 import app.pickple.error.ApiException;
+import app.pickple.item.domain.AttachType;
+import app.pickple.item.domain.ItemContainer;
+import app.pickple.item.domain.ItemContainerStore;
+import app.pickple.item.domain.ItemResource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -36,6 +40,7 @@ class UserProfileServiceTest {
 
     private UserStore userStore;
     private UserProfileService service;
+    private ItemContainerStore containerStore;
     private FixedRandom random;
 
     @BeforeEach
@@ -44,7 +49,8 @@ class UserProfileServiceTest {
         random = new FixedRandom(1);
         DefaultProfileImages defaults = new DefaultProfileImages(
                 new ProfileProperties(List.of(IMAGE_A, IMAGE_B)), UNCONFIGURED_STORAGE, random);
-        service = new UserProfileService(userStore, defaults);
+        containerStore = mock(ItemContainerStore.class);
+        service = new UserProfileService(userStore, defaults, containerStore);
         given(userStore.saveProfileIfNicknameFree(any(User.class)))
                 .willAnswer(call -> Optional.of(call.getArgument(0)));
     }
@@ -122,9 +128,13 @@ class UserProfileServiceTest {
         }
 
         @Test
-        @DisplayName("이미지를 주면 그대로 쓴다")
+        @DisplayName("본인 PROFILE 업로드 URL을 저장한다")
         void usesGivenImage() {
             given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
+            given(containerStore.findAllByOwnerIdAndResourceAccessUrl(1L, "https://cdn/mine.png"))
+                    .willReturn(List.of(new ItemContainer(1L, AttachType.PROFILE)
+                            .add(new ItemResource(10L, "mine.png", "profile-images/1/mine.png",
+                                    "https://cdn/mine.png"))));
 
             User saved = service.saveProfile(1L, "피클", "https://cdn/mine.png");
 
@@ -132,22 +142,55 @@ class UserProfileServiceTest {
         }
 
         @Test
-        void preservesCurrentCustomImageWhenImageIsOmitted() {
-            User user = activeUser();
-            user.registerProfile(new Nickname("피클"), "https://cdn/mine.png");
-            given(userStore.findById(1L)).willReturn(Optional.of(user));
-
-            assertThat(service.saveProfile(1L, "피클", null).profileImageUrl())
-                    .isEqualTo("https://cdn/mine.png");
-        }
-
-        @Test
+        @DisplayName("캐시된 과거 기본 URL은 현재 후보로 정상화한다")
         void preventsCachedLegacyUrlFromBeingStoredAgain() {
             given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
 
             assertThat(service.saveProfile(1L, "피클",
                     "https://images.pickple.app/defaults/profile-2.png").profileImageUrl())
                     .isEqualTo(IMAGE_B);
+        }
+
+        @Test
+        @DisplayName("저장된 과거 기본 URL은 이미지 생략 시 현재 후보로 정상화한다")
+        void normalizesStoredLegacyUrlWhenImageIsOmitted() {
+            User user = activeUser();
+            user.registerProfile(new Nickname("피클"),
+                    "https://images.pickple.app/defaults/profile-2.png");
+            given(userStore.findById(1L)).willReturn(Optional.of(user));
+
+            assertThat(service.saveProfile(1L, "피클", null).profileImageUrl()).isEqualTo(IMAGE_B);
+        }
+
+        @Test
+        @DisplayName("미등록 URL은 저장하지 않는다")
+        void rejectsUnknownUrl() {
+            given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
+            assertThatThrownBy(() -> service.saveProfile(1L, "피클", "https://untrusted/image.png"))
+                    .isInstanceOf(ApiException.class)
+                    .extracting(e -> ((ApiException) e).code()).isEqualTo(ResponseCode.INVALID_REQUEST);
+            verify(userStore, never()).saveProfileIfNicknameFree(any());
+        }
+
+        @Test
+        @DisplayName("설정된 기본 이미지로 명시적으로 복귀한다")
+        void restoresConfiguredDefault() {
+            User user = activeUser();
+            user.registerProfile(new Nickname("피클"), "https://cdn/old.png");
+            given(userStore.findById(1L)).willReturn(Optional.of(user));
+            assertThat(service.saveProfile(1L, "피클", IMAGE_A).profileImageUrl()).isEqualTo(IMAGE_A);
+        }
+
+        @Test
+        @DisplayName("기존 URL 재전송과 null·빈 값은 기존 사진을 유지한다")
+        void preservesLegacyImage() {
+            for (String requested : new String[] {null, "", " ", "https://cdn/legacy.png"}) {
+                User user = activeUser();
+                user.registerProfile(new Nickname("피클"), "https://cdn/legacy.png");
+                given(userStore.findById(1L)).willReturn(Optional.of(user));
+                assertThat(service.saveProfile(1L, "피클", requested).profileImageUrl())
+                        .isEqualTo("https://cdn/legacy.png");
+            }
         }
 
         @Test
