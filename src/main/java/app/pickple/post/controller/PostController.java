@@ -101,7 +101,9 @@ public class PostController {
      * 지어내면 그 카드를 탭했을 때 갈 곳이 없다.
      */
     @Operation(summary = "게시글 목록 조회",
-            description = "카테고리 필터와 정렬(최신순·인기순), 커서 기반 무한 스크롤. 게시글이 없으면 빈 배열이다.")
+            description = "카테고리 필터와 정렬(최신순·인기순), 커서 기반 무한 스크롤. "
+                    + "상품별 대표 사진은 찬반 1개, A/B는 A·B 순서로 2개이며 일반 게시글은 빈 배열이다. "
+                    + "기존 thumbnailUrl을 유지하며 게시글이 없으면 빈 배열이다.")
     @GetMapping("/posts")
     public ApiResponse<ScrollResponse<PostListItem>> findAll(
             @Parameter(description = "없으면 전체") @RequestParam(required = false) PostCategory category,
@@ -407,8 +409,11 @@ public class PostController {
      *
      * @param voteCount     찬반·A/B 만. 일반 게시글은 투표가 없어 {@code null} 이다
      * @param thumbnailUrl  찬반=처음 등록한 사진, A/B=A 상품 사진, 일반={@code null}
+     * @param products      상품별 대표 사진. 찬반 1개, A/B는 A·B 순서로 2개, 일반은 빈 배열
      * @param authorRanking 작성자의 TOP 피커 순위. 배치가 매기기 전이거나 탈퇴한 회원이면
      *                      {@code null} 이다 — 0 이나 꼴찌 순위를 지어내지 않는다 (ADR-0028)
+     * @param authorGradeLevel 작성자의 현재 저장 등급 레벨. 1~5다
+     * @param authorGradeName  작성자의 현재 저장 등급 명칭. LV.1~LV.5다
      */
     public record PostListItem(
             @Schema(description = "게시글 식별자") Long id,
@@ -418,14 +423,16 @@ public class PostController {
             @Schema(description = "설명") String description,
             @Schema(description = "댓글 건수") long commentCount,
             @Schema(description = "투표 인원. 일반 게시글은 null") Long voteCount,
-            @Schema(description = "대표 상품 사진 1장. 일반 게시글은 null") String thumbnailUrl,
+            @Schema(description = "기존 호환용 대표 사진. 찬반=첫 사진, A/B=A 사진, 일반은 null") String thumbnailUrl,
             @Schema(description = "작성 시각") LocalDateTime createdAt,
             @Schema(description = "작성자 식별자") Long authorId,
             @Schema(description = "작성자 닉네임") String authorNickname,
             @Schema(description = "작성자 TOP 피커 순위. 아직 산정되지 않았으면 null (최대 5분 지연)")
             Integer authorRanking,
             @Schema(description = "작성자의 현재 저장 등급 레벨. 1~5이며 탈퇴 후에도 유지") int authorGradeLevel,
-            @Schema(description = "작성자의 현재 저장 등급 명칭. LV.1~LV.5이며 탈퇴 후에도 유지") String authorGradeName) {
+            @Schema(description = "작성자의 현재 저장 등급 명칭. LV.1~LV.5이며 탈퇴 후에도 유지") String authorGradeName,
+            @Schema(description = "상품별 대표 사진. 찬반 1개, A/B는 A·B 순서로 2개, 일반은 빈 배열")
+            List<PostListProductItem> products) {
 
         static PostListItem from(PostStore.PostListView view) {
             return new PostListItem(
@@ -442,7 +449,18 @@ public class PostController {
                     view.authorNickname(),
                     view.authorRanking(),
                     view.authorGrade().level(),
-                    view.authorGrade().displayName());
+                    view.authorGrade().displayName(),
+                    view.products().stream().map(PostListProductItem::from).toList());
+        }
+    }
+
+    /** 커뮤니티 상품 사진. 상세·인기 카드의 OpenAPI 스키마와 구분한다. */
+    public record PostListProductItem(
+            @Schema(description = "상품 표시 순서. 1=A(왼쪽), 2=B(오른쪽), 찬반은 1") int displayOrder,
+            @Schema(description = "해당 상품에 가장 먼저 등록한 사진 URL. 사진이 없으면 null") String imageUrl) {
+
+        static PostListProductItem from(PostStore.PostProductImageView view) {
+            return new PostListProductItem(view.displayOrder(), view.imageUrl());
         }
     }
 

@@ -108,8 +108,10 @@ public interface PostStore {
      * @param commentCount  댓글 <b>건수</b>. 화면 표시용이라 인기순 점수와 다르다 (R-24·R-25)
      * @param thumbnailUrl  대표 상품 사진 1장. 찬반=가장 처음 등록한 사진, A/B=A 상품 사진,
      *                      일반=사진이 없으므로 {@code null}
+     * @param products      페이지 확정 후 붙이는 상품별 첫 사진. 찬반 1개, A/B 2개, 일반은 빈 목록
      * @param authorRanking 작성자의 TOP 피커 순위. 배치가 미리 매겨둔 값이며
      *                      아직 산정되지 않았으면 {@code null} 이다 (ADR-0028)
+     * @param authorGrade   작성자의 현재 저장 등급. 가입 기본값과 DB 제약으로 비지 않는다
      *
      * <p><b>랭킹은 조회 시점에 세지 않는다.</b> 순위는 전역 값이라 요청마다 구하면
      * 회원 전체를 정렬해야 한다(200k 실측 97.6ms/조각). 배치가 사전 계산한
@@ -129,7 +131,28 @@ public interface PostStore {
             Long authorId,
             String authorNickname,
             Integer authorRanking,
-            Grade authorGrade) {
+            Grade authorGrade,
+            List<PostProductImageView> products) {
+
+        /** 기본 행 프로젝션. 상품 사진은 페이지 확정 후 배치 결과로 채운다. */
+        public PostListView(Long id, PostType type, PostCategory category, String title,
+                            String description, long voteCount, long commentCount,
+                            LocalDateTime createdAt, String thumbnailUrl, Long authorId,
+                            String authorNickname, Integer authorRanking, Grade authorGrade) {
+            this(id, type, category, title, description, voteCount, commentCount, createdAt,
+                    thumbnailUrl, authorId, authorNickname, authorRanking, authorGrade, List.of());
+        }
+
+        public PostListView withProducts(List<PostProductImageView> products) {
+            String thumbnail = products.stream()
+                    .filter(product -> product.displayOrder() == 1)
+                    .findFirst()
+                    .map(PostProductImageView::imageUrl)
+                    .orElse(null);
+            return new PostListView(id, type, category, title, description, voteCount, commentCount,
+                    createdAt, thumbnail, authorId, authorNickname, authorRanking, authorGrade,
+                    List.copyOf(products));
+        }
     }
 
     /** 전체 검색 건수와 현재 조각을 묶는다. */
@@ -165,7 +188,11 @@ public interface PostStore {
             List<PopularProductView> products) {
     }
 
-    /** 상품별 가장 먼저 등록된 사진. 표시 순서 1은 A, 2는 B다. */
+    /** 커뮤니티 목록의 상품별 첫 사진. 표시 순서 1은 A, 2는 B다. */
+    record PostProductImageView(int displayOrder, String imageUrl) {
+    }
+
+    /** 인기 카드의 상품별 첫 사진. 표시 순서 1은 A, 2는 B다. */
     record PopularProductView(int displayOrder, String imageUrl) {
     }
 

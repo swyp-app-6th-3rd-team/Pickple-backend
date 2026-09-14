@@ -1,11 +1,11 @@
 package app.pickple.post.infra;
 
-import app.pickple.item.infra.QItemResourceEntity;
 import app.pickple.grade.domain.Grade;
 import app.pickple.post.domain.PostCategory;
 import app.pickple.post.domain.PostSort;
 import app.pickple.post.domain.PostStore.PopularPostView;
 import app.pickple.post.domain.PostStore.PopularProductView;
+import app.pickple.post.domain.PostStore.PostProductImageView;
 import app.pickple.post.domain.PostStore.PostListView;
 import app.pickple.post.domain.PostType;
 import com.querydsl.core.types.Expression;
@@ -14,7 +14,6 @@ import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.ComparableExpressionBase;
 import com.querydsl.core.types.dsl.Expressions;
-import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
@@ -35,11 +34,11 @@ import static app.pickple.post.infra.QPostEntity.postEntity;
 import static app.pickple.post.infra.QPostProductEntity.postProductEntity;
 
 /**
- * 게시글 목록을 <b>두 문장</b>으로 읽는다 — 키를 확정하는 문장과 행을 조립하는 문장 (ADR-0045).
- * 인기 카드는 확정된 게시글에 투표 유형이 있으면 상품 사진 배치 조회를 더해 세 문장으로 읽는다 (§2.4).
+ * 게시글 목록의 키와 기본 행을 먼저 읽는다 (ADR-0045).
+ * 커뮤니티와 인기 카드 모두 확정된 페이지에 투표 유형이 있으면 상품 사진 배치 조회를 더한다.
  *
  * <p><b>먼저 자르고 나중에 붙인다.</b> 조각에 들어갈 게시글 id 를 {@code post} 의 정렬 인덱스로
- * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 작성자와 대표 사진을 붙인다.
+ * 먼저 확정한 뒤({@code ORDER BY … LIMIT}), 그 몇 줄에만 작성자를 붙이고 상품 사진을 배치로 읽는다.
  * 순서를 뒤집어 조인부터 하면 MySQL 이 정렬 전에 조인 결과 전체를 만들어야 해서 인덱스가
  * 무의미해진다 — 옛 네이티브 SQL 의 실측이다(100k 게시글 · 200k 회원).
  *
@@ -54,7 +53,7 @@ import static app.pickple.post.infra.QPostProductEntity.postProductEntity;
  * 왕복이 하나 늘지만 <b>인덱스가 정렬을 맡는 구간은 키 문장 하나에 그대로 남는다</b> —
  * 판정 기준은 왕복 횟수가 아니라 실행계획이다.
  *
- * <p><b>두 문장은 한 스냅샷을 본다.</b> 호출자가 트랜잭션을 열어야 한다 —
+ * <p><b>키·행·상품 문장은 한 스냅샷을 본다.</b> 호출자가 트랜잭션을 열어야 한다 —
  * InnoDB 의 REPEATABLE READ 에서 첫 읽기가 스냅샷을 잡으므로, 키 문장과 행 문장 사이에
  * 게시글이 지워지거나 인기 점수가 바뀌어도 행 문장이 키 문장과 다른 세상을 보지 않는다.
  * 옛 한 문장에는 없던 전제라 {@link #findSlice} 가 진입 시점에 확인한다.
@@ -86,12 +85,6 @@ import static app.pickple.post.infra.QPostProductEntity.postProductEntity;
 @RequiredArgsConstructor
 class PostListQuerydslRepository {
 
-    /** 대표 사진 서브쿼리 안쪽의 두 번째 {@code item_resource}. 바깥 별칭과 겹치면 안 된다. */
-    private static final QItemResourceEntity CANDIDATE = new QItemResourceEntity("candidate");
-
-    /** 찬반은 상품이 하나뿐이고 A/B 는 A 상품이라 대표 사진은 둘 다 {@code display_order = 1} 이다 (§4.2). */
-    private static final byte REPRESENTATIVE_PRODUCT = 1;
-
     /** 닉네임도 이름도 비어 있는 작성자 — 탈퇴로 개인정보가 파기된 회원이다 (ADR-0040). */
     private static final String UNKNOWN_AUTHOR = "알 수 없음";
 
@@ -108,10 +101,10 @@ class PostListQuerydslRepository {
      * 레코드의 정규 생성자는 레코드와 접근 수준이 같아, package-private 이면 런타임에
      * "No constructor found" 가 난다. 감싸는 클래스가 package-private 이라 바깥에는 안 보인다.
      */
-    public record PostListRow(PostListProjection projection, Integer popularityScore) {
+    public record PostListRow(PostListView view, Integer popularityScore) {
 
-        PostListView view() {
-            return projection.toView();
+        public PostListRow(PostListProjection projection, Integer popularityScore) {
+            this(projection.toView(), popularityScore);
         }
     }
 
@@ -154,16 +147,14 @@ class PostListQuerydslRepository {
             Integer authorRanking,
             Byte authorGradeLevel) {
 
-        PopularPostView withProducts(List<PopularProductView> products) {
-            String thumbnail = products.stream()
-                    .filter(product -> product.displayOrder() == REPRESENTATIVE_PRODUCT)
-                    .findFirst()
-                    .map(PopularProductView::imageUrl)
-                    .orElse(null);
+        PopularPostView withProducts(List<PostProductImageView> productImages) {
             PostListView post = new PostListView(
                     id, type, category, title, description, voteCount, commentCount, createdAt,
-                    thumbnail, authorId, authorNickname, authorRanking,
-                    Grade.ofLevel(authorGradeLevel));
+                    null, authorId, authorNickname, authorRanking,
+                    Grade.ofLevel(authorGradeLevel)).withProducts(productImages);
+            List<PopularProductView> products = productImages.stream()
+                    .map(image -> new PopularProductView(image.displayOrder(), image.imageUrl()))
+                    .toList();
             return new PopularPostView(post, commenterCount, products);
         }
     }
@@ -171,8 +162,8 @@ class PostListQuerydslRepository {
     /** 사진 조인으로 반복되는 상품을 productId로 구분하는 배치 조회 행이다. */
     public record PopularProductRow(Long postId, Long productId, int displayOrder, String imageUrl) {
 
-        PopularProductView toProduct() {
-            return new PopularProductView(displayOrder, imageUrl);
+        PostProductImageView toProduct() {
+            return new PostProductImageView(displayOrder, imageUrl);
         }
     }
 
@@ -185,7 +176,7 @@ class PostListQuerydslRepository {
 
     /**
      * 조각을 읽는다. 다음 조각의 존재를 알기 위해 키 문장이 <b>{@code size + 1} 건</b>을 읽고,
-     * 넘치는 한 건은 행 문장에 넘기지 않는다 — 대표 사진 서브쿼리를 한 번 아낀다.
+     * 넘치는 한 건은 행·상품 사진 조회에 넘기지 않는다.
      *
      * @param category 필터. {@code null} 이면 전체다
      * @param cursor   첫 조각이면 {@code null}
@@ -209,7 +200,19 @@ class PostListQuerydslRepository {
         List<PostListRow> rows = rows(page)
                 .orderBy(order)
                 .fetch();
-        return new PostListSlice(rows, hasNext);
+        List<Long> votingPostIds = rows.stream()
+                .map(PostListRow::view)
+                .filter(post -> post.type().hasVoting())
+                .map(PostListView::id)
+                .toList();
+        Map<Long, List<PostProductImageView>> products = votingPostIds.isEmpty()
+                ? Map.of() : productImages(votingPostIds);
+        List<PostListRow> enriched = rows.stream()
+                .map(row -> new PostListRow(
+                        row.view().withProducts(products.getOrDefault(row.view().id(), List.of())),
+                        row.popularityScore()))
+                .toList();
+        return new PostListSlice(enriched, hasNext);
     }
 
     /**
@@ -252,8 +255,8 @@ class PostListQuerydslRepository {
                 .filter(row -> row.type().hasVoting())
                 .map(PopularPostRow::id)
                 .toList();
-        Map<Long, List<PopularProductView>> products = votingPostIds.isEmpty()
-                ? Map.of() : popularProducts(votingPostIds);
+        Map<Long, List<PostProductImageView>> products = votingPostIds.isEmpty()
+                ? Map.of() : productImages(votingPostIds);
         return rows.stream()
                 .map(row -> row.withProducts(products.getOrDefault(row.id(), List.of())))
                 .toList();
@@ -264,7 +267,7 @@ class PostListQuerydslRepository {
      * 남기므로 최초 등록 사진을 고르는 데 서브쿼리가 필요 없다.
      * LEFT JOIN으로 사진이 없는 상품도 보존하고, 같은 결과로 기존 thumbnailUrl도 채운다.
      */
-    private Map<Long, List<PopularProductView>> popularProducts(List<Long> ids) {
+    private Map<Long, List<PostProductImageView>> productImages(List<Long> ids) {
         List<PopularProductRow> candidates = queryFactory
                 .select(Projections.constructor(PopularProductRow.class,
                         postProductEntity.post.id,
@@ -320,7 +323,7 @@ class PostListQuerydslRepository {
     }
 
     /**
-     * 행 문장 — 이미 확정된 몇 줄에만 작성자와 대표 사진을 붙인다.
+     * 행 문장 — 이미 확정된 몇 줄에만 작성자를 붙인다.
      *
      * <p><b>게시글에서 시작한다.</b> {@code post.id IN (…)} 이 기본 키 범위로 조각 크기만큼만
      * 읽고, 작성자는 {@code users} 기본 키로 한 줄씩 붙는다({@code eq_ref}). 회원에서 시작하면
@@ -363,7 +366,7 @@ class PostListQuerydslRepository {
                 postEntity.popularityScore);
     }
 
-    /** 커뮤니티 목록의 기존 필드와 대표 사진을 투영한다. */
+    /** 커뮤니티 기본 행. 대표 사진과 상품 목록은 같은 배치 결과로 채운다. */
     private static Expression<PostListProjection> listViewProjection() {
         return Projections.constructor(PostListProjection.class,
                 postEntity.id,
@@ -374,7 +377,7 @@ class PostListQuerydslRepository {
                 postEntity.voteCount.longValue(),
                 postEntity.commentCount.longValue(),
                 postEntity.createdAt,
-                thumbnailUrl(),
+                Expressions.nullExpression(String.class),
                 postEntity.userId,
                 authorNickname(),
                 userEntity.ranking,
@@ -437,25 +440,4 @@ class PostListQuerydslRepository {
                 .coalesce(userEntity.name.nullif(""), Expressions.constant(UNKNOWN_AUTHOR));
     }
 
-    /**
-     * 대표 사진 1장 (§4.2) — {@code ActivityQuerydslRepository} 와 같은 정의다.
-     *
-     * <p>스칼라 서브쿼리인 이유는 찬반 상품이 사진을 최대 3장 갖기 때문이다(R-03).
-     * 그냥 조인하면 게시글 한 줄이 사진 수만큼 불어나 조각 크기가 어긋난다.
-     * 옛 SQL 의 {@code ORDER BY ir.id ASC LIMIT 1} 을 {@code MIN(id)} 로 옮겼다 —
-     * "가장 처음 등록한 사진" 이라는 뜻이 같고, 서브쿼리 안의 {@code LIMIT} 은 JPQL 에 없다.
-     *
-     * <p>행 문장에만 붙으므로 조각 크기(최대 50)만큼만 돈다.
-     * 상관 조건 {@code pp.post_id = p.id} 의 {@code p} 는 행 문장의 루트 {@code post} 다.
-     */
-    private static Expression<String> thumbnailUrl() {
-        return JPAExpressions.select(itemResourceEntity.accessUrl)
-                .from(itemResourceEntity)
-                .where(itemResourceEntity.id.eq(
-                        JPAExpressions.select(CANDIDATE.id.min())
-                                .from(postProductEntity)
-                                .join(CANDIDATE).on(CANDIDATE.container.id.eq(postProductEntity.itemContainerId))
-                                .where(postProductEntity.post.id.eq(postEntity.id),
-                                        postProductEntity.displayOrder.eq(REPRESENTATIVE_PRODUCT))));
-    }
 }
