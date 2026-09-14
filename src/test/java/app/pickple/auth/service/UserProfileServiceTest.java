@@ -6,6 +6,7 @@ import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
 import app.pickple.config.ProfileProperties;
+import app.pickple.config.FileStorageProperties;
 import app.pickple.error.ApiException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,6 +31,8 @@ class UserProfileServiceTest {
 
     private static final String IMAGE_A = "https://cdn/default-a.png";
     private static final String IMAGE_B = "https://cdn/default-b.png";
+    private static final FileStorageProperties UNCONFIGURED_STORAGE = new FileStorageProperties(
+            null, new FileStorageProperties.S3(null, null, null, ""));
 
     private UserStore userStore;
     private UserProfileService service;
@@ -40,7 +43,7 @@ class UserProfileServiceTest {
         userStore = mock(UserStore.class);
         random = new FixedRandom(1);
         DefaultProfileImages defaults = new DefaultProfileImages(
-                new ProfileProperties(List.of(IMAGE_A, IMAGE_B)), random);
+                new ProfileProperties(List.of(IMAGE_A, IMAGE_B)), UNCONFIGURED_STORAGE, random);
         service = new UserProfileService(userStore, defaults);
         given(userStore.saveProfileIfNicknameFree(any(User.class)))
                 .willAnswer(call -> Optional.of(call.getArgument(0)));
@@ -129,6 +132,25 @@ class UserProfileServiceTest {
         }
 
         @Test
+        void preservesCurrentCustomImageWhenImageIsOmitted() {
+            User user = activeUser();
+            user.registerProfile(new Nickname("피클"), "https://cdn/mine.png");
+            given(userStore.findById(1L)).willReturn(Optional.of(user));
+
+            assertThat(service.saveProfile(1L, "피클", null).profileImageUrl())
+                    .isEqualTo("https://cdn/mine.png");
+        }
+
+        @Test
+        void preventsCachedLegacyUrlFromBeingStoredAgain() {
+            given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
+
+            assertThat(service.saveProfile(1L, "피클",
+                    "https://images.pickple.app/defaults/profile-2.png").profileImageUrl())
+                    .isEqualTo(IMAGE_B);
+        }
+
+        @Test
         @DisplayName("저장소가 저장하지 않았다고 알리면 409 로 해석한다")
         void rejectsTakenNickname() {
             given(userStore.findById(1L)).willReturn(Optional.of(activeUser()));
@@ -180,9 +202,9 @@ class UserProfileServiceTest {
         @DisplayName("후보가 비어 있으면 기동에 실패한다")
         void rejectsEmptyCandidates() {
             // 조용히 null 을 넣으면 "이미지가 채워진다" 는 명세가 런타임에 깨진다.
-            assertThatThrownBy(() -> new DefaultProfileImages(new ProfileProperties(List.of()), random))
+            assertThatThrownBy(() -> new DefaultProfileImages(new ProfileProperties(List.of()), UNCONFIGURED_STORAGE, random))
                     .isInstanceOf(IllegalStateException.class);
-            assertThatThrownBy(() -> new DefaultProfileImages(new ProfileProperties(null), random))
+            assertThatThrownBy(() -> new DefaultProfileImages(new ProfileProperties(null), UNCONFIGURED_STORAGE, random))
                     .isInstanceOf(IllegalStateException.class);
         }
     }

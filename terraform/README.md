@@ -424,6 +424,57 @@ aws ssm start-session --target "$(terraform output -raw instance_id)" \
 `force_detach = true` 는 분리를 강제할 뿐 데이터를 지우지 않는다(EBS 는 네트워크 블록
 스토리지라 분리 ≠ 소거). EIP 와 Route53 레코드도 유지되므로 DNS 를 손댈 일이 없다.
 
+## 기본 프로필 이미지 (F02, #174)
+
+`assets/default-profile.png`는 2026-09-14 사용자가 제공한 PNG 원본이다. 가공하지 않았고
+SHA-256은 `b9d04da3cb3195b9a7b2f052a22d91e554d5178b93b702767a112e63275d0a39`이다.
+`default-profile-images.tf`는 기존 이미지 버킷에 `defaults/profile-1.png`부터
+`profile-4.png`까지 같은 원본을 배치한다. 기존 CloudFront·OAC를 사용하며 버킷을 공개하지 않는다.
+네 경로는 기존 랜덤 선택 계약을 유지하기 위한 것이고 서로 다른 디자인 네 장을 의미하지 않는다.
+
+앱의 `PROFILE_DEFAULT_IMAGE_URLS`가 비어 있으면 `FILE_PUBLIC_BASE_URL` 아래 네 경로를 쓴다.
+별도 목록을 지정하면 그 목록을 우선한다. 두 설정이 모두 없으면 잘못된 URL을 반환하지 않고 기동에 실패한다.
+`FILE_PUBLIC_BASE_URL`은 기존 Terraform → fetch-secrets.sh → Compose 경로로 이미 전달된다.
+이 수정은 인스턴스 user_data나 Secrets Manager 키를 추가하지 않는다. 선택 설정인
+`PROFILE_DEFAULT_IMAGE_URLS`를 EC2 `.env`에 수동 추가했다면 fetch-secrets.sh가 재생성할 때
+유지되지 않으므로 운영자가 다시 주입해야 한다. 기본 동작에는 이 수동 설정이 필요 없다.
+
+배포 시 순서:
+
+1. 실제 AWS 자격증명과 현재 state로 plan을 검토하고 이미지 객체를 먼저 배치한다.
+   기존 같은 키가 Terraform 외부에서 관리되고 있다면 객체를 확인하고 import/교체 여부부터 결정한다.
+   단순 `terraform validate`는 실제 객체 존재나 IAM 권한 검증이 아니다.
+2. `terraform output -raw images_cdn_domain`을 기준으로 네 URL을 각각 익명 GET한다.
+   최종 상태 200, `Content-Type: image/png`, PNG 디코딩과 원본 일치를 확인한다.
+   기존 403/404가 캐시되어 있다면 해당 경로의 캐시 만료 또는 invalidation 후 재확인한다.
+   저장소에서 아래 명령을 실행하면 익명 GET, HTTPS, Content-Type, PNG 시그니처와 원본 일치를
+   한 번에 확인한다.
+   ```bash
+   bash scripts/verify-default-profile-images.sh \
+     --base-url "$(terraform -chdir=terraform output -raw images_cdn_domain)" \
+     --require-https \
+     --sha256 "$(sha256sum terraform/assets/default-profile.png | cut -d' ' -f1)"
+   ```
+3. 네 경로가 정상인 다음 백엔드를 배포한다. Spring이 등록하는 **Flyway V16 Java 마이그레이션**
+   (`DefaultProfileImageMigration`)이 활성 사용자의 정확한 옛 기본 URL 네 개만 새 후보로 복구한다.
+   후보 수가 네 개보다 적으면 목록 순서대로 순환 대응한다. SQL 파라미터 바인딩과 바이너리 비교를 쓰므로
+   사용자 사진, 다른 대소문자·쿼리·경로, null, 탈퇴한 사용자는 변경하지 않는다.
+   SQL 파일만 수동 실행하는 스크립트는 V16을 실행하지 못하므로 실제 Spring/Flyway로 적용한다.
+4. 사진 미등록 계정과 기존 기본 이미지 계정의 `/users/me`, 게시글·댓글·랭킹 등 사용자 이미지 응답을
+   확인한다. 마이그레이션이 저장값을 고치므로 각 조회 API에 별도 URL 변환을 넣지 않는다.
+5. 실제 앱에서 서버 URL로 로드했는지 확인하고 재진입·재로그인·캐시 초기화 후에도 표시되는지 확인한다.
+   앱의 로컬 대체 이미지 표시를 서버 이미지 성공으로 기록하지 않는다.
+
+`deploy-develop`은 `fetch-secrets.sh` 직후 같은 검증기를 실행한다. 네 이미지 중 하나라도
+접근할 수 없거나 HTTPS·Content-Type·PNG 데이터 검증에 실패하면 기존 앱 컨테이너를 교체하기
+전에 배포를 중단한다. 이 게이트는 Terraform을 대신 적용하지 않으며 이미지 객체의 선행 배치를
+강제한다. 실제 앱 표시는 배포 뒤 5단계에서 별도로 확인한다.
+
+V16은 한 번만 실행된다. 설정을 나중에 변경해도 이미 저장된 사용자 URL 전체를 다시 쓰지 않는다.
+추가 주소 변경은 별도 순방향 데이터 마이그레이션이 필요하다. 앱만 이전 버전으로 롤백하면
+옛 코드가 신규 프로필에 미등록 도메인을 다시 저장할 수 있으므로, 롤백 버전에서도
+`PROFILE_DEFAULT_IMAGE_URLS`를 정상 URL 목록으로 공급해야 한다. 이미지 객체는 유지한다.
+
 ## 주의
 
 - **`aws_ebs_volume.data` 는 `prevent_destroy` 로 보호된다.** MySQL 데이터와 Caddy 인증서가 여기 있다.

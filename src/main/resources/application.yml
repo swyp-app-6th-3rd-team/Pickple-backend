@@ -135,8 +135,9 @@ app:
       client-secret-validity: PT10M
   profile:
     # 프로필 이미지를 등록하지 않은 사용자에게 무작위로 하나를 준다(명세 §1.5).
-    # 디자인이 이미지를 늘리거나 CDN 주소가 바뀌어도 배포 없이 교체할 수 있게 설정으로 받는다.
-    default-image-urls: ${PROFILE_DEFAULT_IMAGE_URLS:https://images.pickple.app/defaults/profile-1.png,https://images.pickple.app/defaults/profile-2.png,https://images.pickple.app/defaults/profile-3.png,https://images.pickple.app/defaults/profile-4.png}
+    # 목록을 생략하면 기존 FILE_PUBLIC_BASE_URL 아래 defaults/profile-{1..4}.png 를 쓴다.
+    # 주소 설정과 실제 S3 이미지 배치는 별개다. 네 파일을 먼저 배치해야 한다.
+    default-image-urls: ${PROFILE_DEFAULT_IMAGE_URLS:}
   file:
     max-file-size: ${FILE_MAX_SIZE:5MB}
     s3:

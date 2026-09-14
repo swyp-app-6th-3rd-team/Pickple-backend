@@ -51,9 +51,9 @@ public class UserProfileService {
      */
     public User saveProfile(Long userId, String nickname, String profileImageUrl) {
         User user = activeUser(userId);
-        String imageUrl = hasImage(profileImageUrl)
+        String imageUrl = defaultProfileImages.resolveLegacy(hasImage(profileImageUrl)
                 ? profileImageUrl
-                : orDefault(user.profileImageUrl());
+                : orDefault(user.profileImageUrl()));
         user.registerProfile(new Nickname(nickname), imageUrl);
 
         // 저장소는 "저장됐다 / 안 됐다" 는 사실만 알린다.

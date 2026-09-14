@@ -96,8 +96,9 @@ services:
       # FILE_S3_ENDPOINT 는 일부러 빠져 있다 — 값이 있으면 endpointOverride 가 켜져
       # 실제 AWS 로 나가지 못하므로, 목록에 없는 편이 안전하다.
       FILE_S3_BUCKET: ${FILE_S3_BUCKET:-not-configured}
-      # 빈 값이 정상 동작이다(SDK 가 S3 객체 URL 로 폴백). not-configured 로 "고치지" 말 것.
+      # 기본 프로필도 이 CDN을 쓴다. 별도 프로필 후보가 없으면 반드시 설정한다.
       FILE_PUBLIC_BASE_URL: ${FILE_PUBLIC_BASE_URL:-}
+      PROFILE_DEFAULT_IMAGE_URLS: ${PROFILE_DEFAULT_IMAGE_URLS:-}
       AWS_REGION: ${AWS_REGION:-ap-northeast-2}
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       AUTH_COOKIE_SECURE: "true"

@@ -99,10 +99,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # compose 파일과 Caddyfile 을 base64 로 실어 보낸다.
+          # compose 파일, Caddyfile, 배포 전 이미지 검증기를 base64 로 실어 보낸다.
           # S3 경유나 git clone 없이 한 번에 끝나고, 따옴표·개행 이스케이프 문제도 없다.
           COMPOSE_B64="$(base64 -w0 docker/docker-compose-ec2.yml)"
           CADDY_B64="$(base64 -w0 docker/Caddyfile)"
+          # 기존 SSM command payload가 크므로 검증기는 gzip으로 압축해 전달한다.
+          PROFILE_IMAGE_VERIFY_B64="$(gzip -c scripts/verify-default-profile-images.sh | base64 -w0)"
+          PROFILE_IMAGE_SHA256="$(sha256sum terraform/assets/default-profile.png | cut -d' ' -f1)"
 
           # ⚠️ `up -d` 뒤의 두 줄은 순서와 이유가 있다 (#135).
           #   1. 대기: `caddy reload` 는 컨테이너 안 admin API(:2019)에 설정을 POST 한다. compose 의
@@ -135,7 +138,10 @@ jobs:
               \"cd /opt/pickple\",
               \"echo $COMPOSE_B64 | base64 -d > docker-compose-ec2.yml\",
               \"echo $CADDY_B64 | base64 -d > Caddyfile\",
+              \"echo $PROFILE_IMAGE_VERIFY_B64 | base64 -d | gzip -d > /usr/local/bin/verify-default-profile-images.sh\",
+              \"chmod 755 /usr/local/bin/verify-default-profile-images.sh\",
               \"/usr/local/bin/fetch-secrets.sh\",
+              \"/usr/local/bin/verify-default-profile-images.sh --env-file .env --require-https --sha256 $PROFILE_IMAGE_SHA256\",
               \"sed -i 's|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|' .env || echo 'IMAGE_TAG=${IMAGE_TAG}' >> .env\",
               \"aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}\",
               \"docker compose -f docker-compose-ec2.yml pull\",
