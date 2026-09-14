@@ -343,7 +343,7 @@ class PostListQuerydslRepository {
     }
 
     /**
-     * 행 문장의 프로젝션. 생성자 인자 순서가 {@link PostListView} 와 어긋나면
+     * 행 문장의 프로젝션. {@link PostListProjection} 생성자 인자 순서가 조회 식과 어긋나면
      * <b>애플리케이션 기동 시</b>가 아니라 첫 조회에서 {@code ExpressionException} 으로 드러난다 —
      * 그래도 옛 컬럼 인덱스 상수처럼 엉뚱한 값이 조용히 들어가는 일은 없다.
      *
