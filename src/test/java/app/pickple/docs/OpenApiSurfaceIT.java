@@ -56,6 +56,7 @@ class OpenApiSurfaceIT {
             "PostDetailResponse", "VoteSection", "ProductItem", "OptionItem",
             "PostSearchResponse", "PostSearchItem",
             "PopularPostItem", "PopularProductItem",
+            "PostListItem", "PostListProductItem",
             // 랭킹 세 응답이 공유하는 두 스키마다. 등급 필드를 더하면서 넣었다(#154) —
             // 목록에 없으면 설명이 비어도 아무도 알려주지 않는다.
             "RankingItem", "MyRankingResponse",
@@ -166,8 +167,8 @@ class OpenApiSurfaceIT {
     }
 
     @Test
-    @DisplayName("일반 게시글 목록은 기존 조각 응답과 필드 집합을 유지한다")
-    void regularPostListKeepsItsExistingSchema() {
+    @DisplayName("커뮤니티 목록은 기존 필드를 유지하고 상품 사진 스키마를 추가한다")
+    void regularPostListAddsProductImagesToExistingSchema() {
         String envelope = schemaPath(spec.read(
                 "$.paths['/posts'].get.responses['200'].content['*/*'].schema['$ref']"));
         String scroll = schemaPath(spec.read(envelope + ".properties.returnObject['$ref']"));
@@ -177,7 +178,14 @@ class OpenApiSurfaceIT {
         Map<String, Object> fields = spec.read("$.components.schemas.PostListItem.properties");
         assertThat(fields.keySet()).containsExactlyInAnyOrder(
                 "id", "type", "category", "title", "description", "commentCount", "voteCount",
-                "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking");
+                "thumbnailUrl", "createdAt", "authorId", "authorNickname", "authorRanking", "products");
+        String productReference = spec.read(
+                "$.components.schemas.PostListItem.properties.products.items['$ref']");
+        assertThat(productReference).isEqualTo("#/components/schemas/PostListProductItem");
+        Map<String, Object> productFields = spec.read("$.components.schemas.PostListProductItem.properties");
+        assertThat(productFields.keySet()).containsExactlyInAnyOrder("displayOrder", "imageUrl");
+        String description = spec.read("$.components.schemas.PostListProductItem.properties.imageUrl.description");
+        assertThat(description).contains("사진이 없으면 null");
     }
 
     @Test
