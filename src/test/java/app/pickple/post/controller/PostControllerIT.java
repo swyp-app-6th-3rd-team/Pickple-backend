@@ -32,6 +32,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -113,17 +116,7 @@ class PostControllerIT {
      */
     private static final PostCategory EMPTY_CATEGORY = PostCategory.ELECTRONICS;
 
-    /**
-     * 목록 한 조각이 내는 SQL 문장 수. 행 수에 비례하는 문장이 없다는 것이 지키려는 성질이고,
-     * 이 상수는 그 상수 비용이 무엇으로 이루어졌는지를 고정한다 — 늘어나면 이유를 대야 한다.
-     * <ol>
-     *   <li>키 문장 — 조각에 들어갈 게시글 id 를 정렬 인덱스로 확정한다</li>
-     *   <li>행 문장 — 그 id 들에만 작성자와 대표 사진을 붙인다 (ADR-0045)</li>
-     * </ol>
-     * 옛 네이티브 SQL 은 파생 테이블로 둘을 한 문장에 담았다. QueryDSL 전환으로 갈라졌지만
-     * 행 수에 비례하는 쪽은 여전히 없다. 활동 목록의 3 과 달리 2 인 것은 {@code GET /posts} 가
-     * 게스트 허용이라 탈퇴 차단 관문 문장이 없기 때문이다.
-     */
+    /** 일반 게시글 페이지는 키·행 두 문장, 투표 유형이 있으면 상품 배치 한 문장을 더한다. */
     private static final long STATEMENTS_PER_SLICE = 2L;
 
     /**
@@ -163,10 +156,11 @@ class PostControllerIT {
                 .andExpect(jsonPath("$.returnObject.nextCursor").doesNotExist());
     }
 
-    @Test
-    @DisplayName("유형별로 명세가 요구하는 필드가 내려온다")
-    void exposesFieldsPerPostType() throws Exception {
-        // §4.2 — 찬반은 상품명·상품사진, A/B 는 주제·A 상품 사진, 일반은 제목만.
+    @ParameterizedTest
+    @EnumSource(PostSort.class)
+    @DisplayName("두 정렬 모두 일반·찬반·A/B 사진과 기존 필드를 보존한다")
+    void exposesFieldsPerPostType(PostSort sort) throws Exception {
+        // F03 — 기존 썸네일과 함께 상품별 첫 사진을 표시 순서대로 제공한다.
         Long agreeId = saveAgreePost("가방 살까", EMPTY_CATEGORY, 3).id();
         Long abId = saveAbPost("A 냐 B 냐", EMPTY_CATEGORY).id();
         Long generalId = saveGeneralPost("그냥 잡담", EMPTY_CATEGORY).id();
@@ -180,7 +174,7 @@ class PostControllerIT {
         flush();
 
         // 다른 테스트가 남긴 게시글과 섞이지 않도록 이 실행이 만든 카테고리로 좁힌다.
-        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY + "&sort=" + sort))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnObject.content.length()").value(3))
                 // 최신순이므로 마지막에 만든 일반 게시글이 앞에 온다.
@@ -190,6 +184,7 @@ class PostControllerIT {
                 // 일반 게시글에는 투표도 상품 사진도 없다.
                 .andExpect(jsonPath("$.returnObject.content[0].voteCount").doesNotExist())
                 .andExpect(jsonPath("$.returnObject.content[0].thumbnailUrl").doesNotExist())
+                .andExpect(jsonPath("$.returnObject.content[0].products").isEmpty())
                 .andExpect(jsonPath("$.returnObject.content[0].commentCount").value(0))
                 .andExpect(jsonPath("$.returnObject.content[0].authorNickname").value(authorNickname()))
                 .andExpect(jsonPath("$.returnObject.content[0].createdAt").isString())
@@ -200,13 +195,189 @@ class PostControllerIT {
                 // A/B 는 A 상품(display_order = 1)의 사진이다.
                 .andExpect(jsonPath("$.returnObject.content[1].thumbnailUrl")
                         .value("https://cdn.test/ab-a-1-" + seed))
+                .andExpect(jsonPath("$.returnObject.content[1].products.length()").value(2))
+                .andExpect(jsonPath("$.returnObject.content[1].products[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.returnObject.content[1].products[0].imageUrl")
+                        .value("https://cdn.test/ab-a-1-" + seed))
+                .andExpect(jsonPath("$.returnObject.content[1].products[1].displayOrder").value(2))
+                .andExpect(jsonPath("$.returnObject.content[1].products[1].imageUrl")
+                        .value("https://cdn.test/ab-b-1-" + seed))
 
                 .andExpect(jsonPath("$.returnObject.content[2].id").value(agreeId))
                 .andExpect(jsonPath("$.returnObject.content[2].type").value("AGREE"))
                 .andExpect(jsonPath("$.returnObject.content[2].voteCount").value(0))
                 // 찬반은 사진 3장 중 가장 처음 등록한 1장이다 (R-03).
                 .andExpect(jsonPath("$.returnObject.content[2].thumbnailUrl")
+                        .value("https://cdn.test/agree-1-" + seed))
+                .andExpect(jsonPath("$.returnObject.content[2].products.length()").value(1))
+                .andExpect(jsonPath("$.returnObject.content[2].products[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.returnObject.content[2].products[0].imageUrl")
                         .value("https://cdn.test/agree-1-" + seed));
+    }
+
+    @ParameterizedTest
+    @EnumSource(PostSort.class)
+    @DisplayName("전체 카테고리에서도 두 정렬 모두 A/B 사진을 제공한다")
+    void allCategoriesIncludeProductImages(PostSort sort) throws Exception {
+        Long postId = saveAbPost("전체 카테고리", EMPTY_CATEGORY).id();
+        flush();
+        // 재사용 DB의 다른 글은 그대로 두고, 이 글만 해당 정렬의 첫 페이지로 옮긴다.
+        LocalDateTime latest = jdbcTemplate.queryForObject(
+                "SELECT MAX(created_at) FROM post", LocalDateTime.class);
+        Integer maxScore = jdbcTemplate.queryForObject(
+                "SELECT MAX(popularity_score) FROM post", Integer.class);
+        jdbcTemplate.update("UPDATE post SET created_at = ?, vote_count = ? WHERE id = ?",
+                latest.plusSeconds(1), maxScore + 1, postId);
+        mockMvc.perform(get("/posts?sort=" + sort + "&size=1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content[0].id").value(postId))
+                .andExpect(jsonPath("$.returnObject.content[0].products.length()").value(2))
+                .andExpect(jsonPath("$.returnObject.content[0].products[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.returnObject.content[0].products[0].imageUrl")
+                        .value("https://cdn.test/ab-a-1-" + seed))
+                .andExpect(jsonPath("$.returnObject.content[0].products[1].displayOrder").value(2))
+                .andExpect(jsonPath("$.returnObject.content[0].products[1].imageUrl")
+                        .value("https://cdn.test/ab-b-1-" + seed));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2})
+    @DisplayName("A 또는 B 사진이 없어도 두 상품과 표시 순서를 유지한다")
+    void missingPhotoKeepsProductAndOrder(int missingOrder) throws Exception {
+        Long postId = saveAbPost("사진 누락", EMPTY_CATEGORY).id();
+        flush();
+        jdbcTemplate.update("""
+                DELETE ir FROM item_resource ir
+                JOIN post_product pp ON pp.item_container_id = ir.item_container_id
+                WHERE pp.post_id = ? AND pp.display_order = ?
+                """, postId, missingOrder);
+
+        String body = read("/posts?category=" + EMPTY_CATEGORY);
+        List<Map<String, Object>> products = JsonPath.read(body, "$.returnObject.content[0].products");
+        assertThat(products).hasSize(2);
+        assertThat(products.get(0)).containsEntry("displayOrder", 1);
+        assertThat(products.get(1)).containsEntry("displayOrder", 2);
+        assertThat(products.get(missingOrder - 1)).containsEntry("imageUrl", null);
+        String presentImage = "https://cdn.test/ab-" + (missingOrder == 1 ? "b" : "a") + "-1-" + seed;
+        assertThat(products.get(2 - missingOrder)).containsEntry("imageUrl", presentImage);
+        Map<String, Object> item = JsonPath.read(body, "$.returnObject.content[0]");
+        assertThat(item).containsEntry("thumbnailUrl", missingOrder == 1 ? null : presentImage);
+    }
+
+    @Test
+    @DisplayName("A/B에 사진이 여러 장 남아 있어도 상품마다 최초 사진 한 장만 제공한다")
+    void multipleAbPhotosKeepFirstPhotoPerProduct() throws Exception {
+        Long postId = saveAbPost("대표 사진", EMPTY_CATEGORY).id();
+        flush();
+        // 정상 작성은 A/B 각 1장이지만 기존 데이터에 추가 사진이 있어도 대표 선택은 같아야 한다.
+        jdbcTemplate.update("""
+                INSERT INTO item_resource
+                    (item_container_id, size, original_file_name, item_key, access_url, created_at, updated_at)
+                SELECT ir.item_container_id, ir.size, ir.original_file_name,
+                       CONCAT(ir.item_key, '-later'), CONCAT(ir.access_url, '-later'), NOW(), NOW()
+                FROM item_resource ir
+                JOIN post_product pp ON pp.item_container_id = ir.item_container_id
+                WHERE pp.post_id = ?
+                """, postId);
+        mockMvc.perform(get("/posts?category=" + EMPTY_CATEGORY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.content.length()").value(1))
+                .andExpect(jsonPath("$.returnObject.content[0].products.length()").value(2))
+                .andExpect(jsonPath("$.returnObject.content[0].products[0].imageUrl")
+                        .value("https://cdn.test/ab-a-1-" + seed))
+                .andExpect(jsonPath("$.returnObject.content[0].products[1].imageUrl")
+                        .value("https://cdn.test/ab-b-1-" + seed));
+    }
+
+    @ParameterizedTest
+    @EnumSource(PostSort.class)
+    @DisplayName("혼합 페이지의 동률·필터·커서를 유지하고 현재 페이지의 상품만 배치 조회한다")
+    void productImagesPreservePageBoundaries(PostSort sort) throws Exception {
+        Long agree1 = saveAgreePost("찬반1", EMPTY_CATEGORY, 3).id();
+        Long ab1 = saveAbPost("AB1", EMPTY_CATEGORY).id();
+        Long general = saveGeneralPost("일반", EMPTY_CATEGORY).id();
+        Long ab2 = saveAbPost("AB2", EMPTY_CATEGORY).id();
+        Long agree2 = saveAgreePost("찬반2", EMPTY_CATEGORY, 3).id();
+        Long excluded = saveAbPost("다른 카테고리", PostCategory.FASHION).id();
+        Long deleted = saveAbPost("삭제", EMPTY_CATEGORY).id();
+        flush();
+        jdbcTemplate.update("UPDATE post SET deleted_at = NOW() WHERE id = ?", deleted);
+        LocalDateTime tiedAt = LocalDateTime.now(clock).minusHours(1).withNano(0);
+        List<Long> ownIds = List.of(agree1, ab1, general, ab2, agree2);
+        // 게시글마다 URL을 구분해 페이지를 조립할 때 다른 카드의 사진이 섞이는 것도 잡는다.
+        for (Long abId : List.of(ab1, ab2)) {
+            jdbcTemplate.update("""
+                    UPDATE item_resource ir
+                    JOIN post_product pp ON pp.item_container_id = ir.item_container_id
+                    SET ir.access_url = CONCAT(ir.access_url, '/', pp.post_id)
+                    WHERE pp.post_id = ?
+                    """, abId);
+        }
+        ownIds.forEach(id -> jdbcTemplate.update(
+                "UPDATE post SET created_at = ?, vote_count = 0 WHERE id = ?", tiedAt, id));
+        // 인기순은 점수 2 동률 두 건, 점수 1 두 건, 점수 0 한 건이다.
+        jdbcTemplate.update("UPDATE post SET vote_count = 2 WHERE id IN (?, ?)", agree1, ab1);
+        jdbcTemplate.update("UPDATE post SET vote_count = 1 WHERE id IN (?, ?)", ab2, agree2);
+        List<Long> expected = sort == PostSort.LATEST
+                ? List.of(agree2, ab2, general, ab1, agree1)
+                : List.of(ab1, agree1, agree2, ab2, general);
+        List<Long> actual = new ArrayList<>();
+        String cursor = null;
+        for (int page = 0; page < 3; page++) {
+            String url = "/posts?category=" + EMPTY_CATEGORY + "&sort=" + sort + "&size=2"
+                    + (cursor == null ? "" : "&cursor=" + cursor);
+            List<String> responses = new ArrayList<>();
+            List<String> statements = sqlCapture.record(() -> {
+                try {
+                    responses.add(read(url));
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            var response = JsonPath.parse(responses.getFirst());
+            List<Map<String, Object>> items = response.read("$.returnObject.content");
+            assertThat(items).hasSize(page == 2 ? 1 : 2);
+            List<Long> pageIds = items.stream().map(item -> ((Number) item.get("id")).longValue()).toList();
+            assertThat(pageIds).containsExactlyElementsOf(expected.subList(page * 2, Math.min(page * 2 + 2, 5)));
+            actual.addAll(pageIds);
+            int votingPosts = 0;
+            for (Map<String, Object> item : items) {
+                List<Map<String, Object>> products = (List<Map<String, Object>>) item.get("products");
+                String type = (String) item.get("type");
+                if (type.equals("GENERAL")) {
+                    assertThat(products).isEmpty();
+                    continue;
+                }
+                votingPosts++;
+                assertThat(products).extracting(product -> product.get("displayOrder"))
+                        .containsExactlyElementsOf(type.equals("A_B") ? List.of(1, 2) : List.of(1));
+                assertThat(item.get("thumbnailUrl")).isEqualTo(products.getFirst().get("imageUrl"));
+                if (type.equals("A_B")) {
+                    String suffix = seed + "/" + item.get("id");
+                    assertThat(products.get(0)).containsEntry("imageUrl", "https://cdn.test/ab-a-1-" + suffix);
+                    assertThat(products.get(1)).containsEntry("imageUrl", "https://cdn.test/ab-b-1-" + suffix);
+                }
+            }
+            assertThat(statements).hasSize(votingPosts == 0 ? 2 : 3);
+            assertThat(statements).allSatisfy(sql -> assertThat(sql).doesNotContainPattern("(?i)\\(\\s*select\\b"));
+            if (votingPosts > 0) {
+                String productsSql = statements.get(2);
+                assertThat(productsSql).contains("post_product", "left join item_resource");
+                // QueryDSL은 IN 대상이 한 개면 동등 조건으로 줄인다.
+                assertThat(productsSql).contains(votingPosts == 1 ? "post_id=?" : "post_id in");
+                assertThat(productsSql.chars().filter(c -> c == '?').count()).isEqualTo(votingPosts);
+            }
+            boolean hasNext = response.read("$.returnObject.hasNext");
+            assertThat(hasNext).isEqualTo(page < 2);
+            cursor = response.read("$.returnObject.nextCursor");
+            if (hasNext) {
+                assertThat(cursor).isNotBlank();
+            } else {
+                assertThat(cursor).isNull();
+            }
+        }
+        assertThat(actual).containsExactlyElementsOf(expected).doesNotHaveDuplicates()
+                .doesNotContain(excluded, deleted);
     }
 
     @Test
@@ -447,19 +618,19 @@ class PostControllerIT {
         // N+1 이면 작성자·랭킹·대표 사진 조회가 행마다 붙어 조각 크기에 비례해 늘어난다.
         // 유형을 섞는다 — 상품이 있는 글에서만 추가 조회가 붙는 경우를 잡기 위해서다.
         for (int i = 0; i < 4; i++) {
-            saveAgreePost("찬반 " + i, PostCategory.FASHION, 3);
-            saveAbPost("AB " + i, PostCategory.BEAUTY);
-            saveGeneralPost("일반 " + i, PostCategory.ETC);
+            saveGeneralPost("일반 " + i, EMPTY_CATEGORY);
+            saveAgreePost("찬반 " + i, EMPTY_CATEGORY, 3);
+            saveAbPost("AB " + i, EMPTY_CATEGORY);
         }
         flush();
 
-        long oneRow = countStatements("/posts?size=1", 1);
-        long twelveRows = countStatements("/posts?size=12", 12);
+        long oneRow = countStatements("/posts?category=" + EMPTY_CATEGORY + "&size=1", 1);
+        long twelveRows = countStatements("/posts?category=" + EMPTY_CATEGORY + "&size=12", 12);
 
         // 지키려는 성질은 "1회" 라는 숫자가 아니라 행 수에 비례하지 않는다는 것이다.
         // 절대값만 박아 두면 요청당 상수 비용이 하나 늘 때마다 깨지면서 정작 N+1 은 알려주지 못한다.
         assertThat(twelveRows).isEqualTo(oneRow);
-        assertThat(oneRow).isEqualTo(STATEMENTS_PER_SLICE);
+        assertThat(oneRow).isEqualTo(STATEMENTS_PER_SLICE + 1);
     }
 
     // --- 픽스처 ------------------------------------------------------------
@@ -600,8 +771,9 @@ class PostControllerIT {
 
     private Post saveAbPost(String title, PostCategory category) {
         Post post = new Post(author.id(), PostType.A_B, category, title, "설명")
-                .addProduct(new PostProduct(newContainer("ab-a", 1), "A 상품", 10_000L, null, 1))
+                // 저장 순서와 화면 표시 순서가 달라도 A·B 대응을 지켜야 한다.
                 .addProduct(new PostProduct(newContainer("ab-b", 1), "B 상품", 20_000L, null, 2))
+                .addProduct(new PostProduct(newContainer("ab-a", 1), "A 상품", 10_000L, null, 1))
                 .addOption(PostOption.ofProductDisplayOrder(1, 1))
                 .addOption(PostOption.ofProductDisplayOrder(2, 2));
         return postStore.save(post);
@@ -813,15 +985,15 @@ class PostControllerIT {
                             .forEach(view -> ids.add(view.id())));
             assertThat(ids).as("커서 뒤에 행이 남아 있어야 계획이 의미를 갖는다").hasSize(SLICE);
 
-            // 바인딩 순서는 문장 안의 위치다 — SELECT 절의 대표 사진 서브쿼리(display_order = 1),
+            // 바인딩 순서는 문장 안의 위치다 —
             // 작성자 표시명 폴백의 빈 문자열 둘과 대체 문자열, 마지막이 IN 의 id 목록이다.
             // 개수만으로는 같은 개수의 자리바꿈을 못 잡으므로 문장 안의 순서까지 본다.
             String rows = rowsStatement(statements);
             assertThat(rows)
                     .as("행 문장의 파라미터 자리가 가정한 순서와 같아야 같은 값을 묶는다")
-                    .matches("(?s).*display_order=\\?.*nullif\\(\\w+\\.nickname,\\?\\),"
+                    .matches("(?s).*nullif\\(\\w+\\.nickname,\\?\\),"
                             + "nullif\\(\\w+\\.name,\\?\\),\\?\\).*in \\(\\?[?,]*\\).*");
-            List<Object> rowsArgs = new ArrayList<>(List.of(1, "", "", "알 수 없음"));
+            List<Object> rowsArgs = new ArrayList<>(List.of("", "", "알 수 없음"));
             rowsArgs.addAll(ids);
             return new Statements(keysStatement(statements), rows, rowsArgs.toArray());
         }
@@ -870,9 +1042,9 @@ class PostControllerIT {
         return statements.stream().filter(sql -> sql.contains("limit ?")).findFirst().orElseThrow();
     }
 
-    /** 붙잡은 문장 가운데 행 문장 — 대표 사진 서브쿼리가 있는 쪽이다. */
+    /** 붙잡은 문장 가운데 행 문장 — 작성자를 조인하는 쪽이다. */
     private static String rowsStatement(List<String> statements) {
-        return statements.stream().filter(sql -> sql.contains("item_resource")).findFirst().orElseThrow();
+        return statements.stream().filter(sql -> sql.contains("join users")).findFirst().orElseThrow();
     }
 
     /**
