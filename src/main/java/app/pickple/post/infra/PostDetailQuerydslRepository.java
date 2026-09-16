@@ -12,7 +12,6 @@ import app.pickple.vote.infra.QVoteEntity;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.Expressions;
-import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -21,11 +20,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.Assert;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
- * 게시글 상세를 <b>고정된 세 문장</b>으로 읽는다 — 본문+작성자+내 투표 / 상품+대표 사진 / 선택지.
+ * 게시글 상세를 <b>고정된 세 문장</b>으로 읽는다 — 본문+작성자+내 투표 / 상품+전체 사진 / 선택지.
  *
  * <p>목록·활동·랜덤과 달리 조각도 커서 정렬 키도 없다(표시 순서 {@code ORDER BY} 는 남는다). 단건이라
  * {@code FROM (SELECT … LIMIT)} 파생 테이블이 필요 없고, 따라서 ADR-0043·0045 의 두 문장 분할도 필요 없다 —
@@ -35,7 +37,7 @@ import java.util.Optional;
  *
  * <pre>
  *   1. 게시글 + 작성자 + 내 투표   (한 줄 — 기본 키 · users 기본 키 · uk_vote_post_user)
- *   2. 상품 + 대표 사진             (0~2줄 — uk_product_post_order · 사진은 스칼라 서브쿼리)
+ *   2. 상품 + 전체 사진             (정상 찬반 최대 3줄, A/B 2줄 — 상품·컨테이너 인덱스)
  *   3. 선택지                       (0~2줄 — uk_option_post_order)
  * </pre>
  *
@@ -48,10 +50,9 @@ import java.util.Optional;
  * 표가 들어오면 게이지의 합이 어긋난다. 호출자가 REPEATABLE READ 트랜잭션을 열어야 하며
  * {@link #findDetail} 이 진입 시점에 확인한다 — 목록·랜덤 저장소와 같은 규약이다.
  *
- * <p>첫 판(PR #128)은 이것을 네이티브 SQL 3문장 + {@code Object[]} + 컬럼 인덱스 상수 25개로 짰고,
- * 그 구조 자체가 #130 이 없애려는 대상이라 머지하지 않고 닫았다. 문장의 모양과 수는 그때와 같고
- * 결과를 받는 타입만 바뀌었다 — 생성자 인자 순서가 어긋나면 첫 조회에서 {@code ExpressionException}
- * 으로 드러나고, 옛 인덱스 상수처럼 엉뚱한 값이 조용히 들어가지 않는다.
+ * <p>상품·사진 행은 이름 있는 프로젝션으로 받은 뒤 상품 ID로 묶는다. 사진이 없는 상품도 LEFT JOIN으로
+ * 남기며, 사진과 선택지를 한 문장으로 곱하지 않는다. 사진 정렬은 기존 대표 사진 정의를 확장한
+ * resource ID 오름차순이다. 한 번에 업로드한 사진들은 생성 시각이 같을 수 있다.
  *
  * <p>package-private 이다. 바깥은 {@link app.pickple.post.domain.PostStore} 만 본다.
  */
@@ -65,8 +66,6 @@ class PostDetailQuerydslRepository {
     private static final QPostProductEntity PRODUCT = QPostProductEntity.postProductEntity;
     private static final QPostOptionEntity OPTION = QPostOptionEntity.postOptionEntity;
     private static final QItemResourceEntity RESOURCE = QItemResourceEntity.itemResourceEntity;
-    /** 대표 사진 서브쿼리 안쪽의 두 번째 {@code item_resource}. 바깥 별칭과 겹치면 안 된다. */
-    private static final QItemResourceEntity CANDIDATE = new QItemResourceEntity("candidate");
 
     /** 닉네임도 이름도 비어 있는 작성자 — 탈퇴로 개인정보가 파기된 회원이다 (ADR-0040). 목록과 같은 표기다. */
     private static final String UNKNOWN_AUTHOR = "알 수 없음";
@@ -182,39 +181,70 @@ class PostDetailQuerydslRepository {
     }
 
     /**
-     * 상품과 그 대표 사진 1장 (§6.3). 표시 순서대로다 — 찬반은 하나, A/B 는 A·B 둘 (R-02).
+     * 상품과 전체 사진. 상품 표시 순서, resource ID 순서로 읽고 상품 ID로 묶는다.
      *
      * <p>가격은 스키마가 {@code INT} 라 {@code Integer} 로 읽고 도메인 계약인 {@code Long} 으로 넓힌다.
      * 선택 입력이라 {@code null} 일 수 있고 {@code cast} 는 {@code null} 을 그대로 둔다.
      */
     private List<PostDetailProduct> products(Long id) {
-        return queryFactory.select(Projections.constructor(PostDetailProduct.class,
+        List<ProductPhotoRow> rows = queryFactory.select(Projections.constructor(ProductPhotoRow.class,
                         PRODUCT.id,
                         PRODUCT.name,
                         PRODUCT.price.longValue(),
                         PRODUCT.linkUrl,
-                        imageUrl(),
-                        PRODUCT.displayOrder.intValue()))
+                        PRODUCT.displayOrder.intValue(),
+                        RESOURCE.id,
+                        RESOURCE.accessUrl))
                 .from(PRODUCT)
+                .leftJoin(RESOURCE).on(RESOURCE.container.id.eq(PRODUCT.itemContainerId))
                 .where(PRODUCT.post.id.eq(id))
-                .orderBy(PRODUCT.displayOrder.asc())
+                .orderBy(PRODUCT.displayOrder.asc(), RESOURCE.id.asc())
                 .fetch();
+
+        Map<Long, ProductAccumulator> products = new LinkedHashMap<>();
+        for (ProductPhotoRow row : rows) {
+            products.computeIfAbsent(row.id(), ignored -> new ProductAccumulator(row))
+                    .add(row);
+        }
+        return products.values().stream()
+                .map(ProductAccumulator::build)
+                .toList();
     }
 
     /**
-     * 상품의 대표 사진 — 가장 먼저 등록된 한 장 (§6.3). 스칼라 서브쿼리인 이유는 찬반 상품이 사진을 최대
-     * 3장 갖기 때문이다(R-03) — 그냥 조인하면 상품 행이 사진 수만큼 불어난다. "가장 처음 등록한 사진" 은
-     * {@code item_resource.id} 최소값이다 — 같은 컨테이너 안에서 id 순서가 곧 등록 순서이고, {@code created_at}
-     * 은 한 번의 업로드에서 모두 같아 순서를 못 가른다. 목록·랜덤 카드와 같은 정의다.
-     * A/B 는 상품마다 사진이 1장이라(R-03) 같은 서브쿼리가 그대로 맞는다.
+     * 상품·사진 조인의 한 행. LEFT JOIN의 사진 부재는 resourceId가 null인 것으로 구분한다.
+     * QueryDSL 생성자 프로젝션에서 접근할 수 있도록 public이다.
      */
-    private static Expression<String> imageUrl() {
-        return JPAExpressions.select(RESOURCE.accessUrl)
-                .from(RESOURCE)
-                .where(RESOURCE.id.eq(
-                        JPAExpressions.select(CANDIDATE.id.min())
-                                .from(CANDIDATE)
-                                .where(CANDIDATE.container.id.eq(PRODUCT.itemContainerId))));
+    public record ProductPhotoRow(
+            Long id, String name, Long price, String linkUrl, int displayOrder,
+            Long resourceId, String imageUrl) {
+    }
+
+    /** 조인으로 반복된 상품 행과 사진을 상품 하나로 접는다. SQL의 상품·사진 순서를 그대로 보존한다. */
+    private static final class ProductAccumulator {
+
+        private final ProductPhotoRow baseRow;
+        private final List<String> imageUrls = new ArrayList<>();
+
+        private ProductAccumulator(ProductPhotoRow baseRow) {
+            this.baseRow = baseRow;
+        }
+
+        private void add(ProductPhotoRow row) {
+            if (row.resourceId() != null) {
+                imageUrls.add(row.imageUrl());
+            }
+        }
+
+        private PostDetailProduct build() {
+            return new PostDetailProduct(
+                    baseRow.id(),
+                    baseRow.name(),
+                    baseRow.price(),
+                    baseRow.linkUrl(),
+                    imageUrls,
+                    baseRow.displayOrder());
+        }
     }
 
     /**

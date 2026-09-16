@@ -149,6 +149,12 @@ class PostDetailWithdrawnUserIT {
                 .andExpect(jsonPath("$.returnObject.authorId").value(author.id()))
                 .andExpect(jsonPath("$.returnObject.authorNickname").value("알 수 없음"))
                 .andExpect(jsonPath("$.returnObject.authorProfileImageUrl").value(nullValue()))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrls").value(
+                        jdbcTemplate.queryForList("""
+                                SELECT ir.access_url FROM post_product pp
+                                JOIN item_resource ir ON ir.item_container_id = pp.item_container_id
+                                WHERE pp.post_id = ? ORDER BY ir.id
+                                """, String.class, postId)))
                 // 등급은 개인정보가 아니라 활동의 결과라 파기되지 않는다.
                 .andExpect(jsonPath("$.returnObject.authorGradeLevel").value(1))
                 .andExpect(jsonPath("$.returnObject.authorGradeName").value("LV.1"))
@@ -166,7 +172,13 @@ class PostDetailWithdrawnUserIT {
         Long containerId = containerStore.save(new ItemContainer(author.id(), AttachType.PRODUCT)
                 .add(new ItemResource(1024L, "bag.jpg",
                         "product-images/%d/%d.jpg".formatted(author.id(), System.nanoTime()),
-                        "https://cdn.test/bag-" + System.nanoTime()))).id();
+                        "https://cdn.test/bag-" + System.nanoTime()))
+                .add(new ItemResource(1024L, "bag-2.jpg",
+                        "product-images/%d/%d-2.jpg".formatted(author.id(), System.nanoTime()),
+                        "https://cdn.test/bag-2-" + System.nanoTime()))
+                .add(new ItemResource(1024L, "bag-3.jpg",
+                        "product-images/%d/%d-3.jpg".formatted(author.id(), System.nanoTime()),
+                        "https://cdn.test/bag-3-" + System.nanoTime()))).id();
         return postStore.save(new Post(author.id(), PostType.AGREE, PostCategory.LIVING, title, "설명")
                 .addProduct(new PostProduct(containerId, "가방", 100_000L, null, 1))
                 .addOption(PostOption.ofLabel("사자", 1))

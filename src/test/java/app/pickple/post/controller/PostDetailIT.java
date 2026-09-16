@@ -23,6 +23,8 @@ import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,6 +33,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -400,8 +404,8 @@ class PostDetailIT {
     void queryCountIsFlat() throws Exception {
         // 완료 판정: "조회 시 N+1 쿼리가 발생하지 않음 → 실행 쿼리 수 측정(상품·선택지·작성자 포함)".
         //
-        // 절대 횟수를 못박는 대신 <b>변하지 않음</b>을 본다. 상품이 하나(찬반)든 둘(A/B)이든,
-        // 사진이 한 장이든 세 장이든 문장 수가 같아야 팬아웃이 없다는 뜻이다.
+        // 상품·사진 수에 따른 추가 조회 여부와 절대 문장 수를 함께 본다.
+        // 곱 조인 여부는 별도 상품·사진·선택지 개수 검사로 확인한다.
         Long agreeOnePhoto = saveAgreePost("사진 1장", 1).id();
         Long agreeThreePhotos = saveAgreePost("사진 3장", 3).id();
         Long ab = saveAbPost("상품 2개").id();
@@ -413,7 +417,7 @@ class PostDetailIT {
         long twoProducts = countStatements("/posts/" + ab);
         long noProducts = countStatements("/posts/" + general);
 
-        // 사진이 3배가 돼도 문장 수가 같다 — 대표 사진이 스칼라 서브쿼리라 행이 불어나지 않는다.
+        // 전체 사진을 한 문장으로 읽고 상품별로 묶으므로 사진 수에 따라 추가 조회가 생기지 않는다.
         assertThat(threePhotos)
                 .as("사진 수가 늘어도 쿼리가 늘면 N+1 이다 (1장 %d회 → 3장 %d회)", onePhoto, threePhotos)
                 .isEqualTo(onePhoto);
@@ -426,7 +430,7 @@ class PostDetailIT {
         // 일반 게시글은 상품·선택지를 조회하지 않으므로 오히려 적다.
         assertThat(noProducts)
                 .as("일반 게시글은 상품·선택지 조회를 건너뛴다")
-                .isLessThan(onePhoto);
+                .isEqualTo(1);
 
         // 절대값도 기록한다 — 횟수가 고정이어도 값이 크면 그 자체가 문제다.
         assertThat(onePhoto)
@@ -501,27 +505,136 @@ class PostDetailIT {
                 .andExpect(jsonPath("$.returnObject.mine").value(true));
     }
 
-    @Test
-    @DisplayName("상품 사진은 가장 처음 등록한 1장이다 (R-03)")
-    void exposesFirstProductPhoto() throws Exception {
-        // 찬반 상품은 사진을 최대 3장 갖는다. 명세 §6.3 은 "가장 처음 등록한 사진 1장" 이다.
-        Post post = saveAgreePost("사진 순서", 3);
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3})
+    @DisplayName("찬반 전체 사진을 resource ID 순서로 주며 기존 대표 사진을 유지한다")
+    void exposesAllProductPhotosAndKeepsFirstPhoto(int photoCount) throws Exception {
+        Post post = saveAgreePost("사진 순서", photoCount);
         Long postId = post.id();
         flush();
 
-        String firstUrl = jdbcTemplate.queryForObject("""
-                SELECT ir.access_url
-                  FROM post_product pp
-                  JOIN item_resource ir ON ir.item_container_id = pp.item_container_id
-                 WHERE pp.post_id = ?
-                 ORDER BY ir.id ASC
-                 LIMIT 1
-                """, String.class, postId);
+        List<Long> resourceIds = jdbcTemplate.queryForList("""
+                SELECT ir.id FROM post_product pp
+                JOIN item_resource ir ON ir.item_container_id = pp.item_container_id
+                WHERE pp.post_id = ? ORDER BY ir.id
+                """, Long.class, postId);
+        // URL 정렬과 시간 정렬로 우연히 통과하지 않게 URL 역순·동일 시각을 만든다.
+        for (int i = resourceIds.size() - 1; i >= 0; i--) {
+            jdbcTemplate.update("""
+                    UPDATE item_resource SET access_url = ?, created_at = '2026-09-01 00:00:00'
+                    WHERE id = ?
+                    """, "https://cdn.test/ordered-" + (photoCount - i), resourceIds.get(i));
+        }
+        saveAgreePost("다른 게시글", 3);
+        newContainer("미부착", 3);
+        flush();
+        List<String> expected = productPhotoUrls(postId, 1);
+        assertThat(expected).hasSize(photoCount);
 
-        mockMvc.perform(get("/posts/{id}", postId))
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(get("/posts/{id}", postId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.vote.products.length()").value(1))
+                    .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrl").value(expected.getFirst()))
+                    .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrls").value(expected))
+                    .andExpect(jsonPath("$.returnObject.vote.options.length()").value(2));
+        }
+    }
+
+    @Test
+    @DisplayName("A/B는 역순 저장해도 상품 순서와 각 사진·선택지 연결을 유지한다")
+    void abPhotosStayWithTheirProduct() throws Exception {
+        Post post = postStore.save(new Post(author.id(), PostType.A_B, PostCategory.ETC, "역순", "설명")
+                .addProduct(new PostProduct(newContainer("reverse-b", 1), "B", 20_000L, null, 2))
+                .addProduct(new PostProduct(newContainer("reverse-a", 1), "A", 10_000L, null, 1))
+                .addOption(PostOption.ofProductDisplayOrder(2, 2))
+                .addOption(PostOption.ofProductDisplayOrder(1, 1)));
+        flush();
+        List<Long> productIds = jdbcTemplate.queryForList(
+                "SELECT id FROM post_product WHERE post_id = ? ORDER BY display_order", Long.class, post.id());
+        List<String> a = productPhotoUrls(post.id(), 1);
+        List<String> b = productPhotoUrls(post.id(), 2);
+        assertThat(a).hasSize(1);
+        assertThat(b).hasSize(1).doesNotContainAnyElementsOf(a);
+
+        mockMvc.perform(get("/posts/{id}", post.id()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.returnObject.vote.products.length()").value(1))
-                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrl").value(firstUrl));
+                .andExpect(jsonPath("$.returnObject.vote.products.length()").value(2))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].id").value(productIds.get(0)))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrl").value(a.getFirst()))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrls").value(a))
+                .andExpect(jsonPath("$.returnObject.vote.products[1].id").value(productIds.get(1)))
+                .andExpect(jsonPath("$.returnObject.vote.products[1].displayOrder").value(2))
+                .andExpect(jsonPath("$.returnObject.vote.products[1].imageUrl").value(b.getFirst()))
+                .andExpect(jsonPath("$.returnObject.vote.products[1].imageUrls").value(b))
+                .andExpect(jsonPath("$.returnObject.vote.options.length()").value(2))
+                .andExpect(jsonPath("$.returnObject.vote.options[0].productId").value(productIds.get(0)))
+                .andExpect(jsonPath("$.returnObject.vote.options[1].productId").value(productIds.get(1)));
+    }
+
+    @Test
+    @DisplayName("A 사진이 없으면 A 상품과 빈 배열을 유지하고 B 사진으로 대체하지 않는다")
+    void missingPhotosKeepProductAndEmptyArray() throws Exception {
+        Post post = saveAbPost("A 사진 누락");
+        flush();
+        jdbcTemplate.update("""
+                DELETE ir FROM item_resource ir JOIN post_product pp
+                ON pp.item_container_id = ir.item_container_id
+                WHERE pp.post_id = ? AND pp.display_order = 1
+                """, post.id());
+        List<String> b = productPhotoUrls(post.id(), 2);
+
+        mockMvc.perform(get("/posts/{id}", post.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.vote.products.length()").value(2))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.returnObject.vote.products[0]").value(org.hamcrest.Matchers.hasKey("imageUrl")))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrl").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrls").isArray())
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrls").isEmpty())
+                .andExpect(jsonPath("$.returnObject.vote.products[1].imageUrls").value(b));
+    }
+
+    @Test
+    @DisplayName("게스트·미투표자·투표자는 동일한 전체 사진을 받고 결과 공개 조건은 유지된다")
+    void allViewersSeeSamePhotos() throws Exception {
+        Post post = saveAgreePost("전체 사진 공개", 3);
+        voteService.castOrChange(post.id(), optionIdAt(post.id(), 1), voter.id());
+        flush();
+        List<String> expected = productPhotoUrls(post.id(), 1);
+        for (String token : List.of("", authorToken, voterToken)) {
+            var request = get("/posts/{id}", post.id());
+            if (!token.isEmpty()) {
+                request.header("Authorization", bearer(token));
+            }
+            var result = mockMvc.perform(request)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrls").value(expected))
+                    .andExpect(jsonPath("$.returnObject.vote.voterCount").value(1));
+            if (token.equals(voterToken)) {
+                result.andExpect(jsonPath("$.returnObject.vote.options[0].voteCount").value(1))
+                        .andExpect(jsonPath("$.returnObject.vote.options[0].percentage").value(100));
+            } else {
+                result.andExpect(jsonPath("$.returnObject.vote.options[*].voteCount").isEmpty())
+                        .andExpect(jsonPath("$.returnObject.vote.options[*].percentage").isEmpty());
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("없는 글과 삭제 글은 사진 조회 없이 한 문장으로 끝난다")
+    void missingAndDeletedPostsSkipPhotoQueries() {
+        Post post = saveAgreePost("삭제된 사진", 3);
+        flush();
+        jdbcTemplate.update("UPDATE post SET deleted_at = NOW() WHERE id = ?", post.id());
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        for (Long id : List.of(post.id(), Long.MAX_VALUE)) {
+            statistics.clear();
+            assertThat(postStore.findDetail(id, null)).isEmpty();
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+        }
     }
 
     @Test
@@ -537,6 +650,14 @@ class PostDetailIT {
     }
 
     // --- 픽스처 -------------------------------------------------------------
+
+    private List<String> productPhotoUrls(Long postId, int displayOrder) {
+        return jdbcTemplate.queryForList("""
+                SELECT ir.access_url FROM post_product pp
+                JOIN item_resource ir ON ir.item_container_id = pp.item_container_id
+                WHERE pp.post_id = ? AND pp.display_order = ? ORDER BY ir.id
+                """, String.class, postId, displayOrder);
+    }
 
     private User saveUser(String providerId, String name) {
         User saved = userStore.save(new User(SocialProvider.GOOGLE, providerId, null, name));

@@ -294,16 +294,18 @@ public class PostController {
     /**
      * 투표 대상 상품 (§6.3).
      *
-     * @param imageUrl 상품 사진 1장. 찬반은 최대 3장 중 가장 처음 등록한 것이고,
-     *                 A/B 는 상품마다 1장이라 그 한 장이다 (R-03)
+     * @param imageUrl 기존 대표 사진. imageUrls의 첫 값이며 사진이 없으면 null
+     * @param imageUrls 상품에 연결된 전체 사진. resource ID 오름차순이며 사진이 없으면 빈 배열
      */
     public record ProductItem(
             @Schema(description = "상품 식별자") Long id,
             @Schema(description = "상품명") String name,
             @Schema(description = "가격. 입력이 선택이라 없을 수 있다") Long price,
             @Schema(description = "상품 URL. 입력이 선택이라 없을 수 있다") String linkUrl,
-            @Schema(description = "상품 사진 1장. 찬반은 가장 처음 등록한 것, A/B는 상품마다 1장 (R-03)")
+            @Schema(description = "기존 대표 사진 URL. imageUrls의 첫 값이며 사진이 없으면 null")
             String imageUrl,
+            @Schema(description = "상품의 전체 사진 URL, resource ID 오름차순. 찬반 1~3장, A/B는 상품마다 1장(R-03). 사진이 없으면 빈 배열")
+            List<String> imageUrls,
             @Schema(description = "표시 순서. 1(A) 또는 2(B)") int displayOrder) {
 
         static ProductItem from(PostStore.PostDetailProduct product) {
@@ -313,6 +315,7 @@ public class PostController {
                     product.price(),
                     product.linkUrl(),
                     product.imageUrl(),
+                    product.imageUrls(),
                     product.displayOrder());
         }
     }
