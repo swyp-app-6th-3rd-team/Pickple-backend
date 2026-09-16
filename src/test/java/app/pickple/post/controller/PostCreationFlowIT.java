@@ -45,6 +45,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -116,6 +117,32 @@ class PostCreationFlowIT {
             jdbcTemplate.update("DELETE FROM users WHERE id = ?", createdUserId);
         }
         createdUserIds.clear();
+    }
+
+    @Test
+    @DisplayName("실제 사진 세 장 업로드·게시글 작성·상세 조회의 URL이 DB 순서와 일치한다")
+    void uploadedThreePhotosAreReturnedInDetail() throws Exception {
+        JsonNode uploaded = uploadImageResponse(accessToken, 3);
+        long containerId = uploaded.at("/returnObject/itemContainerId").asLong();
+        List<String> uploadedUrls = new ArrayList<>();
+        uploaded.at("/returnObject/images").forEach(image -> uploadedUrls.add(image.get("accessUrl").asString()));
+        assertThat(uploadedUrls).hasSize(3).doesNotHaveDuplicates();
+        List<String> storedUrls = jdbcTemplate.queryForList(
+                "SELECT access_url FROM item_resource WHERE item_container_id = ? ORDER BY id",
+                String.class, containerId);
+        assertThat(storedUrls).containsExactlyElementsOf(uploadedUrls);
+
+        MvcResult created = createPost(accessToken, agreeRequest(containerId, "사진 세 장"))
+                .andExpect(status().isCreated()).andReturn();
+        long postId = postId(created);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT item_container_id FROM post_product WHERE post_id = ?", Long.class, postId))
+                .isEqualTo(containerId);
+        mockMvc.perform(get("/posts/{id}", postId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.returnObject.vote.products.length()").value(1))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrls").value(storedUrls))
+                .andExpect(jsonPath("$.returnObject.vote.products[0].imageUrl").value(storedUrls.getFirst()));
     }
 
     @Test
@@ -419,6 +446,10 @@ class PostCreationFlowIT {
     }
 
     private long uploadImages(String token, int imageCount) throws Exception {
+        return uploadImageResponse(token, imageCount).at("/returnObject/itemContainerId").asLong();
+    }
+
+    private JsonNode uploadImageResponse(String token, int imageCount) throws Exception {
         var request = multipart("/images")
                 .param("attachType", "PRODUCT")
                 .header("Authorization", "Bearer " + token);
@@ -435,7 +466,7 @@ class PostCreationFlowIT {
                 .andExpect(jsonPath("$.code").value("CREATED"))
                 .andReturn();
         JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
-        return response.at("/returnObject/itemContainerId").asLong();
+        return response;
     }
 
     private ResultActions createPost(String token, PostCreateRequest request) throws Exception {

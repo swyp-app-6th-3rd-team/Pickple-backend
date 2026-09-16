@@ -31,8 +31,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>여기서 고정하는 성질은 셋이다 — <b>본문 문장은 기본 키·유니크 키 단건 조회로 접히고</b>
  * (삭제 필터와 내 투표 {@code LEFT JOIN} 이 그 문장 안에 있다), <b>상품 문장은 {@code uk_product_post_order}
- * 로 읽고 대표 사진은 {@code idx_resource_container} 를 타는 스칼라 서브쿼리다</b>(조인이 아니라 사진 수만큼
- * 행이 불어나지 않는다), <b>선택지 문장은 {@code uk_option_post_order} 하나로 끝난다</b>. 문장 수가 데이터 양과
+ * 로 읽고 전체 사진은 {@code idx_resource_container} 로 조인한다</b>(상품별 사진 행을 상품 하나로 조립),
+ * <b>선택지 문장은 {@code uk_option_post_order} 하나로 끝난다</b>. 문장 수가 데이터 양과
  * 무관하다는 성질은 {@code PostDetailIT} 가 따로 잰다.
  *
  * <p>{@code PostDetailIT} 에 중첩하지 않은 이유 — 통계를 위한 {@code ANALYZE TABLE} 이 암묵 커밋이라 시험
@@ -44,10 +44,9 @@ class PostDetailQueryPlanIT {
 
     private static final int AGREE_POSTS = 300;
     private static final int GENERAL_POSTS = 100;
-    /** 찬반 상품은 사진을 최대 3장 갖는다 (R-03) — 서브쿼리가 실제로 고를 것이 있어야 한다. */
-    // 정렬 부재는 "filesort" 가 아니라 TREE 형식의 `Sort:` 노드로 본다 — TREE 는 filesort 라는 낱말을 쓰지 않으므로
-    // 그 문자열을 찾는 단언은 아무것도 지키지 않는다(이종 리뷰 지적). 표시 순서 ORDER BY 는 유니크 키
-    // (post_id, display_order) 가 맡아 Sort 노드가 없고, 정렬 컬럼을 label 로 바꾸면 Sort 가 나타나 여기서 깨진다.
+    /** 찬반 상품은 사진을 최대 3장 갖는다 (R-03). */
+    // TREE 형식의 정렬은 Sort 노드로 확인한다. 선택지는 표시 순서 인덱스가 정렬을 맡고,
+    // 상품·전체 사진은 두 테이블의 표시 순서를 함께 보장하기 위한 작은 결과 정렬을 허용한다.
     private static final int PHOTOS_PER_PRODUCT = 3;
     private static final String UNKNOWN_AUTHOR = "알 수 없음";
 
@@ -178,24 +177,28 @@ class PostDetailQueryPlanIT {
     }
 
     @Test
-    @DisplayName("상품 문장은 (post_id, display_order) 유니크 키로 읽고 대표 사진은 컨테이너 인덱스를 타는 스칼라 서브쿼리다")
-    void productsStatementUsesUniqueKeyAndScalarPhotoSubquery() {
+    @DisplayName("상품과 전체 사진은 게시글·컨테이너 인덱스로 읽으며 선택지와 곱하지 않는다")
+    void productsStatementUsesIndexedPhotoJoin() {
         Statements statements = capture(null);
 
         String plan = explain(statements.products(), statements.productsArgs());
         assertThat(plan)
                 .as("상품은 유니크 키 (post_id, display_order) 의 앞 컬럼으로 읽는다")
                 .contains("using uk_product_post_order")
-                .as("대표 사진은 컨테이너 인덱스로 최소 id 를 고른다 — 사진 3장이 상품 행을 불리지 않는다")
+                .as("전체 사진은 해당 상품의 컨테이너 인덱스로 읽는다")
                 .contains("using idx_resource_container")
-                .doesNotContain("Table scan")
-                .doesNotContain("Sort:");
+                .as("사진 정렬용 작은 임시 결과 외에 원본 테이블 전체 스캔은 없어야 한다")
+                .doesNotContainPattern("Table scan on (?!<temporary>)");
 
-        // 사진은 조인이 아니라 서브쿼리다. 조인으로 바꾸면 찬반 상품 한 줄이 사진 수(최대 3)만큼 늘어난다.
+        // 상품과 사진 순서를 함께 정렬하므로 작은 결과의 Sort는 허용한다. 선택지 곱 조인은 금지한다.
         assertThat(statements.products())
-                .containsIgnoringCase("min(")
-                .contains("item_resource")
-                .doesNotContainIgnoringCase("join item_resource");
+                .containsIgnoringCase("left join item_resource")
+                .containsIgnoringCase("order by")
+                .doesNotContainIgnoringCase("min(")
+                .doesNotContain("post_option");
+        List<java.util.Map<String, Object>> rows =
+                jdbcTemplate.queryForList(statements.products(), statements.productsArgs());
+        assertThat(rows).as("찬반 상품 하나의 사진 세 행만 읽는다").hasSize(PHOTOS_PER_PRODUCT);
     }
 
     @Test
@@ -229,6 +232,9 @@ class PostDetailQueryPlanIT {
         List<String> statements = sqlCapture.record(() -> transactionTemplate.executeWithoutResult(status -> {
             PostStore.PostDetailView view = postStore.findDetail(targetPostId, viewer).orElseThrow();
             assertThat(view.products()).as("찬반은 상품 하나 (R-02)").hasSize(1);
+            assertThat(view.products().getFirst().imageUrls()).hasSize(PHOTOS_PER_PRODUCT).doesNotHaveDuplicates();
+            assertThat(view.products().getFirst().imageUrl())
+                    .isEqualTo(view.products().getFirst().imageUrls().getFirst());
             assertThat(view.options()).as("선택지는 정확히 둘 (R-04)").hasSize(2);
             assertThat(view.voted()).as("조회자가 투표한 글이어야 내 투표 조인이 실제로 맞는다").isEqualTo(viewer != null);
         }));
@@ -242,7 +248,7 @@ class PostDetailQueryPlanIT {
                 .matches("(?s)[^?]*nickname[^?]*\\?[^?]*name[^?]*\\?[^?]*\\?[^?]*user_id=\\?[^?]*\\.id=\\?[^?]*");
         Object[] detailArgs = {"", "", UNKNOWN_AUTHOR, viewer == null ? -1L : viewer, targetPostId};
 
-        // 상품·선택지: 게시글 id 하나뿐이다. 사진 서브쿼리는 상관 조건이라 파라미터가 없다.
+        // 상품·선택지: 게시글 id 하나뿐이다. 사진 조인은 파라미터가 없다.
         String products = statements.get(1);
         String options = statements.get(2);
         assertThat(products).contains("post_product").matches("(?s)[^?]*post_id=\\?[^?]*");

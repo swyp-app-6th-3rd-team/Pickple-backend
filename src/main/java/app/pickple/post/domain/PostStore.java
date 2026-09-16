@@ -280,8 +280,7 @@ public interface PostStore {
     /**
      * 상세의 상품 한 건 (§6.3). 일반 게시글에는 없다 (R-02).
      *
-     * @param imageUrl 상품 사진 1장. 찬반은 최대 3장 중 <b>가장 처음 등록한 것</b>이고
-     *                 (R-03), A/B 는 상품마다 1장이라 그 한 장이다
+     * @param imageUrls 상품에 연결된 전체 사진 URL, resource ID 오름차순. 사진이 없으면 빈 목록
      * @param price    가격. 입력이 선택이라 {@code null} 일 수 있다
      * @param linkUrl  상품 URL. 선택 입력이라 {@code null} 일 수 있다
      */
@@ -290,8 +289,16 @@ public interface PostStore {
             String name,
             Long price,
             String linkUrl,
-            String imageUrl,
+            List<String> imageUrls,
             int displayOrder) {
+        public PostDetailProduct {
+            imageUrls = List.copyOf(imageUrls);
+        }
+
+        /** 기존 대표 사진 계약. 전체 사진과 같은 순서에서 첫 값을 얻는다. */
+        public String imageUrl() {
+            return imageUrls.isEmpty() ? null : imageUrls.getFirst();
+        }
     }
 
     /**

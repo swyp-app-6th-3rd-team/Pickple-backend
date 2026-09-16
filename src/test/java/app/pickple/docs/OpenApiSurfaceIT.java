@@ -183,7 +183,13 @@ class OpenApiSurfaceIT {
         // 같은 자바 중첩 타입명 ProductItem이 상세 상품 스키마를 덮어쓰면 안 된다.
         Map<String, Object> detailProductFields = spec.read("$.components.schemas.ProductItem.properties");
         assertThat(detailProductFields.keySet()).containsExactlyInAnyOrder(
-                "id", "name", "price", "linkUrl", "imageUrl", "displayOrder");
+                "id", "name", "price", "linkUrl", "imageUrl", "imageUrls", "displayOrder");
+        assertThat((String) spec.read("$.components.schemas.ProductItem.properties.imageUrls.type"))
+                .isEqualTo("array");
+        assertThat((String) spec.read("$.components.schemas.ProductItem.properties.imageUrls.items.type"))
+                .isEqualTo("string");
+        assertThat((String) spec.read("$.components.schemas.ProductItem.properties.imageUrls.description"))
+                .contains("resource ID 오름차순", "빈 배열");
     }
 
     @Test
