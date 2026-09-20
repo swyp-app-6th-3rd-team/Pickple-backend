@@ -29,6 +29,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -38,6 +40,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -71,6 +74,8 @@ class BadgeControllerIT {
     private JwtService jwtService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private Clock clock;
 
     private final List<Long> createdPostIds = new ArrayList<>();
 
@@ -395,14 +400,17 @@ class BadgeControllerIT {
             mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(status().isOk())
-                    // 누적 계열 1개 + 일일 계열 1개. 연속은 슬롯에 들어가지 않는다.
+                    // 홈 UI가 지원하는 누적·연속 순서이며 일일 계열은 제외한다.
                     .andExpect(jsonPath("$.returnObject.length()").value(2))
                     .andExpect(jsonPath("$.returnObject[0].code").value("TOTAL_VOTE_10"))
+                    .andExpect(jsonPath("$.returnObject[0].conditionType").value("TOTAL_VOTE"))
                     .andExpect(jsonPath("$.returnObject[0].current").value(3))
                     .andExpect(jsonPath("$.returnObject[0].goal").value(10))
-                    .andExpect(jsonPath("$.returnObject[1].code").value("DAILY_VOTE_20"))
-                    .andExpect(jsonPath("$.returnObject[1].current").value(3))
-                    .andExpect(jsonPath("$.returnObject[1].goal").value(20));
+                    .andExpect(jsonPath("$.returnObject[1].code").value("STREAK_VOTE_7"))
+                    .andExpect(jsonPath("$.returnObject[1].conditionType").value("STREAK_VOTE"))
+                    .andExpect(jsonPath("$.returnObject[1].current").value(1))
+                    .andExpect(jsonPath("$.returnObject[1].goal").value(7))
+                    .andExpect(jsonPath("$.returnObject[?(@.conditionType == 'DAILY_VOTE')]").isEmpty());
         }
 
         @Test
@@ -422,33 +430,137 @@ class BadgeControllerIT {
         @Test
         @DisplayName("한 계열을 다 채우면 그 슬롯이 빠진다 — 없는 미션을 지어내지 않는다")
         void exhaustedSeriesDropsOut() throws Exception {
-            // 하루 30개를 채우면 일일 계열 둘(20·30)이 모두 끝난다.
-            // 누적은 30 이라 100회 미션이 남는다.
-            voteOnDistinctPosts(30);
+            // 30일 연속 투표로 연속 계열을 모두 채워도 누적 100회 미션은 남는다.
+            seedConsecutiveDays(LocalDate.now(clock), 30);
 
             mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
                     .andExpect(status().isOk())
-                    // 일일 슬롯이 사라져 누적 하나만 남는다.
+                    // 연속 슬롯이 사라져 누적 하나만 남는다.
                     .andExpect(jsonPath("$.returnObject.length()").value(1))
                     .andExpect(jsonPath("$.returnObject[0].code").value("TOTAL_VOTE_100"))
                     .andExpect(jsonPath("$.returnObject[0].conditionType").value("TOTAL_VOTE"));
         }
 
         @Test
-        @DisplayName("투표하면 미션 진행률이 그 자리에서 오른다")
+        @DisplayName("당일 추가 투표는 누적 진행률만 올리고 연속 일수는 유지한다")
         void progressMovesImmediately() throws Exception {
             voteOnDistinctPosts(1);
 
             mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[0].current").value(1))
                     .andExpect(jsonPath("$.returnObject[1].current").value(1));
 
             voteOnDistinctPosts(1);
 
             mockMvc.perform(get("/users/me/badges/missions")
                             .header("Authorization", "Bearer " + voterToken))
-                    .andExpect(jsonPath("$.returnObject[1].current").value(2));
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[0].current").value(2))
+                    .andExpect(jsonPath("$.returnObject[1].current").value(1));
+        }
+
+        @Test
+        @DisplayName("활동이 없어도 누적·연속 미션을 0부터 보여준다")
+        void noActivityStartsAtZero() throws Exception {
+            mockMvc.perform(get("/users/me/badges/missions")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.length()").value(2))
+                    .andExpect(jsonPath("$.returnObject[0].code").value("TOTAL_VOTE_10"))
+                    .andExpect(jsonPath("$.returnObject[0].current").value(0))
+                    .andExpect(jsonPath("$.returnObject[1].code").value("STREAK_VOTE_7"))
+                    .andExpect(jsonPath("$.returnObject[1].current").value(0));
+        }
+
+        @Test
+        @DisplayName("어제까지 6일 연속이면 6/7을 보여주고 오늘 투표 후 7/30으로 넘어간다")
+        void streakAdvancesAfterVotingToday() throws Exception {
+            seedConsecutiveDays(LocalDate.now(clock).minusDays(1), 6);
+
+            mockMvc.perform(get("/users/me/badges/missions")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[1].code").value("STREAK_VOTE_7"))
+                    .andExpect(jsonPath("$.returnObject[1].current").value(6))
+                    .andExpect(jsonPath("$.returnObject[1].goal").value(7));
+
+            voteOnDistinctPosts(1);
+
+            mockMvc.perform(get("/users/me/badges/missions")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[1].code").value("STREAK_VOTE_30"))
+                    .andExpect(jsonPath("$.returnObject[1].current").value(7))
+                    .andExpect(jsonPath("$.returnObject[1].goal").value(30));
+        }
+
+        @Test
+        @DisplayName("연속이 끊겨도 이미 획득한 7일 뱃지를 다시 미션으로 내리지 않는다")
+        void ownedStreakMissionStaysExcludedAfterBreak() throws Exception {
+            seedConsecutiveDays(LocalDate.now(clock).minusDays(2), 7);
+            jdbcTemplate.update("""
+                    INSERT INTO user_badge (user_id, badge_id, acquired_at)
+                    SELECT ?, id, NOW() FROM badge WHERE code = 'STREAK_VOTE_7'
+                    """, voter.id());
+
+            mockMvc.perform(get("/users/me/badges/missions")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject[1].code").value("STREAK_VOTE_30"))
+                    .andExpect(jsonPath("$.returnObject[1].current").value(0))
+                    .andExpect(jsonPath("$.returnObject[1].goal").value(30));
+        }
+
+        @Test
+        @DisplayName("누적 계열을 모두 획득했으면 연속 미션만 남는다")
+        void onlyStreakRemainsAfterTotalCompleted() throws Exception {
+            grantSeries("TOTAL_VOTE");
+
+            mockMvc.perform(get("/users/me/badges/missions")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.length()").value(1))
+                    .andExpect(jsonPath("$.returnObject[0].code").value("STREAK_VOTE_7"));
+        }
+
+        @Test
+        @DisplayName("일일 뱃지가 미획득이어도 누적·연속을 모두 획득했으면 빈 배열이다")
+        void emptyWhenVisibleSeriesCompleted() throws Exception {
+            grantSeries("TOTAL_VOTE");
+            grantSeries("STREAK_VOTE");
+
+            mockMvc.perform(get("/users/me/badges/missions")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject").isEmpty());
+
+            mockMvc.perform(get("/users/me/badges")
+                            .header("Authorization", "Bearer " + voterToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.returnObject.badges[?(@.conditionType == 'DAILY_VOTE')].code")
+                            .value(contains("DAILY_VOTE_20", "DAILY_VOTE_30")))
+                    .andExpect(jsonPath("$.returnObject.badges[?(@.code == 'DAILY_VOTE_20')].acquired")
+                            .value(contains(false)));
+        }
+
+        private void seedConsecutiveDays(LocalDate lastDay, int days) {
+            for (int i = 0; i < days; i++) {
+                jdbcTemplate.update("""
+                        INSERT INTO user_daily_activity
+                            (user_id, activity_date, vote_count, created_at, updated_at)
+                        VALUES (?, ?, 1, NOW(), NOW())
+                        """, voter.id(), lastDay.minusDays(i));
+            }
+        }
+
+        private void grantSeries(String conditionType) {
+            jdbcTemplate.update("""
+                    INSERT INTO user_badge (user_id, badge_id, acquired_at)
+                    SELECT ?, id, NOW() FROM badge WHERE condition_type = ?
+                    """, voter.id(), conditionType);
         }
     }
 }

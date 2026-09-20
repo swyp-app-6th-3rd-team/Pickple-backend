@@ -50,9 +50,10 @@ public class BadgeController {
 
     @Operation(summary = "미해제 미션 진행률",
             description = "아직 달성하지 못한 미션을 계열마다 하나씩 돌려준다(§2.3). "
-                    + "누적 계열과 일일 계열에서 각각 가장 낮은 임계값을 고른다. "
+                    + "누적(TOTAL_VOTE), 연속(STREAK_VOTE) 계열 순서로 각각 가장 낮은 임계값을 고른다. "
+                    + "현재 홈 UI에 맞춰 일일(DAILY_VOTE) 계열은 미션 응답에서 임시 제외한다. "
                     + "진행률은 퍼센트가 아니라 현재값과 목표값 두 수다 — 화면이 \"(0/10)\" 으로 쓴다. "
-                    + "다 채운 계열은 빠지고, 8종을 모두 얻으면 빈 배열이다.")
+                    + "다 채운 계열은 빠지고, 누적·연속 계열을 모두 채우면 빈 배열이다.")
     @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/users/me/badges/missions")
     public ApiResponse<List<MissionResponse>> myMissions(
@@ -112,7 +113,7 @@ public class BadgeController {
     public record MissionResponse(
             @Schema(description = "안정 식별자", example = "TOTAL_VOTE_10") String code,
             @Schema(description = "미션 문구", example = "누적 투표 10회 달성") String description,
-            @Schema(description = "조건 유형", example = "TOTAL_VOTE") String conditionType,
+            @Schema(description = "미션 조건 유형. TOTAL_VOTE | STREAK_VOTE", example = "TOTAL_VOTE") String conditionType,
             @Schema(description = "현재값", example = "3") long current,
             @Schema(description = "목표값", example = "10") long goal) {
 
