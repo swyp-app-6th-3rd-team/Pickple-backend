@@ -51,6 +51,16 @@ class AccountWithdrawalServiceTest {
     }
 
     @Test
+    void qaWithdrawalNeverCallsSocialProviders() {
+        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.QA)));
+
+        assertThat(service.withdraw(7L)).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
+
+        verify(persistenceService).complete(7L);
+        verifyNoInteractions(providerTokenService, appleTokenGateway, kakaoUnlinkGateway);
+    }
+
+    @Test
     void revokesAppleTokenBeforeCompletingLocalWithdrawal() {
         given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));

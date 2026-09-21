@@ -14,6 +14,7 @@ erDiagram
     users ||--o{ item_container : "업로드"
     users ||--o| user_refresh_token : "세션"
     users ||--o| apple_provider_token : "Apple 연동"
+    users ||--o| qa_account : "QA 자격증명"
     users ||--o{ post_commenter : "참여"
     users ||--o{ terms_agreement : "약관 동의"
 
@@ -34,9 +35,17 @@ erDiagram
     badge ||--o{ user_badge : "부여"
     item_container ||--o{ item_resource : "파일"
 
+    qa_account {
+        varchar login_id PK "대소문자 구분"
+        varchar password_hash "BCrypt"
+        bigint user_id FK,UK "QA 전용 사용자"
+        datetime created_at
+        datetime updated_at
+    }
+
     users {
         bigint id PK
-        varchar provider "GOOGLE|KAKAO|NAVER|APPLE"
+        varchar provider "GOOGLE|KAKAO|NAVER|APPLE|QA"
         varchar provider_id
         varchar email
         varchar name "소셜 이름"

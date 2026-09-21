@@ -161,7 +161,7 @@ public class AuthController {
             @Schema(description = "사용자 식별자") Long userId,
             @Schema(description = "소셜 프로바이더가 준 이메일. 로그인마다 갱신된다") String email,
             @Schema(description = "소셜 프로바이더가 준 이름. 닉네임과 다르다") String name,
-            @Schema(description = "GOOGLE | KAKAO | NAVER | APPLE") String provider,
+            @Schema(description = "GOOGLE | KAKAO | NAVER | APPLE | QA. QA는 소셜 인증 없는 테스터 계정") String provider,
             @Schema(description = "ROLE_USER | ROLE_ADMIN") String role) {
 
         public static MeResponse from(User user) {

@@ -4,6 +4,7 @@ import app.pickple.auth.domain.AppleProviderTokenStore;
 import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
+import app.pickple.auth.domain.QaAccountStore;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ public class AccountWithdrawalPersistenceService {
     private final UserStore userStore;
     private final RefreshTokenStore refreshTokenStore;
     private final AppleProviderTokenStore appleProviderTokenStore;
+    private final QaAccountStore qaAccountStore;
 
     @Transactional
     public void complete(Long userId) {
@@ -30,5 +32,6 @@ public class AccountWithdrawalPersistenceService {
         }
         refreshTokenStore.deleteByUserId(userId);
         appleProviderTokenStore.deleteByUserId(userId);
+        qaAccountStore.deleteByUserId(userId);
     }
 }

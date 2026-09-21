@@ -5,6 +5,7 @@ import app.pickple.auth.apple.AppleIdentity;
 import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.SocialIdentity;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.oauth.OAuth2UserInfo;
@@ -34,6 +35,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -63,6 +66,18 @@ class AuthServiceTest {
         jwtService = new JwtService(properties, clock);
         authService = new AuthService(
                 userStore, refreshTokenStore, jwtService, clock, refreshTokenRevocationService);
+    }
+
+    @Test
+    void socialLoginCannotCreateOrLinkQaUser() {
+        SocialIdentity identity = mock(SocialIdentity.class);
+        given(identity.provider()).willReturn(SocialProvider.QA);
+
+        assertThatThrownBy(() -> authService.loginOrRegister(identity))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code())
+                .isEqualTo(ResponseCode.OAUTH2_FAILED);
+        verifyNoInteractions(userStore, refreshTokenStore);
     }
 
     private OAuth2UserInfo googleUser(String sub) {

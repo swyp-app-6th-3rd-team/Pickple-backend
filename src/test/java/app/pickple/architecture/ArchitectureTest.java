@@ -400,7 +400,7 @@ class ArchitectureTest {
                 "GET /rankings/top",
                 "POST /auth/apple",
                 "POST /auth/kakao",
-                // dev에서 활성화된 경우에만 등록되며, QA 아이디·비밀번호를 검증한다.
+                // 명시적으로 활성화된 경우에만 등록되며, QA 아이디·비밀번호를 검증한다.
                 "POST /auth/login",
                 "POST /auth/refresh",
                 "POST /auth/mobile/refresh",

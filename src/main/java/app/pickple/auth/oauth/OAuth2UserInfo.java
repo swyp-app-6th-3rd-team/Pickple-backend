@@ -34,6 +34,7 @@ public interface OAuth2UserInfo extends SocialIdentity {
             case KAKAO -> new KakaoUserInfo(attributes);
             case NAVER -> new NaverUserInfo(attributes);
             case APPLE -> throw new IllegalArgumentException("Apple 로그인은 네이티브 API를 사용합니다.");
+            case QA -> throw new IllegalArgumentException("QA 계정은 OAuth2 로그인을 지원하지 않습니다.");
         };
     }
 }

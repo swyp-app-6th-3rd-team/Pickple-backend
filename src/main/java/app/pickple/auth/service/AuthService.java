@@ -32,6 +32,9 @@ public class AuthService {
      */
     @Transactional
     public User loginOrRegister(SocialIdentity userInfo) {
+        if (userInfo.provider() == SocialProvider.QA) {
+            throw new ApiException(ResponseCode.OAUTH2_FAILED);
+        }
         if (userInfo.providerId() == null || userInfo.providerId().isBlank()) {
             throw new ApiException(ResponseCode.OAUTH2_FAILED, "프로바이더가 식별자를 주지 않았습니다.");
         }
