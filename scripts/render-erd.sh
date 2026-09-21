@@ -22,10 +22,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# macOS 는 shasum, 리눅스(러너)는 sha256sum 이다. 한쪽만 쓰면 다른 쪽에서 127 로 죽는다.
+# 줄바꿈은 문서 의미를 바꾸지 않는다. Windows(CRLF)와 Linux·macOS(LF)가 같은
+# 산출물 해시를 쓰도록 CRLF만 LF로 정규화한 뒤 계산한다.
 sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
-  else shasum -a 256 "$1" | cut -d' ' -f1
+  if command -v sha256sum >/dev/null 2>&1; then sed $'s/\r$//' "$1" | sha256sum | cut -d' ' -f1
+  else sed $'s/\r$//' "$1" | shasum -a 256 | cut -d' ' -f1
   fi
 }
 
@@ -126,7 +127,8 @@ def render(src: str, out: str, serve: str | None) -> None:
 
     # 소스 해시를 산출물에 새긴다. check-erd-drift.sh 가 이 값으로 신선도를 판정한다 —
     # mtime 은 git 체크아웃이 전부 같은 값으로 만들어 CI 에서 무력하다.
-    digest = hashlib.sha256(pathlib.Path(src).read_bytes()).hexdigest()
+    source_bytes = re.sub(br"\r(?=\n|\Z)", b"", pathlib.Path(src).read_bytes())
+    digest = hashlib.sha256(source_bytes).hexdigest()
     svg = svg.replace("<svg", f"<!-- erd-source-sha256:{digest} -->\n<svg", 1)
 
     pathlib.Path(out).write_text(svg, encoding="utf-8")
