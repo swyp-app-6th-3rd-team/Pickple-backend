@@ -28,6 +28,7 @@ import org.springframework.web.context.WebApplicationContext;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -55,10 +56,15 @@ class QaLoginControllerIT {
     @Autowired private EntityManager entityManager;
 
     private MockMvc mvc;
+    private static final AtomicInteger CLIENTS = new AtomicInteger();
+    private String clientIp;
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(springSecurityFilterChain).build();
+        clientIp = "192.0.2." + CLIENTS.incrementAndGet();
+        mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(springSecurityFilterChain)
+                .defaultRequest(get("/").with(request -> { request.setRemoteAddr(clientIp); return request; }))
+                .build();
         jdbc.update("""
                 INSERT INTO users (id, provider, provider_id, name, role, state, created_at, updated_at)
                 VALUES (11701, 'QA', 'qa-login-it', 'QA', 'ROLE_USER', 'ACTIVE', NOW(), NOW())
@@ -101,7 +107,7 @@ class QaLoginControllerIT {
     }
 
     @Test
-    void repeatedFailuresDoNotBlockReviewOrTesterLogin() throws Exception {
+    void repeatedFailuresAreLimitedWithoutBlockingOtherClients() throws Exception {
         jdbc.update("""
                 INSERT INTO users (id, provider, provider_id, name, role, state, created_at, updated_at)
                 VALUES (11702, 'QA', 'qa-tester-it', 'Tester', 'ROLE_USER', 'ACTIVE', NOW(), NOW())
@@ -111,18 +117,24 @@ class QaLoginControllerIT {
                 VALUES ('tester-user', ?, 11702, NOW(), NOW())
                 """, PASSWORD_HASH);
 
-        for (int attempt = 0; attempt < 31; attempt++) {
+        for (int attempt = 0; attempt < 10; attempt++) {
             mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"loginId\":\"tester-user\",\"password\":\"wrong-password\"}"))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         }
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"loginId\":\"tester-user\",\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "60"))
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
         assertThat(refreshTokenStore.findByUserId(11701L)).isEmpty();
         assertThat(refreshTokenStore.findByUserId(11702L)).isEmpty();
 
         String reviewAccess = token(login(), "accessToken");
         assertThat(jwtService.parseAccessToken(reviewAccess).userId()).isEqualTo(11701L);
         MvcResult testerLogin = mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .with(request -> { request.setRemoteAddr("198.51.100." + CLIENTS.incrementAndGet()); return request; })
                         .content("{\"loginId\":\"tester-user\",\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isOk()).andReturn();
         assertThat(jwtService.parseAccessToken(token(testerLogin, "accessToken")).userId()).isEqualTo(11702L);
@@ -182,7 +194,8 @@ class QaLoginControllerIT {
     void documentsQaLoginOnlyWhenEnabled() throws Exception {
         mvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.paths['/auth/login'].post").exists());
+                .andExpect(jsonPath("$.paths['/auth/login'].post.description").value(
+                        org.hamcrest.Matchers.containsString("429")));
     }
 
     private MvcResult login() throws Exception {

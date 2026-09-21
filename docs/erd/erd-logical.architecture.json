@@ -398,7 +398,11 @@
       "from": "users",
       "to": "qa_account",
       "label": "QA 인증",
-      "variant": "dashed"
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "right",
+      "via": [[244, 367], [244, 677]],
+      "labelAt": [244, 660]
     },
     {
       "from": "users",
@@ -505,7 +509,8 @@
     {
       "from": "terms",
       "to": "terms_agreement",
-      "label": "버전 수락"
+      "label": "버전 수락",
+      "labelAt": [320, 777]
     }
   ],
   "cards": [

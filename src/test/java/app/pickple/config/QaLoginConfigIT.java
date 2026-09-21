@@ -14,6 +14,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import java.time.Clock;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -35,6 +37,7 @@ class QaLoginConfigIT {
                 .withUserConfiguration(MvcConfiguration.class, QaLoginConfig.class, QaLoginController.class)
                 .withBean(UserStore.class, () -> mock(UserStore.class))
                 .withBean(QaAccountStore.class, () -> mock(QaAccountStore.class))
+                .withBean(Clock.class, Clock::systemUTC)
                 .withBean(AuthService.class, () -> mock(AuthService.class));
     }
 

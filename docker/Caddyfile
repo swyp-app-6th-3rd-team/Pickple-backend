@@ -48,6 +48,8 @@
 
 	handle {
 		reverse_proxy app:8080 {
+			# Spring은 Forwarded를 X-Forwarded-For보다 먼저 읽는다. 클라이언트 위조값을 제거한다.
+			header_up -Forwarded
 			header_up X-Real-IP {remote_host}
 			# 앱 기동 중(start_period 90s)에는 502 대신 잠시 기다린다.
 			lb_try_duration 5s

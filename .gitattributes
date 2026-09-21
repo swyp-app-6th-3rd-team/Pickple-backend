@@ -1,1 +1,4 @@
 .codex/hooks/*.sh text eol=lf
+# ERD artifact hashes must use identical source bytes on Windows and Linux.
+docs/erd/*.mmd text eol=lf
+docs/erd/*.architecture.json text eol=lf
