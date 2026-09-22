@@ -35,19 +35,13 @@ import java.util.Set;
 public class BadgeService {
 
     /**
-     * 미션 슬롯의 계열 순서 (기능명세 §2.3).
+     * 홈 미션 슬롯은 누적·연속 계열 순서로 노출한다.
      *
-     * <p>명세의 {@code <조회 데이터>} 가 미션1 을 누적 계열
-     * ({@code 누적 투표 10회 달성 (0/10)} …), 미션2 를 일일 계열
-     * ({@code 하루에 투표 20개 이상 (0/20)}) 로 규정한다.
-     *
-     * <p><b>연속 계열은 미션 슬롯에 나가지 않는다.</b> 명세가 슬롯을 둘로 못박았고
-     * 조회 데이터에도 연속 항목이 없다. 뱃지 8종에 연속이 있다는 이유로 세 번째 슬롯을
-     * 지어내면 화면이 그릴 수 없는 데이터를 내려주는 셈이다 —
-     * 연속 뱃지는 전체 목록({@code /badges})에서 진행 상황이 드러난다.
+     * <p>2026-09-20 기획 합의에 따라 현재 UI가 지원하는 두 계열만 내려준다.
+     * 일일 계열은 미션 응답에서 임시 제외하며, 획득 판정과 전체 뱃지 목록은 유지한다.
      */
     private static final List<BadgeConditionType> MISSION_SERIES =
-            List.of(BadgeConditionType.TOTAL_VOTE, BadgeConditionType.DAILY_VOTE);
+            List.of(BadgeConditionType.TOTAL_VOTE, BadgeConditionType.STREAK_VOTE);
 
     private final BadgeStore badgeStore;
     private final UserBadgeStore userBadgeStore;
@@ -110,7 +104,7 @@ public class BadgeService {
      * <p>"하위 미션 먼저 표시" 는 곧 <b>못 넘은 것 중 가장 낮은 것</b>을 고르라는 뜻이다.
      * 누적 10회를 못 넘은 사람에게 1,000회 미션을 보여주면 게이지가 늘 0 에 붙어 있다.
      *
-     * <p>계열을 다 채웠으면 그 슬롯은 빠진다. 8종을 모두 얻으면 빈 목록이다 —
+     * <p>계열을 다 채웠으면 그 슬롯은 빠진다. 누적·연속 계열을 모두 채우면 빈 목록이다 —
      * 남지 않은 미션을 지어내지 않는다(화면은 미션창을 비우면 된다).
      */
     @Transactional(readOnly = true)
