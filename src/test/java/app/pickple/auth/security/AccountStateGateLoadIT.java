@@ -1,6 +1,6 @@
 package app.pickple.auth.security;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -96,7 +96,7 @@ class AccountStateGateLoadIT {
                 .build();
 
         long seed = System.nanoTime();
-        User user = userStore.save(new User(SocialProvider.GOOGLE, "load-" + seed, null, "부하"));
+        User user = userStore.save(new User(AuthProvider.GOOGLE, "load-" + seed, null, "부하"));
         token = jwtService.createAccessToken(user);
         for (int i = 0; i < 20; i++) {
             createdPostIds.add(postStore.save(

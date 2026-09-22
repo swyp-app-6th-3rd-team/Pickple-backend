@@ -4,7 +4,7 @@ import app.pickple.config.AuthProperties;
 import app.pickple.auth.apple.AppleIdentity;
 import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.Role;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.SocialIdentity;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
@@ -71,7 +71,7 @@ class AuthServiceTest {
     @Test
     void socialLoginCannotCreateOrLinkQaUser() {
         SocialIdentity identity = mock(SocialIdentity.class);
-        given(identity.provider()).willReturn(SocialProvider.QA);
+        given(identity.provider()).willReturn(AuthProvider.QA);
 
         assertThatThrownBy(() -> authService.loginOrRegister(identity))
                 .isInstanceOf(ApiException.class)
@@ -87,7 +87,7 @@ class AuthServiceTest {
     @DisplayName("로그인 — 기존 사용자가 없으면 새로 만든다")
     @Test
     void registersNewUser() {
-        given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-1")).willReturn(Optional.empty());
+        given(userStore.findByProviderAndProviderId(AuthProvider.GOOGLE, "sub-1")).willReturn(Optional.empty());
         given(userStore.save(any(User.class))).willAnswer(inv -> {
             User u = inv.getArgument(0);
             return User.restore(1L, u.provider(), u.providerId(), u.email(), u.name(), u.role(), u.state(), null, null);
@@ -96,14 +96,14 @@ class AuthServiceTest {
         User result = authService.loginOrRegister(googleUser("sub-1"));
 
         assertThat(result.id()).isEqualTo(1L);
-        assertThat(result.provider()).isEqualTo(SocialProvider.GOOGLE);
+        assertThat(result.provider()).isEqualTo(AuthProvider.GOOGLE);
         assertThat(result.providerId()).isEqualTo("sub-1");
     }
 
     @DisplayName("Apple 재가입 — 분리된 sub가 조회되지 않으면 새 사용자로 만든다")
     @Test
     void registersNewAppleUserWhenIdentityWasDetached() {
-        given(userStore.findByProviderAndProviderId(SocialProvider.APPLE, "apple-sub"))
+        given(userStore.findByProviderAndProviderId(AuthProvider.APPLE, "apple-sub"))
                 .willReturn(Optional.empty());
         given(userStore.save(any(User.class))).willAnswer(inv -> {
             User user = inv.getArgument(0);
@@ -115,7 +115,7 @@ class AuthServiceTest {
                 new AppleIdentity("apple-sub", "new@example.com", "새이름"));
 
         assertThat(result.id()).isEqualTo(10L);
-        assertThat(result.provider()).isEqualTo(SocialProvider.APPLE);
+        assertThat(result.provider()).isEqualTo(AuthProvider.APPLE);
         assertThat(result.providerId()).isEqualTo("apple-sub");
         assertThat(result.email()).isEqualTo("new@example.com");
         assertThat(result.name()).isEqualTo("새이름");
@@ -125,9 +125,9 @@ class AuthServiceTest {
     @DisplayName("로그인 — 기존 사용자면 프로필만 갱신한다")
     @Test
     void syncsExistingUser() {
-        User existing = User.restore(7L, SocialProvider.GOOGLE, "sub-1",
+        User existing = User.restore(7L, AuthProvider.GOOGLE, "sub-1",
                 "old@example.com", "옛이름", Role.ROLE_USER, User.State.ACTIVE, null, null);
-        given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-1")).willReturn(Optional.of(existing));
+        given(userStore.findByProviderAndProviderId(AuthProvider.GOOGLE, "sub-1")).willReturn(Optional.of(existing));
         given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
 
         User result = authService.loginOrRegister(googleUser("sub-1"));
@@ -140,10 +140,10 @@ class AuthServiceTest {
     @DisplayName("Kakao 재로그인 — 선택 프로필 claim이 없으면 기존 값을 보존한다")
     @Test
     void preservesKakaoProfileWhenOptionalClaimsAreMissing() {
-        User existing = User.restore(10L, SocialProvider.KAKAO, "kakao-sub",
+        User existing = User.restore(10L, AuthProvider.KAKAO, "kakao-sub",
                 "old@example.com", "기존이름", Role.ROLE_USER, User.State.ACTIVE,
                 null, null);
-        given(userStore.findByProviderAndProviderId(SocialProvider.KAKAO, "kakao-sub"))
+        given(userStore.findByProviderAndProviderId(AuthProvider.KAKAO, "kakao-sub"))
                 .willReturn(Optional.of(existing));
         given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
 
@@ -157,7 +157,7 @@ class AuthServiceTest {
     @DisplayName("네이티브 로그인 완료 — 신규 사용자는 프로필 미완료와 서비스 토큰을 반환한다")
     @Test
     void completesLoginForNewUserWithIncompleteProfile() {
-        given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "native-sub"))
+        given(userStore.findByProviderAndProviderId(AuthProvider.GOOGLE, "native-sub"))
                 .willReturn(Optional.empty());
         given(userStore.save(any(User.class))).willAnswer(inv -> {
             User user = inv.getArgument(0);
@@ -182,10 +182,10 @@ class AuthServiceTest {
     @DisplayName("네이티브 로그인 완료 — 닉네임이 있는 기존 사용자는 프로필 완료를 반환한다")
     @Test
     void completesLoginForExistingUserWithCompletedProfile() {
-        User existing = User.restore(12L, SocialProvider.GOOGLE, "profile-sub",
+        User existing = User.restore(12L, AuthProvider.GOOGLE, "profile-sub",
                 "old@example.com", "기존이름", Role.ROLE_USER, User.State.ACTIVE,
                 "완료닉네임", "https://images.example/profile.png");
-        given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "profile-sub"))
+        given(userStore.findByProviderAndProviderId(AuthProvider.GOOGLE, "profile-sub"))
                 .willReturn(Optional.of(existing));
         given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
 
@@ -199,9 +199,9 @@ class AuthServiceTest {
     @DisplayName("Apple 재로그인 — 앱이 보낸 이름으로 기존 이름을 덮어쓰지 않는다")
     @Test
     void doesNotOverwriteAppleNameOnRelogin() {
-        User existing = User.restore(8L, SocialProvider.APPLE, "apple-sub",
+        User existing = User.restore(8L, AuthProvider.APPLE, "apple-sub",
                 "old@example.com", "최초이름", Role.ROLE_USER, User.State.ACTIVE, null, null);
-        given(userStore.findByProviderAndProviderId(SocialProvider.APPLE, "apple-sub"))
+        given(userStore.findByProviderAndProviderId(AuthProvider.APPLE, "apple-sub"))
                 .willReturn(Optional.of(existing));
         given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
 
@@ -215,9 +215,9 @@ class AuthServiceTest {
     @DisplayName("로그인 — 탈퇴한 비 Apple 계정은 계속 거부한다")
     @Test
     void rejectsWithdrawnNonAppleUser() {
-        User withdrawn = User.restore(9L, SocialProvider.GOOGLE, "sub-1",
+        User withdrawn = User.restore(9L, AuthProvider.GOOGLE, "sub-1",
                 null, null, Role.ROLE_USER, User.State.INACTIVE, null, null);
-        given(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-1")).willReturn(Optional.of(withdrawn));
+        given(userStore.findByProviderAndProviderId(AuthProvider.GOOGLE, "sub-1")).willReturn(Optional.of(withdrawn));
 
         assertThatThrownBy(() -> authService.loginOrRegister(googleUser("sub-1")))
                 .isInstanceOf(ApiException.class)
@@ -228,7 +228,7 @@ class AuthServiceTest {
     @DisplayName("내 정보 — 탈퇴한 계정은 기존 access token이 있어도 거부한다")
     @Test
     void rejectsWithdrawnUserLookup() {
-        User withdrawn = User.restore(9L, SocialProvider.GOOGLE, "sub-1",
+        User withdrawn = User.restore(9L, AuthProvider.GOOGLE, "sub-1",
                 null, null, Role.ROLE_USER, User.State.INACTIVE, null, null);
         given(userStore.findById(9L)).willReturn(Optional.of(withdrawn));
 
@@ -241,7 +241,7 @@ class AuthServiceTest {
     @DisplayName("토큰 발급 — 리프레시는 해시로 저장한다")
     @Test
     void storesRefreshTokenAsHash() {
-        User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
+        User user = User.restore(1L, AuthProvider.GOOGLE, "sub-1", null, null,
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
 
         AuthService.TokenPair tokens = authService.issueTokens(user);
@@ -261,7 +261,7 @@ class AuthServiceTest {
     @DisplayName("재발급 — 저장된 해시와 일치하면 새 토큰을 준다")
     @Test
     void refreshesWithValidToken() {
-        User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
+        User user = User.restore(1L, AuthProvider.GOOGLE, "sub-1", null, null,
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
         String refreshToken = jwtService.createRefreshToken(user);
 
@@ -289,7 +289,7 @@ class AuthServiceTest {
     @DisplayName("재발급 — 해시가 다르면 현재 토큰을 보존하고 제출 요청만 거부한다")
     @Test
     void rejectsHashMismatchWithoutRevokingCurrentToken() {
-        User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
+        User user = User.restore(1L, AuthProvider.GOOGLE, "sub-1", null, null,
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
         String submitted = jwtService.createRefreshToken(user);
 
@@ -309,7 +309,7 @@ class AuthServiceTest {
     @DisplayName("재발급 — CAS 경합에서 진 요청은 승자의 현재 토큰을 폐기하지 않는다")
     @Test
     void rejectsLostRotationRaceWithoutRevokingWinner() {
-        User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
+        User user = User.restore(1L, AuthProvider.GOOGLE, "sub-1", null, null,
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
         String submitted = jwtService.createRefreshToken(user);
         String submittedHash = JwtService.hash(submitted);
@@ -335,7 +335,7 @@ class AuthServiceTest {
     @DisplayName("재발급 — 저장된 토큰이 만료됐으면 거부한다")
     @Test
     void rejectsExpiredStoredToken() {
-        User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
+        User user = User.restore(1L, AuthProvider.GOOGLE, "sub-1", null, null,
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
         String refreshToken = jwtService.createRefreshToken(user);
 
@@ -361,7 +361,7 @@ class AuthServiceTest {
     @DisplayName("재발급 — 액세스 토큰을 리프레시로 쓰면 거부한다")
     @Test
     void rejectsAccessTokenAsRefresh() {
-        User user = User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, null,
+        User user = User.restore(1L, AuthProvider.GOOGLE, "sub-1", null, null,
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
         String accessToken = jwtService.createAccessToken(user);
 

@@ -1,8 +1,9 @@
 package app.pickple.auth.oauth;
 
 import app.pickple.auth.domain.SocialIdentity;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -18,7 +19,7 @@ import java.util.Map;
  */
 public interface OAuth2UserInfo extends SocialIdentity {
 
-    SocialProvider provider();
+    AuthProvider provider();
 
     /** 프로바이더가 발급한 고유 식별자. */
     String providerId();
@@ -28,13 +29,15 @@ public interface OAuth2UserInfo extends SocialIdentity {
     String name();
 
     static OAuth2UserInfo of(String registrationId, Map<String, Object> attributes) {
-        SocialProvider provider = SocialProvider.from(registrationId);
-        return switch (provider) {
-            case GOOGLE -> new GoogleUserInfo(attributes);
-            case KAKAO -> new KakaoUserInfo(attributes);
-            case NAVER -> new NaverUserInfo(attributes);
-            case APPLE -> throw new IllegalArgumentException("Apple 로그인은 네이티브 API를 사용합니다.");
-            case QA -> throw new IllegalArgumentException("QA 계정은 OAuth2 로그인을 지원하지 않습니다.");
+        if (registrationId == null) {
+            throw new IllegalArgumentException("지원하지 않는 프로바이더입니다: " + registrationId);
+        }
+        return switch (registrationId.toLowerCase(Locale.ROOT)) {
+            case "google" -> new GoogleUserInfo(attributes);
+            case "kakao" -> new KakaoUserInfo(attributes);
+            case "naver" -> new NaverUserInfo(attributes);
+            case "apple" -> throw new IllegalArgumentException("Apple 로그인은 네이티브 API를 사용합니다.");
+            default -> throw new IllegalArgumentException("지원하지 않는 프로바이더입니다: " + registrationId);
         };
     }
 }

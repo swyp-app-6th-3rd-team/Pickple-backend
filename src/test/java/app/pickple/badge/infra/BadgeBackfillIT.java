@@ -1,6 +1,6 @@
 package app.pickple.badge.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.support.IntegrationTest;
@@ -86,7 +86,7 @@ class BadgeBackfillIT {
     @BeforeEach
     void setUp() {
         userId = userStore.save(
-                new User(SocialProvider.GOOGLE, "backfill-" + System.nanoTime(), null, "기존회원")).id();
+                new User(AuthProvider.GOOGLE, "backfill-" + System.nanoTime(), null, "기존회원")).id();
     }
 
     /**
@@ -233,7 +233,7 @@ class BadgeBackfillIT {
         // gaps and islands 는 PARTITION BY user_id 로 회원을 가른다.
         // 파티션이 빠지면 다른 사람의 날짜가 이어져 연속이 부풀어 오른다.
         Long other = userStore.save(
-                new User(SocialProvider.GOOGLE, "backfill-other-" + System.nanoTime(), null, "옆사람")).id();
+                new User(AuthProvider.GOOGLE, "backfill-other-" + System.nanoTime(), null, "옆사람")).id();
 
         // 대상: 3일만 (연속 뱃지 없음)
         for (int day = 0; day < 3; day++) {

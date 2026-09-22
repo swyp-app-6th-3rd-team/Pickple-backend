@@ -2,7 +2,7 @@ package app.pickple.auth.infra;
 
 import app.pickple.auth.domain.Nickname;
 import app.pickple.auth.domain.QaAccountStore;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
@@ -36,7 +36,7 @@ class QaAccountCommandIT {
         long id = QaAccountCommand.create(dataSource, loginId, hash, new Nickname(nickname), CLOCK);
         try {
             var user = users.findById(id).orElseThrow();
-            assertThat(user.provider()).isEqualTo(SocialProvider.QA);
+            assertThat(user.provider()).isEqualTo(AuthProvider.QA);
             assertThat(user.hasProfile()).isTrue();
             assertThat(user.email()).isNull();
             assertThat(accounts.findByLoginId(loginId).orElseThrow().userId()).isEqualTo(id);

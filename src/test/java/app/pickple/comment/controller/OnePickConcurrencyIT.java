@@ -1,6 +1,6 @@
 package app.pickple.comment.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -80,9 +80,9 @@ class OnePickConcurrencyIT {
 
         long seed = System.nanoTime();
         User author = userStore.save(
-                new User(SocialProvider.GOOGLE, "conc-author-" + seed, null, "댓글러"));
+                new User(AuthProvider.GOOGLE, "conc-author-" + seed, null, "댓글러"));
         User picker = userStore.save(
-                new User(SocialProvider.GOOGLE, "conc-picker-" + seed, null, "픽커"));
+                new User(AuthProvider.GOOGLE, "conc-picker-" + seed, null, "픽커"));
         pickerId = picker.id();
         pickerToken = jwtService.createAccessToken(picker);
 

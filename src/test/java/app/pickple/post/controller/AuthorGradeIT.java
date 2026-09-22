@@ -1,6 +1,6 @@
 package app.pickple.post.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AccountWithdrawalPersistenceService;
@@ -125,7 +125,7 @@ class AuthorGradeIT {
     }
 
     private User user() {
-        return userStore.save(new User(SocialProvider.GOOGLE,
+        return userStore.save(new User(AuthProvider.GOOGLE,
                 "f04-" + java.util.UUID.randomUUID(), null, "작성자"));
     }
 

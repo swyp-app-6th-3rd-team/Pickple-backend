@@ -1,7 +1,7 @@
 package app.pickple.auth;
 
 import app.pickple.auth.domain.Role;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.oauth.OAuth2SuccessHandler;
@@ -59,7 +59,7 @@ class AuthFlowIT {
         mockMvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(springSecurityFilterChain)
                 .build();
-        user = userStore.save(new User(SocialProvider.GOOGLE, "sub-integration", "u@example.com", "홍길동"));
+        user = userStore.save(new User(AuthProvider.GOOGLE, "sub-integration", "u@example.com", "홍길동"));
     }
 
     @Test
@@ -270,7 +270,7 @@ class AuthFlowIT {
     @Test
     @DisplayName("Kakao Admin 키가 없으면 탈퇴를 503으로 거부하고 로컬 계정을 보존한다")
     void kakaoWithdrawalPreservesLocalStateWithoutAdminKey() throws Exception {
-        User kakao = userStore.save(new User(SocialProvider.KAKAO, "withdraw-kakao-sub", null, null));
+        User kakao = userStore.save(new User(AuthProvider.KAKAO, "withdraw-kakao-sub", null, null));
         AuthService.TokenPair tokens = authService.issueTokens(kakao);
 
         mockMvc.perform(delete("/auth/me")
@@ -317,12 +317,12 @@ class AuthFlowIT {
     @DisplayName("프로바이더가 다르면 providerId 가 같아도 다른 사용자다")
     void sameProviderIdDifferentProviderIsDifferentUser() {
         // (provider, providerId) 복합 유니크라 충돌하지 않는다.
-        User kakao = userStore.save(new User(SocialProvider.KAKAO, "sub-integration", null, null));
+        User kakao = userStore.save(new User(AuthProvider.KAKAO, "sub-integration", null, null));
 
         assertThat(kakao.id()).isNotEqualTo(user.id());
-        assertThat(userStore.findByProviderAndProviderId(SocialProvider.GOOGLE, "sub-integration"))
+        assertThat(userStore.findByProviderAndProviderId(AuthProvider.GOOGLE, "sub-integration"))
                 .get().extracting(User::id).isEqualTo(user.id());
-        assertThat(userStore.findByProviderAndProviderId(SocialProvider.KAKAO, "sub-integration"))
+        assertThat(userStore.findByProviderAndProviderId(AuthProvider.KAKAO, "sub-integration"))
                 .get().extracting(User::id).isEqualTo(kakao.id());
     }
 }

@@ -1,6 +1,6 @@
 package app.pickple.auth.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -75,7 +75,7 @@ class DefaultProfileImageControllerIT {
             for (int index = 0; index < 4; index++) {
                 given(random.nextInt(4)).willReturn(index);
                 String subject = UUID.randomUUID().toString();
-                User user = users.save(new User(SocialProvider.APPLE, subject, null, "이미지검증"));
+                User user = users.save(new User(AuthProvider.APPLE, subject, null, "이미지검증"));
                 String nickname = "p" + subject.replace("-", "").substring(0, 4);
                 String bearer = "Bearer " + jwt.createAccessToken(user);
                 String url = BASE + "/defaults/profile-" + (index + 1) + ".png";

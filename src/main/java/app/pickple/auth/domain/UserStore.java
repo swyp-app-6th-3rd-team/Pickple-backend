@@ -25,7 +25,7 @@ public interface UserStore {
     boolean existsActiveById(Long id);
 
     /** 소셜 신원으로 조회. 조회 키는 반드시 (provider, providerId) 쌍이다. */
-    Optional<User> findByProviderAndProviderId(SocialProvider provider, String providerId);
+    Optional<User> findByProviderAndProviderId(AuthProvider provider, String providerId);
 
     /**
      * 활성 회원이 이 닉네임을 쓰고 있는지 (R-23).

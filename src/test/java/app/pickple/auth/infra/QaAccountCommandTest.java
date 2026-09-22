@@ -1,6 +1,5 @@
 package app.pickple.auth.infra;
 
-import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.Nickname;
 import org.junit.jupiter.api.Test;
 
@@ -30,9 +29,4 @@ class QaAccountCommandTest {
         assertThatIllegalArgumentException().isThrownBy(() -> QaAccountCommand.validatePassword("가".repeat(25)));
     }
 
-    @Test
-    void qaCannotBeUsedAsOAuthRegistration() {
-        assertThatIllegalArgumentException().isThrownBy(() -> SocialProvider.from("qa"));
-        assertThat(SocialProvider.from("kakao")).isEqualTo(SocialProvider.KAKAO);
-    }
 }

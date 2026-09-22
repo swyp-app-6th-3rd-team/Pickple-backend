@@ -1,6 +1,6 @@
 package app.pickple.auth.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.SocialIdentity;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
@@ -79,7 +79,7 @@ class ProfileImageControllerIT {
     }
 
     private User newUser() {
-        User created = users.save(new User(SocialProvider.GOOGLE,
+        User created = users.save(new User(AuthProvider.GOOGLE,
                 "profile-image-" + UUID.randomUUID(), null, "이미지검증"));
         userIds.add(created.id());
         return created;
@@ -257,7 +257,7 @@ class ProfileImageControllerIT {
         return output.toByteArray();
     }
 
-    private record TestIdentity(SocialProvider provider, String providerId, String email, String name)
+    private record TestIdentity(AuthProvider provider, String providerId, String email, String name)
             implements SocialIdentity {
     }
 }

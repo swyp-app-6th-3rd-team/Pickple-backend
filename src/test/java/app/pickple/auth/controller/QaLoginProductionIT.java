@@ -1,6 +1,6 @@
 package app.pickple.auth.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AuthService;
@@ -61,7 +61,7 @@ class QaLoginProductionIT {
         mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
 
-        User user = userStore.save(new User(SocialProvider.KAKAO, "qa-prod-gate-it", null, "QA"));
+        User user = userStore.save(new User(AuthProvider.KAKAO, "qa-prod-gate-it", null, "QA"));
         String access = authService.issueTokens(user).accessToken();
         mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + access).content(body))

@@ -2,7 +2,7 @@ package app.pickple.auth.service;
 
 import app.pickple.auth.apple.AppleProviderTokenService;
 import app.pickple.auth.apple.AppleTokenGateway;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.kakao.KakaoUnlinkGateway;
@@ -29,7 +29,7 @@ public class AccountWithdrawalService {
                 .orElseThrow(() -> new ApiException(ResponseCode.UNAUTHORIZED));
 
         WithdrawalOutcome outcome = WithdrawalOutcome.COMPLETED;
-        if (user.provider() == SocialProvider.APPLE) {
+        if (user.provider() == AuthProvider.APPLE) {
             var providerToken = appleProviderTokenService.findDecryptedByUserId(userId);
             if (providerToken.isPresent()) {
                 appleTokenGateway.revokeRefreshToken(providerToken.get());
@@ -38,7 +38,7 @@ public class AccountWithdrawalService {
                         userId);
                 outcome = WithdrawalOutcome.COMPLETED_REQUIRES_MANUAL_APPLE_REVOCATION;
             }
-        } else if (user.provider() == SocialProvider.KAKAO) {
+        } else if (user.provider() == AuthProvider.KAKAO) {
             kakaoUnlinkGateway.unlink(user.providerId());
         }
 

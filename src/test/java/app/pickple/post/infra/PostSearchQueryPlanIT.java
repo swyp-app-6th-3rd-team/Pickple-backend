@@ -1,6 +1,6 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.post.domain.PostStore;
@@ -58,7 +58,7 @@ class PostSearchQueryPlanIT {
     void seedForOptimizer() {
         String tag = "search-plan-" + System.nanoTime();
         authorId = userStore.save(new User(
-                SocialProvider.GOOGLE, tag, null, "검색계획")).id();
+                AuthProvider.GOOGLE, tag, null, "검색계획")).id();
 
         jdbcTemplate.batchUpdate("""
                 INSERT INTO post (

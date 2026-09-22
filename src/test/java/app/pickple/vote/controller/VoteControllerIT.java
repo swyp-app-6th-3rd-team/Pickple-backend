@@ -1,6 +1,6 @@
 package app.pickple.vote.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -313,7 +313,7 @@ class VoteControllerIT {
     // --- 픽스처 -------------------------------------------------------------
 
     private User saveUser(String providerId, String name) {
-        return userStore.save(new User(SocialProvider.GOOGLE, providerId, null, name));
+        return userStore.save(new User(AuthProvider.GOOGLE, providerId, null, name));
     }
 
     private Post saveAgreePost(String title, PostCategory category) {

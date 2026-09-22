@@ -1,7 +1,7 @@
 package app.pickple.auth.infra;
 
 import app.pickple.auth.domain.Role;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -31,7 +31,7 @@ public class UserEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "provider", nullable = false, length = 20)
-    private SocialProvider provider;
+    private AuthProvider provider;
 
     @Column(name = "provider_id", length = 255)
     private String providerId;

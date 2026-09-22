@@ -88,6 +88,8 @@ public final class QaAccountCommand {
         return transaction.execute(status -> {
             var now = LocalDateTime.now(clock);
             var keys = new GeneratedKeyHolder();
+            // QA 로그인은 qa_account.login_id로 조회한다.
+            // provider_id의 UUID는 기존 사용자 식별자 제약을 유지하기 위한 내부 식별자다.
             jdbc.sql("""
                     INSERT INTO users (provider, provider_id, role, state, nickname, created_at, updated_at)
                     VALUES ('QA', ?, 'ROLE_USER', 'ACTIVE', ?, ?, ?)

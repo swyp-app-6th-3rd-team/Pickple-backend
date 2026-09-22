@@ -1,7 +1,7 @@
 package app.pickple.auth.infra;
 
 import app.pickple.auth.domain.Nickname;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.support.IntegrationTest;
@@ -38,7 +38,7 @@ class JpaUserStoreNicknameIT {
     }
 
     private User newUser(String suffix) {
-        return userStore.save(new User(SocialProvider.GOOGLE, suffix + "-" + seed, null, "테스터"));
+        return userStore.save(new User(AuthProvider.GOOGLE, suffix + "-" + seed, null, "테스터"));
     }
 
     private String nickname(String prefix) {

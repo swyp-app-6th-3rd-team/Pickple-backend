@@ -39,7 +39,7 @@ app/pickple/
 ├── error/           ApiException · GlobalExceptionHandler
 │
 └── auth/            OAuth2 + Apple/Kakao native login + JWT
-    ├── domain/      User · Role · SocialProvider · SocialIdentity · *Store
+    ├── domain/      User · Role · AuthProvider · SocialIdentity · *Store
     ├── service/     AuthService · JwtService · AccountWithdrawal*Service
     ├── infra/       UserEntity · *TokenEntity · Jpa*Store
     ├── oauth/       OAuth2UserInfo(+3 어댑터) · CustomOAuth2UserService

@@ -1,6 +1,6 @@
 package app.pickple.comment.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AccountWithdrawalPersistenceService;
@@ -388,7 +388,7 @@ class CommentControllerIT {
     }
 
     private User saveUser(String providerId, String name) {
-        return userStore.save(new User(SocialProvider.GOOGLE, providerId, null, name));
+        return userStore.save(new User(AuthProvider.GOOGLE, providerId, null, name));
     }
 
     private Long writeThroughApi(String content) throws Exception {

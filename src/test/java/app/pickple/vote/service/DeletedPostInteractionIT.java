@@ -19,8 +19,8 @@ class DeletedPostInteractionIT {
     @DisplayName("삭제된 게시글에는 투표할 수 없다")
     void cannotVoteOnDeletedPost() {
         long seed = System.nanoTime();
-        Long author = userStore.save(new User(SocialProvider.GOOGLE, "del-a-" + seed, null, "글쓴이")).id();
-        Long voter = userStore.save(new User(SocialProvider.GOOGLE, "del-v-" + seed, null, "투표자")).id();
+        Long author = userStore.save(new User(AuthProvider.GOOGLE, "del-a-" + seed, null, "글쓴이")).id();
+        Long voter = userStore.save(new User(AuthProvider.GOOGLE, "del-v-" + seed, null, "투표자")).id();
         Post post = postStore.save(new Post(author, PostType.GENERAL, PostCategory.ETC, "지울 글", null));
         Post loaded = postStore.findById(post.id()).orElseThrow();
         loaded.delete();

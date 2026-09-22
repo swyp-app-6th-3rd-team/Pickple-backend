@@ -3,7 +3,7 @@ package app.pickple.activity.controller;
 import app.pickple.activity.domain.ActivityQueryStore;
 import app.pickple.activity.domain.ActivitySort;
 import app.pickple.activity.domain.ActivityType;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -1405,7 +1405,7 @@ class ActivityControllerIT {
     // ---- 픽스처 ----
 
     private User saveUser(String providerId, String name) {
-        User saved = userStore.save(new User(SocialProvider.GOOGLE, providerId, null, name));
+        User saved = userStore.save(new User(AuthProvider.GOOGLE, providerId, null, name));
         jdbcTemplate.update("UPDATE users SET nickname = ? WHERE id = ?", uniqueNickname(name), saved.id());
         return saved;
     }

@@ -35,7 +35,7 @@ class QaLoginServiceTest {
     @Test
     void issuesJwtForLocalQaUserWithoutSocialIdentity() {
         credentials();
-        User user = user(SocialProvider.QA, Role.ROLE_USER, User.State.ACTIVE);
+        User user = user(AuthProvider.QA, Role.ROLE_USER, User.State.ACTIVE);
         when(users.findById(1L)).thenReturn(Optional.of(user));
         var tokens = new AuthService.TokenPair("test-access", "test-refresh");
         when(auth.issueTokens(user)).thenReturn(tokens);
@@ -67,9 +67,9 @@ class QaLoginServiceTest {
         when(users.findById(1L)).thenReturn(Optional.empty());
         unauthorized(() -> service.login("qa-user", PASSWORD));
         for (User user : new User[] {
-                user(SocialProvider.QA, Role.ROLE_USER, User.State.INACTIVE),
-                user(SocialProvider.QA, Role.ROLE_ADMIN, User.State.ACTIVE),
-                user(SocialProvider.KAKAO, Role.ROLE_USER, User.State.ACTIVE)}) {
+                user(AuthProvider.QA, Role.ROLE_USER, User.State.INACTIVE),
+                user(AuthProvider.QA, Role.ROLE_ADMIN, User.State.ACTIVE),
+                user(AuthProvider.KAKAO, Role.ROLE_USER, User.State.ACTIVE)}) {
             when(users.findById(1L)).thenReturn(Optional.of(user));
             unauthorized(() -> service.login("qa-user", PASSWORD));
         }
@@ -88,7 +88,7 @@ class QaLoginServiceTest {
         String password = "가".repeat(24);
         when(accounts.findByLoginId("qa-user")).thenReturn(
                 Optional.of(new QaAccount("qa-user", ENCODER.encode(password), 1L)));
-        User user = user(SocialProvider.QA, Role.ROLE_USER, User.State.ACTIVE);
+        User user = user(AuthProvider.QA, Role.ROLE_USER, User.State.ACTIVE);
         when(users.findById(1L)).thenReturn(Optional.of(user));
         service.login("qa-user", password);
         verify(auth).issueTokens(user);
@@ -103,7 +103,7 @@ class QaLoginServiceTest {
         when(accounts.findByLoginId("qa-user")).thenReturn(Optional.of(new QaAccount("qa-user", HASH, 1L)));
     }
 
-    private static User user(SocialProvider provider, Role role, User.State state) {
+    private static User user(AuthProvider provider, Role role, User.State state) {
         return User.restore(1L, provider, state == User.State.ACTIVE ? "internal-id" : null,
                 null, null, role, state, null, null);
     }

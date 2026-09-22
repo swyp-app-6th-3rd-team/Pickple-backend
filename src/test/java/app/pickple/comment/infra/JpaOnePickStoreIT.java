@@ -1,6 +1,6 @@
 package app.pickple.comment.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.comment.domain.Comment;
@@ -47,8 +47,8 @@ class JpaOnePickStoreIT {
     @BeforeEach
     void setUp() {
         long seed = System.nanoTime();
-        authorId = userStore.save(new User(SocialProvider.GOOGLE, "cm-author-" + seed, null, "작성자")).id();
-        pickerId = userStore.save(new User(SocialProvider.GOOGLE, "cm-picker-" + seed, null, "픽커")).id();
+        authorId = userStore.save(new User(AuthProvider.GOOGLE, "cm-author-" + seed, null, "작성자")).id();
+        pickerId = userStore.save(new User(AuthProvider.GOOGLE, "cm-picker-" + seed, null, "픽커")).id();
         post = postStore.save(new Post(authorId, PostType.GENERAL, PostCategory.ETC, "댓글 대상", null));
     }
 
@@ -84,7 +84,7 @@ class JpaOnePickStoreIT {
         // 유일성 범위는 (user_id, post_id) 다 — 사람이 다르면 같은 댓글도 픽할 수 있다.
         Comment comment = newComment(authorId);
         Long another = userStore.save(
-                new User(SocialProvider.GOOGLE, "cm-p2-" + System.nanoTime(), null, "픽커2")).id();
+                new User(AuthProvider.GOOGLE, "cm-p2-" + System.nanoTime(), null, "픽커2")).id();
 
         pickStore.saveIfAbsent(comment.pick(pickerId));
         pickStore.saveIfAbsent(comment.pick(another));

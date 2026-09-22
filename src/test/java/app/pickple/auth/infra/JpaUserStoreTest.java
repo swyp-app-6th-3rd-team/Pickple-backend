@@ -1,7 +1,7 @@
 package app.pickple.auth.infra;
 
 import app.pickple.auth.domain.Role;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -98,7 +98,7 @@ class JpaUserStoreTest {
     private User savedUser(String nickname) {
         return User.restore(
                 17L,
-                SocialProvider.GOOGLE,
+                AuthProvider.GOOGLE,
                 "provider-id",
                 "user@example.com",
                 "사용자",

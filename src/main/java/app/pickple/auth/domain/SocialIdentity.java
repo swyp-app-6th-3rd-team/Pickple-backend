@@ -8,7 +8,7 @@ package app.pickple.auth.domain;
  */
 public interface SocialIdentity {
 
-    SocialProvider provider();
+    AuthProvider provider();
 
     String providerId();
 

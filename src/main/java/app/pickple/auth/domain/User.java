@@ -10,7 +10,8 @@ package app.pickple.auth.domain;
 public class User {
 
     private final Long id;
-    private final SocialProvider provider;
+    private final AuthProvider provider;
+    /** 소셜 제공자의 subject 또는 QA 내부 UUID. 탈퇴 시 파기한다. */
     private String providerId;
     private String email;
     private String name;
@@ -25,11 +26,11 @@ public class User {
         ACTIVE, INACTIVE
     }
 
-    public User(SocialProvider provider, String providerId, String email, String name) {
+    public User(AuthProvider provider, String providerId, String email, String name) {
         this(null, provider, providerId, email, name, Role.ROLE_USER, State.ACTIVE, null, null);
     }
 
-    private User(Long id, SocialProvider provider, String providerId,
+    private User(Long id, AuthProvider provider, String providerId,
                  String email, String name, Role role, State state,
                  Nickname nickname, String profileImageUrl) {
         if (provider == null) {
@@ -37,11 +38,9 @@ public class User {
         }
         State resolvedState = state == null ? State.ACTIVE : state;
         if (providerId == null) {
-            // 소셜 신원은 활성 회원만 갖는다 (R-28). 조건은 provider 가 아니라 state 다 —
-            // 판정의 본질이 "로그인 조회 대상인가" 이기 때문이다. 탈퇴 회원은 provider 와
-            // 무관하게 식별자를 파기하므로(R-27), APPLE 한정으로 두면 마스킹한 카카오 행을
-            // 복원하는 순간 모든 조회가 여기서 터진다.
-            // 스키마의 ck_users_active_provider_id 도 provider 를 보지 않고 state 만 본다.
+            // 활성 회원은 소셜 subject 또는 QA 내부 UUID를 가져야 한다.
+            // 탈퇴 시 인증 출처와 무관하게 식별자를 파기하므로(R-27), INACTIVE는 null을 허용한다.
+            // DB의 ck_users_active_provider_id도 같은 활성 상태 조건을 검사한다(R-28).
             if (resolvedState != State.INACTIVE) {
                 throw new IllegalArgumentException("providerId 는 필수입니다.");
             }
@@ -60,7 +59,7 @@ public class User {
     }
 
     /** 저장된 상태를 그대로 복원한다. 인프라 계층만 쓴다. */
-    public static User restore(Long id, SocialProvider provider, String providerId,
+    public static User restore(Long id, AuthProvider provider, String providerId,
                                String email, String name, Role role, State state,
                                String nickname, String profileImageUrl) {
         return new User(id, provider, providerId, email, name, role, state,
@@ -148,7 +147,7 @@ public class User {
         return id;
     }
 
-    public SocialProvider provider() {
+    public AuthProvider provider() {
         return provider;
     }
 

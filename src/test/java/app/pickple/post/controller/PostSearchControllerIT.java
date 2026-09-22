@@ -1,6 +1,6 @@
 package app.pickple.post.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.item.domain.AttachType;
@@ -81,7 +81,7 @@ class PostSearchControllerIT {
                 .build();
         seed = System.nanoTime();
         author = userStore.save(new User(
-                SocialProvider.GOOGLE, "search-author-" + seed, null, "검색자"));
+                AuthProvider.GOOGLE, "search-author-" + seed, null, "검색자"));
     }
 
     @Test

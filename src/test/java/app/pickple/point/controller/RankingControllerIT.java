@@ -1,6 +1,6 @@
 package app.pickple.point.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -492,7 +492,7 @@ class RankingControllerIT {
     // ─────────────────────────────────────────────────────────────
 
     private User newUser(String tag) {
-        return userStore.save(new User(SocialProvider.GOOGLE, "rk-" + tag + "-" + seed, null, tag));
+        return userStore.save(new User(AuthProvider.GOOGLE, "rk-" + tag + "-" + seed, null, tag));
     }
 
     /**

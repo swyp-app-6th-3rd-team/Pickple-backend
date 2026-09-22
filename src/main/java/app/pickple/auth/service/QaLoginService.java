@@ -3,7 +3,7 @@ package app.pickple.auth.service;
 import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.QaAccount;
 import app.pickple.auth.domain.QaAccountStore;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
@@ -47,7 +47,7 @@ public class QaLoginService {
         User user = userStore.findById(account.userId())
                 .filter(User::isActive)
                 .filter(candidate -> candidate.role() == Role.ROLE_USER)
-                .filter(candidate -> candidate.provider() == SocialProvider.QA)
+                .filter(candidate -> candidate.provider() == AuthProvider.QA)
                 .orElseThrow(() -> new ApiException(ResponseCode.UNAUTHORIZED));
         return authService.issueTokens(user);
     }

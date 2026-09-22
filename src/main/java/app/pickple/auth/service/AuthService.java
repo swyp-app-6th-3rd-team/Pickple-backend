@@ -2,7 +2,7 @@ package app.pickple.auth.service;
 
 import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.SocialIdentity;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
@@ -32,7 +32,8 @@ public class AuthService {
      */
     @Transactional
     public User loginOrRegister(SocialIdentity userInfo) {
-        if (userInfo.provider() == SocialProvider.QA) {
+        // QA는 별도 비밀번호 검증 경로를 사용하므로 소셜 가입·로그인에서는 허용하지 않는다.
+        if (userInfo.provider() == AuthProvider.QA) {
             throw new ApiException(ResponseCode.OAUTH2_FAILED);
         }
         if (userInfo.providerId() == null || userInfo.providerId().isBlank()) {
@@ -47,7 +48,7 @@ public class AuthService {
                     // 프로바이더 쪽에서 이름·이메일을 바꿨을 수 있으므로 로그인마다 갱신한다.
                     // Apple name은 ID token 클레임이 아니라 앱이 최초 동의 때 전달하는 값이므로
                     // 기존 사용자의 이름을 매 로그인마다 덮어쓰는 근거로 사용하지 않는다.
-                    String nameToSync = userInfo.provider() == SocialProvider.APPLE
+                    String nameToSync = userInfo.provider() == AuthProvider.APPLE
                             ? null
                             : userInfo.name();
                     existing.syncProfile(userInfo.email(), nameToSync);

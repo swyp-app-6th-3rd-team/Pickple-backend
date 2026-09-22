@@ -1,6 +1,6 @@
 package app.pickple.badge.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.badge.domain.DailyActivityStore;
@@ -38,7 +38,7 @@ class JpaDailyActivityStoreIT {
     @BeforeEach
     void setUp() {
         userId = userStore.save(
-                new User(SocialProvider.GOOGLE, "badge-daily-" + System.nanoTime(), null, "투표자")).id();
+                new User(AuthProvider.GOOGLE, "badge-daily-" + System.nanoTime(), null, "투표자")).id();
     }
 
     /** 지정한 날짜에 지정한 횟수만큼 투표한 것으로 만든다. */

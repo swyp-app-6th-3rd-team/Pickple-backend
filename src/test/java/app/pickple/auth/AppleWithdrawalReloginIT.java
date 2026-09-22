@@ -2,7 +2,7 @@ package app.pickple.auth;
 
 import app.pickple.auth.apple.AppleIdentity;
 import app.pickple.auth.domain.Nickname;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AccountWithdrawalPersistenceService;
@@ -45,7 +45,7 @@ class AppleWithdrawalReloginIT {
     @DisplayName("Apple 탈퇴 후 같은 sub로 로그인하면 과거 행이 아니라 새 사용자가 생성된다")
     void sameAppleSubCreatesNewUserAfterWithdrawal() {
         User oldUser = new User(
-                SocialProvider.APPLE, "apple-sub-rejoin", "old@example.com", "기존이름");
+                AuthProvider.APPLE, "apple-sub-rejoin", "old@example.com", "기존이름");
         oldUser.registerProfile(new Nickname("옛피클"), "https://cdn.example.com/old-profile.png");
         oldUser = userStore.save(oldUser);
         Long oldUserId = oldUser.id();
@@ -62,13 +62,13 @@ class AppleWithdrawalReloginIT {
         assertThat(withdrawn.nickname()).isNull();
         assertThat(withdrawn.profileImageUrl()).isNull();
         assertThat(userStore.findByProviderAndProviderId(
-                SocialProvider.APPLE, "apple-sub-rejoin")).isEmpty();
+                AuthProvider.APPLE, "apple-sub-rejoin")).isEmpty();
 
         User rejoined = authService.loginOrRegister(
                 new AppleIdentity("apple-sub-rejoin", "new@example.com", "새이름"));
 
         assertThat(rejoined.id()).isNotEqualTo(oldUserId);
-        assertThat(rejoined.provider()).isEqualTo(SocialProvider.APPLE);
+        assertThat(rejoined.provider()).isEqualTo(AuthProvider.APPLE);
         assertThat(rejoined.providerId()).isEqualTo("apple-sub-rejoin");
         assertThat(rejoined.state()).isEqualTo(User.State.ACTIVE);
         assertThat(rejoined.email()).isEqualTo("new@example.com");
@@ -77,7 +77,7 @@ class AppleWithdrawalReloginIT {
         assertThat(rejoined.nickname()).isNull();
         assertThat(rejoined.profileImageUrl()).isNull();
         assertThat(userStore.findByProviderAndProviderId(
-                SocialProvider.APPLE, "apple-sub-rejoin"))
+                AuthProvider.APPLE, "apple-sub-rejoin"))
                 .get()
                 .extracting(User::id)
                 .isEqualTo(rejoined.id());

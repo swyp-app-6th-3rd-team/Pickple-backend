@@ -1,6 +1,6 @@
 package app.pickple.item.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -85,7 +85,7 @@ class ImageUploadControllerIT {
         ensureBucket();
 
         User user = userStore.save(new User(
-                SocialProvider.GOOGLE,
+                AuthProvider.GOOGLE,
                 "image-upload-" + UUID.randomUUID(),
                 null,
                 "업로더"));

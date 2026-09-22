@@ -1,6 +1,6 @@
 package app.pickple.item.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.item.domain.AttachType;
@@ -50,7 +50,7 @@ class JpaItemContainerStoreIT {
     @BeforeEach
     void setUp() {
         // item_container.user_id 에 FK 가 걸려 있어 실제 사용자가 필요하다.
-        User owner = userStore.save(new User(SocialProvider.GOOGLE, "item-owner", null, "업로더"));
+        User owner = userStore.save(new User(AuthProvider.GOOGLE, "item-owner", null, "업로더"));
         ownerId = owner.id();
     }
 

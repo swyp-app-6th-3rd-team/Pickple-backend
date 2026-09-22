@@ -1,6 +1,6 @@
 package app.pickple.vote.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.item.domain.AttachType;
@@ -47,9 +47,9 @@ class JpaVoteStoreIT {
     void setUp() {
         long seed = System.nanoTime();
         authorId = userStore.save(
-                new User(SocialProvider.GOOGLE, "vote-author-" + seed, null, "글쓴이")).id();
+                new User(AuthProvider.GOOGLE, "vote-author-" + seed, null, "글쓴이")).id();
         voterId = userStore.save(
-                new User(SocialProvider.GOOGLE, "voter-" + seed, null, "투표자")).id();
+                new User(AuthProvider.GOOGLE, "voter-" + seed, null, "투표자")).id();
     }
 
     /** 찬반 게시글 하나를 만들고 저장된 상태로 돌려준다. */

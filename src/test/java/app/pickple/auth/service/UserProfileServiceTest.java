@@ -1,7 +1,7 @@
 package app.pickple.auth.service;
 
 import app.pickple.auth.domain.Nickname;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
@@ -56,7 +56,7 @@ class UserProfileServiceTest {
     }
 
     private User activeUser() {
-        return User.restore(1L, SocialProvider.GOOGLE, "sub-1", null, "홍길동",
+        return User.restore(1L, AuthProvider.GOOGLE, "sub-1", null, "홍길동",
                 app.pickple.auth.domain.Role.ROLE_USER, User.State.ACTIVE, null, null);
     }
 

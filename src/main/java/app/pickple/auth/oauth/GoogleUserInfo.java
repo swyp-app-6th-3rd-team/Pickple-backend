@@ -1,6 +1,6 @@
 package app.pickple.auth.oauth;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 
 import java.util.Map;
 
@@ -8,8 +8,8 @@ import java.util.Map;
 record GoogleUserInfo(Map<String, Object> attributes) implements OAuth2UserInfo {
 
     @Override
-    public SocialProvider provider() {
-        return SocialProvider.GOOGLE;
+    public AuthProvider provider() {
+        return AuthProvider.GOOGLE;
     }
 
     @Override
