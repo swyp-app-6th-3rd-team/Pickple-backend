@@ -1,6 +1,7 @@
 package app.pickple.auth;
 
 import app.pickple.auth.domain.Nickname;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
@@ -83,9 +84,9 @@ class WithdrawalPiiErasureIT {
      * Apple 하나가 통과하는 것으로는 판정이 되지 않는다. enum 전체를 돈다.
      */
     @ParameterizedTest
-    @EnumSource(SocialProvider.class)
+    @EnumSource(AuthProvider.class)
     @DisplayName("C-1·C-2 탈퇴하면 provider 무관하게 users 행의 개인정보가 전부 비워진다")
-    void withdrawalErasesEveryPiiColumnInTheRow(SocialProvider provider) {
+    void withdrawalErasesEveryPiiColumnInTheRow(AuthProvider provider) {
         User user = saveProfiledUser(provider, "erase-" + provider + "-" + System.nanoTime());
         Long userId = user.id();
 
@@ -110,9 +111,9 @@ class WithdrawalPiiErasureIT {
      * 터진다. 쓰기는 성공하고 읽기가 죽는 형태라 탈퇴 순간에는 드러나지 않는다.
      */
     @ParameterizedTest
-    @EnumSource(SocialProvider.class)
+    @EnumSource(AuthProvider.class)
     @DisplayName("C-3 파기한 행을 다시 조회해도 터지지 않는다")
-    void maskedRowIsStillReadable(SocialProvider provider) {
+    void maskedRowIsStillReadable(AuthProvider provider) {
         User user = saveProfiledUser(provider, "reread-" + provider + "-" + System.nanoTime());
         Long userId = user.id();
         withdrawalPersistenceService.complete(userId);
@@ -137,8 +138,8 @@ class WithdrawalPiiErasureIT {
     @DisplayName("C-6 같은 provider 회원이 연속으로 탈퇴해도 유니크 위반이 없다")
     void consecutiveWithdrawalsDoNotViolateProviderUnique() {
         long seed = System.nanoTime();
-        User first = saveProfiledUser(SocialProvider.KAKAO, "kakao-seq-1-" + seed);
-        User second = saveProfiledUser(SocialProvider.KAKAO, "kakao-seq-2-" + seed);
+        User first = saveProfiledUser(AuthProvider.KAKAO, "kakao-seq-1-" + seed);
+        User second = saveProfiledUser(AuthProvider.KAKAO, "kakao-seq-2-" + seed);
 
         withdrawalPersistenceService.complete(first.id());
         withdrawalPersistenceService.complete(second.id());
@@ -163,12 +164,12 @@ class WithdrawalPiiErasureIT {
     @DisplayName("C-7 카카오 탈퇴 후 같은 계정으로 로그인하면 새 회원이 만들어진다")
     void kakaoRejoinAfterWithdrawalCreatesNewUser() {
         String sub = "kakao-rejoin-" + System.nanoTime();
-        User old = saveProfiledUser(SocialProvider.KAKAO, sub);
+        User old = saveProfiledUser(AuthProvider.KAKAO, sub);
         Long oldUserId = old.id();
 
         withdrawalPersistenceService.complete(oldUserId);
 
-        assertThat(userStore.findByProviderAndProviderId(SocialProvider.KAKAO, sub))
+        assertThat(userStore.findByProviderAndProviderId(AuthProvider.KAKAO, sub))
                 .as("파기 후에는 소셜 식별자로 과거 행을 찾을 수 없어야 한다")
                 .isEmpty();
 
@@ -203,8 +204,8 @@ class WithdrawalPiiErasureIT {
     @DisplayName("C-11·C-12 소급 파기는 탈퇴 회원만 비우고 활성 회원은 그대로 둔다")
     void backfillErasesOnlyWithdrawnRows() {
         long seed = System.nanoTime();
-        User withdrawn = saveProfiledUser(SocialProvider.KAKAO, "legacy-inactive-" + seed);
-        User active = saveProfiledUser(SocialProvider.KAKAO, "legacy-active-" + seed);
+        User withdrawn = saveProfiledUser(AuthProvider.KAKAO, "legacy-inactive-" + seed);
+        User active = saveProfiledUser(AuthProvider.KAKAO, "legacy-active-" + seed);
 
         // 코드 경로를 거치지 않고 "구버전에서 탈퇴한 행" 을 직접 만든다.
         // withdraw() 를 쓰면 이미 파기돼 소급 파기의 효과를 볼 수 없다.
@@ -249,12 +250,12 @@ class WithdrawalPiiErasureIT {
     @DisplayName("C-14 탈퇴와 겹친 로그인이 파기한 개인정보를 되살리지 못한다")
     void concurrentLoginCannotResurrectErasedPersonalData() {
         String sub = "race-" + System.nanoTime();
-        User user = saveProfiledUser(SocialProvider.KAKAO, sub);
+        User user = saveProfiledUser(AuthProvider.KAKAO, sub);
         Long userId = user.id();
 
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
             // T1 로그인: 회원을 읽고 활성임을 확인한다 (loginOrRegister 의 앞부분).
-            User loginView = userStore.findByProviderAndProviderId(SocialProvider.KAKAO, sub)
+            User loginView = userStore.findByProviderAndProviderId(AuthProvider.KAKAO, sub)
                     .orElseThrow();
             assertThat(loginView.isActive()).isTrue();
             loginView.syncProfile("fresh@example.com", "새이름");
@@ -284,7 +285,7 @@ class WithdrawalPiiErasureIT {
      * 활성 회원 행이 남고, {@code uk_users_active_nickname} 이 활성 회원의 닉네임
      * 중복을 막기 때문이다(R-23). 5자 제한이 있어 짧은 일련번호를 쓴다.
      */
-    private User saveProfiledUser(SocialProvider provider, String providerId) {
+    private User saveProfiledUser(AuthProvider provider, String providerId) {
         User user = new User(provider, providerId, "user@example.com", "홍길동");
         user.registerProfile(new Nickname(uniqueNickname()), "https://cdn.example.com/p.png");
         return userStore.save(user);

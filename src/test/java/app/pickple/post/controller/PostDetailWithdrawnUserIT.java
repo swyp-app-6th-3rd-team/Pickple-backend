@@ -1,6 +1,6 @@
 package app.pickple.post.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AccountWithdrawalPersistenceService;
@@ -165,7 +165,7 @@ class PostDetailWithdrawnUserIT {
     // --- 픽스처 -------------------------------------------------------------
 
     private User saveUser(String providerId) {
-        return userStore.save(new User(SocialProvider.GOOGLE, providerId, null, "탈퇴검증"));
+        return userStore.save(new User(AuthProvider.GOOGLE, providerId, null, "탈퇴검증"));
     }
 
     private Post saveAgreePost(String title) {

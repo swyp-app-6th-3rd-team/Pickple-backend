@@ -1,6 +1,6 @@
 package app.pickple.post.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AccountWithdrawalPersistenceService;
@@ -643,7 +643,7 @@ class PostControllerIT {
      * 그 제약에 걸리므로, 표시용 이름 뒤에 일련번호를 붙여 유일하게 만든다.
      */
     private User saveUser(String providerId, String name) {
-        User saved = userStore.save(new User(SocialProvider.GOOGLE, providerId, null, name));
+        User saved = userStore.save(new User(AuthProvider.GOOGLE, providerId, null, name));
         jdbcTemplate.update("UPDATE users SET nickname = ? WHERE id = ?", uniqueNickname(name), saved.id());
         return saved;
     }

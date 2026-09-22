@@ -1,11 +1,10 @@
 package app.pickple.auth.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.AuthService;
 import app.pickple.auth.service.QaLoginService;
-import app.pickple.config.QaLoginProperties;
 import app.pickple.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,17 +42,16 @@ class QaLoginProductionIT {
 
     @DynamicPropertySource
     static void qaLoginProperties(DynamicPropertyRegistry registry) {
-        registry.add("app.auth.qa-login.enabled", () -> true);
+        registry.add("app.auth.qa-login.enabled", () -> false);
         registry.add("app.auth.qa-login.login-id", () -> "qa-user");
         registry.add("app.auth.qa-login.password-hash", () -> PASSWORD_HASH);
         registry.add("app.auth.qa-login.user-id", () -> 11701L);
     }
 
     @Test
-    void rejectsQaLoginWhenProductionProfileIsAlsoActive() throws Exception {
+    void rejectsQaLoginWhenDisabledEvenWithLegacyCredentials() throws Exception {
         assertThat(context.getBeansOfType(QaLoginController.class)).isEmpty();
         assertThat(context.getBeansOfType(QaLoginService.class)).isEmpty();
-        assertThat(context.getBeansOfType(QaLoginProperties.class)).isEmpty();
         assertThat(context.getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class)
                 .getHandlerMethods().keySet())
                 .noneMatch(mapping -> mapping.getPatternValues().contains("/auth/login"));
@@ -63,7 +61,7 @@ class QaLoginProductionIT {
         mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
 
-        User user = userStore.save(new User(SocialProvider.KAKAO, "qa-prod-gate-it", null, "QA"));
+        User user = userStore.save(new User(AuthProvider.KAKAO, "qa-prod-gate-it", null, "QA"));
         String access = authService.issueTokens(user).accessToken();
         mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + access).content(body))

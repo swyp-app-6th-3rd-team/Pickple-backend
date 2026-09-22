@@ -1,6 +1,6 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.item.domain.AttachType;
@@ -52,7 +52,7 @@ class PostStoreGuardIT {
     @BeforeEach
     void setUp() {
         authorId = userStore.save(
-                new User(SocialProvider.GOOGLE, "guard-" + System.nanoTime(), null, "작성자")).id();
+                new User(AuthProvider.GOOGLE, "guard-" + System.nanoTime(), null, "작성자")).id();
     }
 
     private Long container() {

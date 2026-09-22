@@ -1,6 +1,6 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.item.domain.AttachType;
@@ -32,8 +32,8 @@ class PostEditWithVoteIT {
     @BeforeEach
     void setUp() {
         long seed = System.nanoTime();
-        authorId = userStore.save(new User(SocialProvider.GOOGLE, "edit-a-" + seed, null, "글쓴이")).id();
-        voterId = userStore.save(new User(SocialProvider.GOOGLE, "edit-v-" + seed, null, "투표자")).id();
+        authorId = userStore.save(new User(AuthProvider.GOOGLE, "edit-a-" + seed, null, "글쓴이")).id();
+        voterId = userStore.save(new User(AuthProvider.GOOGLE, "edit-v-" + seed, null, "투표자")).id();
     }
 
     @Test

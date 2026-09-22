@@ -39,7 +39,7 @@ app/pickple/
 ├── error/           ApiException · GlobalExceptionHandler
 │
 └── auth/            OAuth2 + Apple/Kakao native login + JWT
-    ├── domain/      User · Role · SocialProvider · SocialIdentity · *Store
+    ├── domain/      User · Role · AuthProvider · SocialProvider · SocialIdentity · *Store
     ├── service/     AuthService · JwtService · AccountWithdrawal*Service
     ├── infra/       UserEntity · *TokenEntity · Jpa*Store
     ├── oauth/       OAuth2UserInfo(+3 어댑터) · CustomOAuth2UserService
@@ -84,7 +84,7 @@ app/pickple/
 | GET | `/login/oauth2/code/{provider}` | — | 콜백 (Spring 이 처리) |
 | POST | `/auth/apple` | — | iOS Apple credential 검증 + 서비스 JWT 발급 |
 | POST | `/auth/kakao` | — | iOS Kakao ID token·nonce 검증 + 서비스 JWT 발급 |
-| POST | `/auth/login` | QA ID·비밀번호 | dev에서 별도 활성화한 경우에만 기존 QA 계정의 서비스 JWT 발급 |
+| POST | `/auth/login` | QA ID·비밀번호 | 독립 QA 계정의 서비스 JWT 발급 |
 | GET | `/auth/me` | 필요 | 내 정보 |
 | POST | `/auth/refresh` | 쿠키 | 토큰 재발급 (회전) |
 | POST | `/auth/mobile/refresh` | 본문의 refresh token | 모바일 토큰 재발급 (회전) |
@@ -155,18 +155,28 @@ app/pickple/
 
 **로그인 경계**
 
-- 모바일 제품의 사용자 로그인은 Kakao·Apple OAuth2/OIDC를 사용한다. 이와 별도로 자동화·수동 QA가
-  소셜 로그인 화면을 거치지 않도록 dev에서만 QA 아이디·비밀번호 로그인을 명시적으로 활성화할 수 있다.
+- 모바일 제품의 사용자 로그인은 Kakao·Apple OAuth2/OIDC를 사용한다. 이와 별도로 QA·스토어 심사에
+  소셜 계정 없이 사용하는 독립 QA 아이디·비밀번호 로그인을 제공한다.
 - `/auth/kakao`는 Kakao ID token·nonce를, `/auth/apple`은 Apple authorization code·ID token·
   raw nonce를 검증한 뒤 Pickple access/refresh JWT를 발급한다. Pickple JWT는 소셜 로그인 완료 뒤
   보호 API에서 사용하는 서비스 인증 토큰이지, 소셜 신원 검증을 대신하는 로그인 자격증명이 아니다.
-- QA 로그인은 `{"loginId":"...","password":"..."}`를 받으며 내부 `userId`나 공유 헤더 키를
-  요청 자격증명으로 사용하지 않는다. 서버 설정의 BCrypt 해시와 일치하고 연결된 기존 계정이
-  `ACTIVE`·`ROLE_USER`일 때만 기존 access/refresh JWT 발급 흐름으로 진입한다.
-- `/auth/login`에는 `dev`·`prod` 같은 환경명을 넣지 않는다. 노출 여부는
-  `dev & !prod & !production` 프로필과 `QA_LOGIN_ENABLED=true`로 결정한다. 비밀번호 원문은
-  코드·DB·설정에 저장하지 않고 `QA_LOGIN_PASSWORD_HASH`로만 주입한다.
-- 상세 설정과 호출 방법은 Git에 포함하지 않는 로컬 QA 로그인 runbook으로 관리한다.
+- QA 로그인은 `{"loginId":"...","password":"..."}`를 받는다. DB의 `qa_account`에 저장한
+  BCrypt 해시와 일치하고 전용 사용자가 `QA`·`ACTIVE`·`ROLE_USER`일 때 기존 access/refresh JWT를 발급한다.
+  기존 소셜 사용자에 자격증명을 붙이지 않는다. `/auth/me`의 `provider`에는 `QA`가 추가된다.
+- `/auth/login`에는 `dev`·`prod` 같은 환경명을 넣지 않는다. `application.yml`의
+  `app.auth.qa-login.enabled: true`로 모든 프로필에서 활성화한다. QA 전용 환경변수는 사용하지 않는다.
+- 계정은 DB 관리 권한이 있는 운영자가 대화형 생성 도구로 발급한다. 공개 가입 API는 없다.
+  로그인 ID는 영문·숫자·`._@+-` 1~100자이며 대소문자를 구분한다. 비밀번호는 생성 시 12자 이상,
+  UTF-8 72바이트 이하이고 BCrypt(cost 10) 해시만 저장한다. 탈퇴 시 자격증명도 삭제한다.
+- QA 로그인은 서버 전체 공유 횟수 대신 IP별 60초에 60회, 같은 IP·아이디별 10회로 제한한다.
+  성공·실패 시도를 모두 세며, 초과 시 BCrypt·DB 조회 전에 429(`TOO_MANY_REQUESTS`)와
+  `Retry-After` 초를 반환한다. 다른 IP의 로그인은 독립적이다. 같은 네트워크의 사용자는 IP 한도를 공유한다.
+  단일 인스턴스 메모리에 최대 4,096개 IP를 보관하고 최초 요청으로부터 60초 뒤 만료한다.
+  포화 시 기존 제한을 축출하지 않고 신규 IP에 만료까지 429를 반환한다. 재시작하면 카운터는 초기화된다.
+  이 한도는 운영 초기 정책이며 분산 공격 방어나 여러 인스턴스 사이의 공유 제한을 보장하지 않는다.
+- DB를 유지한 재배포에서는 같은 계정을 유지한다. DB 초기화 후 복구는 운영자의 명시적 재생성으로 한다.
+- 운영자가 `QaAccountCommand`로 계정을 발급하고 로그인 정보는 별도 안전한 채널로 전달한다.
+  지원 실행 명령과 발급·차단·실패 확인은 [Docker 운영 안내](../docker/README.md#qa심사테스터-계정-발급)를 따른다.
 
 **토큰 전달 규약**
 - 웹 액세스 토큰 — 로그인 성공 시 리다이렉트 **쿼리파라미터**, 이후 `Authorization: Bearer`
@@ -792,7 +802,7 @@ app/pickple/
 
 ## 4. 스키마
 
-### 4.1 인증 3개
+### 4.1 인증 4개
 
 ```sql
 users(id, provider, provider_id NULL, email, name, role, state, created_at, updated_at,
@@ -808,12 +818,21 @@ user_refresh_token(id, user_id, token_hash CHAR(64), expires_at, created_at,
 apple_provider_token(user_id, encryption_format_version, encrypted_refresh_token,
       encryption_iv, encryption_key_id, created_at, updated_at,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
+
+qa_account(login_id VARCHAR(100) COLLATE utf8mb4_0900_as_cs PRIMARY KEY,
+      password_hash VARCHAR(60), user_id, created_at, updated_at,
+      UNIQUE KEY uk_qa_account_user (user_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)
 ```
 
-도메인에서 `provider_id = NULL`은 **Apple 비활성 회원**에만 허용한다. DB의
-`ck_users_active_provider_id`는 활성 회원의 누락만 막는 최소 보장이며, Apple 이외 provider까지
-구분하는 더 좁은 규칙은 애플리케이션이 지킨다. MySQL unique key는 여러 `NULL`을 허용하므로
-identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성을 막지 않는다.
+도메인에서 `provider_id = NULL`은 provider와 무관하게 **비활성 회원**에만 허용한다.
+DB의 `ck_users_active_provider_id`도 활성 회원의 누락을 막는다. QA 사용자는 내부 UUID를
+식별자로 사용한다. MySQL unique key는 여러 `NULL`을 허용하므로 탈퇴 시 identity를 분리한
+과거 행이 동일 소셜 식별자의 신규 회원 생성을 막지 않는다.
+
+`qa_account`의 모든 컬럼은 NOT NULL이다. 로그인 ID는 대소문자를 구분하고 사용자 한 명당
+자격증명 한 개만 저장한다. 사용자 탈퇴 시 애플리케이션이 자격증명을 삭제하며,
+사용자 물리 삭제 시에는 FK CASCADE가 동작한다.
 
 ### 4.2 마이그레이션
 
@@ -832,6 +851,9 @@ identity를 분리한 과거 Apple 행이 동일 `sub`의 신규 회원 생성�
 | `V13__post_product_unbounded_link_url.sql` | `db/migration` | 항상 |
 | `V14__erase_withdrawn_user_personal_data.sql` | `db/migration` | 항상 |
 | `V15__terms_tables.sql` | `db/migration` | 항상 — 빈 약관·동의 테이블만 생성 |
+| `V16__profile_image_upload.sql` | `db/migration` | 항상 |
+| V17 `DefaultProfileImageMigration` | Java 마이그레이션 빈 | 항상 |
+| `V18__qa_accounts.sql` | `db/migration` | 항상 — QA 자격증명 테이블과 사용자 식별자 설명 추가, 계정 시드 없음 |
 
 > **V2·V6 은 결번이다.** V2 는 develop 에 머지되지 않은 브랜치가 잡고 있었고,
 > 번호를 메우지 않는다 — 단조 증가만 유지하면
@@ -1075,6 +1097,7 @@ user_daily_activity(id, user_id, activity_date, vote_count, created_at, updated_
 
 | 날짜 | 변경 | 계기 |
 |---|---|---|
+| 2026-09-22 | 독립 QA 계정 발급과 DB 자격증명 로그인, 설정 파일 기반 전체 프로필 활성화, V18·탈퇴 정리. IP·IP/아이디별 시도 제한과 429, 운영 발급 절차 추가 | Issue #185. 소셜 계정 없이 심사·테스터별 계정을 제공하고 BCrypt 연산 전 요청 제한 |
 | 2026-09-14 | 커뮤니티 `GET /posts`에 상품별 사진 `products` 추가. 기존 썸네일·정렬·커서 유지, 인기 카드 배치 조회 재사용 | Issue #175·F03. A/B 사진 2장과 좌우 구분, 사진 누락 시 상품 순서와 null 보존 |
 | 2026-09-14 | 기본 프로필 URL이 기존 파일 CDN을 재사용하도록 교정. 제공 PNG를 네 기본 경로에 배치하고 V17로 활성 회원의 정확한 옛 기본 URL만 복구 | Issue #174, F02. 기존 미등록 도메인의 DNS 조회 실패를 확인. 랜덤 선택·현재 이미지 유지·사용자 사진 보존 |
 | 2026-09-13 | 인기 Top 10의 찬반·A/B id에만 상품 사진 조회를 적용. 빈 결과 1문장·일반만 있으면 2문장·투표 유형 포함 시 3문장으로 구분하고 상품 SQL 실행계획 검증 추가 | Issue #153·PR #171. 불필요한 상품 조회 생략과 인덱스 접근 회귀 검증. 서브쿼리 없는 응답 계약 유지 |

@@ -1,6 +1,6 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.post.domain.PostStore;
@@ -84,8 +84,8 @@ class RandomPostQueryPlanIT {
     @BeforeEach
     void seedForOptimizer() {
         String tag = "plan-" + System.nanoTime();
-        authorId = userStore.save(new User(SocialProvider.GOOGLE, tag + "-author", null, "계획")).id();
-        viewerId = userStore.save(new User(SocialProvider.GOOGLE, tag + "-viewer", null, "조회")).id();
+        authorId = userStore.save(new User(AuthProvider.GOOGLE, tag + "-author", null, "계획")).id();
+        viewerId = userStore.save(new User(AuthProvider.GOOGLE, tag + "-viewer", null, "조회")).id();
         LocalDateTime now = LocalDateTime.now().withNano(0);
 
         List<Object[]> posts = new ArrayList<>();

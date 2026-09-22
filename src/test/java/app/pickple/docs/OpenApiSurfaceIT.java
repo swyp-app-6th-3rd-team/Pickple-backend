@@ -316,6 +316,7 @@ class OpenApiSurfaceIT {
                 "GET /rankings/top",
                 "POST /auth/apple",
                 "POST /auth/kakao",
+                "POST /auth/login",
                 "POST /auth/refresh",
                 "POST /auth/mobile/refresh",
                 "POST /auth/logout");

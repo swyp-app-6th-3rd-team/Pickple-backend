@@ -1,6 +1,6 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.item.domain.AttachType;
@@ -62,7 +62,7 @@ class JpaPostStoreIT {
 
     @BeforeEach
     void setUp() {
-        User author = userStore.save(new User(SocialProvider.GOOGLE, "post-author", null, "글쓴이"));
+        User author = userStore.save(new User(AuthProvider.GOOGLE, "post-author", null, "글쓴이"));
         authorId = author.id();
     }
 

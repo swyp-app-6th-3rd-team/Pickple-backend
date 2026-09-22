@@ -2,7 +2,7 @@ package app.pickple.auth.service;
 
 import app.pickple.config.AuthProperties;
 import app.pickple.auth.domain.Role;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.common.ResponseCode;
 import app.pickple.error.ApiException;
@@ -25,7 +25,7 @@ class JwtServiceTest {
     private static final String SECRET = "test-secret-key-for-unit-tests-only-32bytes+";
 
     private static final User USER = User.restore(
-            42L, SocialProvider.GOOGLE, "sub-1", "u@example.com", "홍길동",
+            42L, AuthProvider.GOOGLE, "sub-1", "u@example.com", "홍길동",
             Role.ROLE_USER, User.State.ACTIVE, null, null);
 
     private JwtService jwtServiceAt(LocalDateTime now) {

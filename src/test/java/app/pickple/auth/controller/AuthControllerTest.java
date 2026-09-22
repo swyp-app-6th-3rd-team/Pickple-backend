@@ -112,6 +112,7 @@ class AuthControllerTest {
                 .getAnnotation(org.springframework.web.bind.annotation.PostMapping.class);
         var qaMapping = QaLoginController.class.getDeclaredMethod(
                         "login", QaLoginController.QaLoginRequest.class,
+                        jakarta.servlet.http.HttpServletRequest.class,
                         jakarta.servlet.http.HttpServletResponse.class)
                 .getAnnotation(org.springframework.web.bind.annotation.PostMapping.class);
 

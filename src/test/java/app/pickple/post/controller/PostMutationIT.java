@@ -1,6 +1,6 @@
 package app.pickple.post.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -77,8 +77,8 @@ class PostMutationIT {
                 .addFilters(springSecurityFilterChain)
                 .build();
         long seed = System.nanoTime();
-        author = userStore.save(new User(SocialProvider.GOOGLE, "mut-author-" + seed, null, "글쓴이"));
-        other = userStore.save(new User(SocialProvider.GOOGLE, "mut-other-" + seed, null, "남"));
+        author = userStore.save(new User(AuthProvider.GOOGLE, "mut-author-" + seed, null, "글쓴이"));
+        other = userStore.save(new User(AuthProvider.GOOGLE, "mut-other-" + seed, null, "남"));
         authorToken = jwtService.createAccessToken(author);
         otherToken = jwtService.createAccessToken(other);
     }

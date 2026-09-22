@@ -1,6 +1,6 @@
 package app.pickple.point.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.comment.domain.Comment;
@@ -47,8 +47,8 @@ class JpaPointHistoryStoreIT {
     @BeforeEach
     void setUp() {
         long seed = System.nanoTime();
-        authorId = userStore.save(new User(SocialProvider.GOOGLE, "pt-author-" + seed, null, "작성자")).id();
-        pickerId = userStore.save(new User(SocialProvider.GOOGLE, "pt-picker-" + seed, null, "픽커")).id();
+        authorId = userStore.save(new User(AuthProvider.GOOGLE, "pt-author-" + seed, null, "작성자")).id();
+        pickerId = userStore.save(new User(AuthProvider.GOOGLE, "pt-picker-" + seed, null, "픽커")).id();
 
         Post post = postStore.save(
                 new Post(authorId, PostType.GENERAL, PostCategory.ETC, "포인트 대상", null));

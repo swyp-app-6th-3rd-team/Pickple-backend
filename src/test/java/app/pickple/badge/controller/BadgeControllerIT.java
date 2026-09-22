@@ -1,6 +1,6 @@
 package app.pickple.badge.controller;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -87,8 +87,8 @@ class BadgeControllerIT {
                 .build();
 
         seed = System.nanoTime();
-        author = userStore.save(new User(SocialProvider.GOOGLE, "badge-author-" + seed, null, "글쓴이"));
-        voter = userStore.save(new User(SocialProvider.GOOGLE, "badge-voter-" + seed, null, "투표자"));
+        author = userStore.save(new User(AuthProvider.GOOGLE, "badge-author-" + seed, null, "글쓴이"));
+        voter = userStore.save(new User(AuthProvider.GOOGLE, "badge-voter-" + seed, null, "투표자"));
         voterToken = jwtService.createAccessToken(voter);
     }
 
@@ -329,7 +329,7 @@ class BadgeControllerIT {
             List<Long> voterIds = new ArrayList<>();
             for (int i = 0; i < voters; i++) {
                 User u = userStore.save(new User(
-                        SocialProvider.GOOGLE, "badge-race-" + i + "-" + seed, null, "동시" + i));
+                        AuthProvider.GOOGLE, "badge-race-" + i + "-" + seed, null, "동시" + i));
                 voterIds.add(u.id());
                 tokens.add(jwtService.createAccessToken(u));
             }

@@ -1,6 +1,6 @@
 package app.pickple.auth.security;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.service.JwtService;
@@ -75,7 +75,7 @@ class AccountStateUnavailableIT {
                 .build();
 
         User user = userStore.save(new User(
-                SocialProvider.GOOGLE, "state-unavailable-" + System.nanoTime(), null, "테스터"));
+                AuthProvider.GOOGLE, "state-unavailable-" + System.nanoTime(), null, "테스터"));
         userId = user.id();
         token = jwtService.createAccessToken(user);
     }

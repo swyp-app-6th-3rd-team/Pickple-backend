@@ -3,7 +3,7 @@ package app.pickple.auth.service;
 import app.pickple.auth.apple.AppleProviderTokenService;
 import app.pickple.auth.apple.AppleTokenGateway;
 import app.pickple.auth.domain.Role;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.kakao.KakaoUnlinkGateway;
@@ -51,8 +51,18 @@ class AccountWithdrawalServiceTest {
     }
 
     @Test
+    void qaWithdrawalNeverCallsSocialProviders() {
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.QA)));
+
+        assertThat(service.withdraw(7L)).isEqualTo(AccountWithdrawalService.WithdrawalOutcome.COMPLETED);
+
+        verify(persistenceService).complete(7L);
+        verifyNoInteractions(providerTokenService, appleTokenGateway, kakaoUnlinkGateway);
+    }
+
+    @Test
     void revokesAppleTokenBeforeCompletingLocalWithdrawal() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
 
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
@@ -65,7 +75,7 @@ class AccountWithdrawalServiceTest {
 
     @Test
     void revokeFailurePreservesLocalStateForRetry() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
         org.mockito.Mockito.doThrow(new ApiException(ResponseCode.APPLE_ACCOUNT_REVOCATION_UNAVAILABLE))
                 .when(appleTokenGateway).revokeRefreshToken("provider-refresh");
@@ -79,7 +89,7 @@ class AccountWithdrawalServiceTest {
 
     @Test
     void missingAppleTokenCompletesLocallyAndRequestsManualRevocation() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.empty());
 
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
@@ -92,7 +102,7 @@ class AccountWithdrawalServiceTest {
 
     @Test
     void retriesIdempotentAppleRevokeWhenLocalCompletionFailed() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.APPLE)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.APPLE)));
         given(providerTokenService.findDecryptedByUserId(7L)).willReturn(Optional.of("provider-refresh"));
         doThrow(new IllegalStateException("temporary db failure"))
                 .doNothing()
@@ -113,7 +123,7 @@ class AccountWithdrawalServiceTest {
 
     @Test
     void nonAppleUserSkipsAppleSystems() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.GOOGLE)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.GOOGLE)));
 
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
@@ -124,7 +134,7 @@ class AccountWithdrawalServiceTest {
 
     @Test
     void unlinksKakaoBeforeCompletingLocalWithdrawal() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.KAKAO)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.KAKAO)));
 
         AccountWithdrawalService.WithdrawalOutcome outcome = service.withdraw(7L);
 
@@ -137,7 +147,7 @@ class AccountWithdrawalServiceTest {
 
     @Test
     void kakaoUnlinkFailurePreservesLocalStateForRetry() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.KAKAO)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.KAKAO)));
         doThrow(new ApiException(ResponseCode.KAKAO_ACCOUNT_REVOCATION_UNAVAILABLE))
                 .when(kakaoUnlinkGateway).unlink("provider-sub");
 
@@ -152,7 +162,7 @@ class AccountWithdrawalServiceTest {
 
     @Test
     void retriesKakaoUnlinkWhenLocalCompletionFailed() {
-        given(userStore.findById(7L)).willReturn(Optional.of(user(SocialProvider.KAKAO)));
+        given(userStore.findById(7L)).willReturn(Optional.of(user(AuthProvider.KAKAO)));
         doThrow(new IllegalStateException("temporary db failure"))
                 .doNothing()
                 .when(persistenceService).complete(7L);
@@ -170,7 +180,7 @@ class AccountWithdrawalServiceTest {
         order.verify(persistenceService).complete(7L);
     }
 
-    private static User user(SocialProvider provider) {
+    private static User user(AuthProvider provider) {
         return User.restore(7L, provider, "provider-sub", "user@example.com", "사용자",
                 Role.ROLE_USER, User.State.ACTIVE, null, null);
     }

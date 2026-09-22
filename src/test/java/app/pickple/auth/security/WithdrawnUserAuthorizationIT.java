@@ -1,6 +1,6 @@
 package app.pickple.auth.security;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
@@ -402,7 +402,7 @@ class WithdrawnUserAuthorizationIT {
     // --- 픽스처 -----------------------------------------------------------
 
     private User saveUser(String providerId) {
-        return userStore.save(new User(SocialProvider.GOOGLE, providerId, null, "테스터"));
+        return userStore.save(new User(AuthProvider.GOOGLE, providerId, null, "테스터"));
     }
 
     /**

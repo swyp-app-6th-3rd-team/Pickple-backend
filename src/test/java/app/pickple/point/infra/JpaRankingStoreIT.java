@@ -1,6 +1,6 @@
 package app.pickple.point.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.comment.domain.Comment;
@@ -306,7 +306,7 @@ class JpaRankingStoreIT {
 
     private Long newUser(String tag) {
         return userStore.save(
-                new User(SocialProvider.GOOGLE, "rank-" + tag + "-" + seed, null, tag)).id();
+                new User(AuthProvider.GOOGLE, "rank-" + tag + "-" + seed, null, tag)).id();
     }
 
     /**
@@ -320,7 +320,7 @@ class JpaRankingStoreIT {
         for (int i = 0; i < times; i++) {
             // 카운터로 유일성을 만든다. (userId, i) 로는 grant 를 두 번 부를 때 겹친다.
             Long pickerId = userStore.save(new User(
-                    SocialProvider.GOOGLE, "rank-picker-" + seed + "-" + (++pickerSequence), null, "픽커")).id();
+                    AuthProvider.GOOGLE, "rank-picker-" + seed + "-" + (++pickerSequence), null, "픽커")).id();
             Post post = postStore.save(
                     new Post(userId, PostType.GENERAL, PostCategory.ETC, "랭킹 대상", null));
             Comment comment = commentStore.save(new Comment(post.id(), userId, "의견", null));

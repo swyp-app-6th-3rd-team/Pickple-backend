@@ -1,6 +1,6 @@
 package app.pickple.comment.service;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.comment.domain.Comment;
@@ -56,8 +56,8 @@ class OnePickServiceIT {
     @BeforeEach
     void setUp() {
         long seed = System.nanoTime();
-        authorId = userStore.save(new User(SocialProvider.GOOGLE, "svc-author-" + seed, null, "작성자")).id();
-        pickerId = userStore.save(new User(SocialProvider.GOOGLE, "svc-picker-" + seed, null, "픽커")).id();
+        authorId = userStore.save(new User(AuthProvider.GOOGLE, "svc-author-" + seed, null, "작성자")).id();
+        pickerId = userStore.save(new User(AuthProvider.GOOGLE, "svc-picker-" + seed, null, "픽커")).id();
 
         Post post = postStore.save(
                 new Post(authorId, PostType.GENERAL, PostCategory.ETC, "원픽 대상", null));
@@ -112,7 +112,7 @@ class OnePickServiceIT {
     @DisplayName("여러 사람이 같은 댓글을 픽하면 각자 받는다")
     void multiplePickersEachGranted() {
         Long another = userStore.save(
-                new User(SocialProvider.GOOGLE, "svc-p2-" + System.nanoTime(), null, "픽커2")).id();
+                new User(AuthProvider.GOOGLE, "svc-p2-" + System.nanoTime(), null, "픽커2")).id();
 
         onePickService.pick(comment.id(), pickerId);
         onePickService.pick(comment.id(), another);

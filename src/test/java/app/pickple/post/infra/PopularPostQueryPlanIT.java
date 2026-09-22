@@ -1,6 +1,6 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.post.domain.PostStore;
@@ -47,7 +47,7 @@ class PopularPostQueryPlanIT {
     @BeforeEach
     void seedForOptimizer() {
         String tag = "popular-plan-" + System.nanoTime();
-        authorId = userStore.save(new User(SocialProvider.GOOGLE, tag, null, "계획")).id();
+        authorId = userStore.save(new User(AuthProvider.GOOGLE, tag, null, "계획")).id();
         LocalDateTime now = LocalDateTime.now().withNano(0);
         List<Object[]> posts = new ArrayList<>();
         for (int i = 0; i < POST_COUNT; i++) {

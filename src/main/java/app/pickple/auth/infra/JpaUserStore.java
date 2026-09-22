@@ -1,6 +1,6 @@
 package app.pickple.auth.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import lombok.RequiredArgsConstructor;
@@ -85,7 +85,7 @@ public class JpaUserStore implements UserStore {
     }
 
     @Override
-    public Optional<User> findByProviderAndProviderId(SocialProvider provider, String providerId) {
+    public Optional<User> findByProviderAndProviderId(AuthProvider provider, String providerId) {
         return repository.findByProviderAndProviderId(provider, providerId).map(UserEntity::toDomain);
     }
 

@@ -28,10 +28,11 @@ export LANG=C.UTF-8
 
 cd "$(dirname "$0")/.."
 
-# macOS 는 shasum, 리눅스(러너)는 sha256sum 이다. 한쪽만 쓰면 다른 쪽에서 127 로 죽는다.
+# 줄바꿈은 문서 의미를 바꾸지 않는다. Windows(CRLF)와 Linux·macOS(LF)가 같은
+# 산출물 해시를 쓰도록 CRLF만 LF로 정규화한 뒤 계산한다.
 sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
-  else shasum -a 256 "$1" | cut -d' ' -f1
+  if command -v sha256sum >/dev/null 2>&1; then sed $'s/\r$//' "$1" | sha256sum | cut -d' ' -f1
+  else sed $'s/\r$//' "$1" | shasum -a 256 | cut -d' ' -f1
   fi
 }
 

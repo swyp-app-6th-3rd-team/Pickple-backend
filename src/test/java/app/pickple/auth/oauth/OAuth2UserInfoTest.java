@@ -3,16 +3,49 @@ package app.pickple.auth.oauth;
 import app.pickple.auth.domain.SocialProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 프로바이더 3사의 응답 구조가 실제로 다르다는 것을 고정하는 테스트.
  * 어댑터가 그 차이를 흡수하는지 확인한다.
  */
 class OAuth2UserInfoTest {
+
+    @ParameterizedTest
+    @CsvSource({"GoOgLe, GOOGLE", "KaKaO, KAKAO", "NaVeR, NAVER"})
+    @DisplayName("OAuth2 등록 ID는 대소문자와 무관하게 소셜 제공자로 해석한다")
+    void resolvesRegistrationIdIgnoringCase(String registrationId, SocialProvider expected) {
+        OAuth2UserInfo info = OAuth2UserInfo.of(registrationId, Map.of());
+
+        assertThat(info.provider()).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"qa", "QA", "unknown", " kakao "})
+    @DisplayName("QA 및 지원하지 않는 등록 ID는 OAuth2에서 거부한다")
+    void rejectsUnsupportedRegistrationId(String registrationId) {
+        assertThatThrownBy(() -> OAuth2UserInfo.of(registrationId, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("지원하지 않는 프로바이더입니다: " + registrationId);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"apple", "APPLE"})
+    @DisplayName("Apple은 기존 네이티브 로그인 경로를 안내한다")
+    void rejectsAppleBrowserLogin(String registrationId) {
+        assertThatThrownBy(() -> OAuth2UserInfo.of(registrationId, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Apple 로그인은 네이티브 API를 사용합니다.");
+    }
 
     @Test
     @DisplayName("Google — 평평한 OIDC 표준 응답")

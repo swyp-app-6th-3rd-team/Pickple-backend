@@ -1,24 +1,29 @@
 package app.pickple.config;
 
 import app.pickple.auth.domain.UserStore;
+import app.pickple.auth.domain.QaAccountStore;
 import app.pickple.auth.service.AuthService;
 import app.pickple.auth.service.QaLoginService;
+import app.pickple.auth.service.QaLoginRateLimiter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import java.time.Clock;
+
 @Configuration(proxyBeanMethods = false)
-@Profile("dev & !prod & !production")
 @ConditionalOnProperty(prefix = "app.auth.qa-login", name = "enabled", havingValue = "true")
-@EnableConfigurationProperties(QaLoginProperties.class)
 public class QaLoginConfig {
 
     @Bean
-    public QaLoginService qaLoginService(QaLoginProperties properties,
-                                         UserStore userStore, AuthService authService) {
-        return new QaLoginService(properties, userStore, authService, new BCryptPasswordEncoder());
+    public QaLoginRateLimiter qaLoginRateLimiter(Clock clock) {
+        return new QaLoginRateLimiter(clock);
+    }
+
+    @Bean
+    public QaLoginService qaLoginService(QaAccountStore qaAccountStore, UserStore userStore,
+                                         AuthService authService) {
+        return new QaLoginService(qaAccountStore, userStore, authService, new BCryptPasswordEncoder());
     }
 }

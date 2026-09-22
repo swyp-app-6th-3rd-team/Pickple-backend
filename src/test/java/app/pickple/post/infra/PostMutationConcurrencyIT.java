@@ -1,6 +1,6 @@
 package app.pickple.post.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.common.ResponseCode;
@@ -69,7 +69,7 @@ class PostMutationConcurrencyIT {
     @BeforeEach
     void setUp() {
         authorId = userStore.save(
-                new User(SocialProvider.GOOGLE, "race-" + System.nanoTime(), null, "작성자")).id();
+                new User(AuthProvider.GOOGLE, "race-" + System.nanoTime(), null, "작성자")).id();
         postId = postStore.save(new Post(authorId, PostType.GENERAL, PostCategory.ETC, "원래 제목", null)).id();
     }
 

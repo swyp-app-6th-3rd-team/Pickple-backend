@@ -1,6 +1,6 @@
 package app.pickple.badge.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.badge.domain.DailyActivityStore;
@@ -91,7 +91,7 @@ class BadgeJudgementQueryIT {
 
     private Long saveUser(String prefix) {
         Long id = userStore.save(
-                new User(SocialProvider.GOOGLE, prefix + "-" + System.nanoTime(), null, "투표자")).id();
+                new User(AuthProvider.GOOGLE, prefix + "-" + System.nanoTime(), null, "투표자")).id();
         createdUserIds.add(id);
         return id;
     }

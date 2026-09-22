@@ -1,6 +1,6 @@
 package app.pickple.auth.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -18,7 +18,7 @@ import java.util.Optional;
  */
 interface UserRepository extends JpaRepository<UserEntity, Long> {
 
-    Optional<UserEntity> findByProviderAndProviderId(SocialProvider provider, String providerId);
+    Optional<UserEntity> findByProviderAndProviderId(AuthProvider provider, String providerId);
 
     /**
      * 활성 회원의 닉네임 점유 여부를 DB 가 센다.

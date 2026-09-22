@@ -1,6 +1,6 @@
 package app.pickple.grade.infra;
 
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.comment.domain.Comment;
@@ -76,10 +76,10 @@ class JpaGradeStoreIT {
     @BeforeEach
     void setUp() {
         long seed = System.nanoTime();
-        userId = userStore.save(new User(SocialProvider.GOOGLE, "grade-user-" + seed, null, "회원")).id();
-        otherId = userStore.save(new User(SocialProvider.GOOGLE, "grade-other-" + seed, null, "타인")).id();
+        userId = userStore.save(new User(AuthProvider.GOOGLE, "grade-user-" + seed, null, "회원")).id();
+        otherId = userStore.save(new User(AuthProvider.GOOGLE, "grade-other-" + seed, null, "타인")).id();
         // 원픽은 자기 댓글에 할 수 없다 (R-07). 작성자와 픽하는 사람을 갈라 둔다.
-        thirdId = userStore.save(new User(SocialProvider.GOOGLE, "grade-third-" + seed, null, "픽커")).id();
+        thirdId = userStore.save(new User(AuthProvider.GOOGLE, "grade-third-" + seed, null, "픽커")).id();
     }
 
     @Test

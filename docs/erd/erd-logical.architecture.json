@@ -50,9 +50,10 @@
           "item_container",
           "item_resource",
           "user_refresh_token",
-          "apple_provider_token"
+          "apple_provider_token",
+          "qa_account"
         ],
-        "note": "사진은 묶음 단위로 올리고, 세션과 애플 연동 토큰은 회원에 하나씩 붙는다."
+        "note": "사진은 묶음 단위로 올리고, 세션·애플 연동 토큰·QA 자격증명은 해당 회원에 하나씩 붙는다."
       },
       {
         "id": "terms-consent",
@@ -68,11 +69,20 @@
   },
   "components": [
     {
+      "id": "qa_account",
+      "type": "database",
+      "label": "테스터 계정",
+      "sublabel": "qa_account",
+      "tag": "독립 QA 사용자 · BCrypt",
+      "pos": [40, 640],
+      "size": [168, 74]
+    },
+    {
       "id": "users",
       "type": "security",
       "label": "회원",
       "sublabel": "users",
-      "tag": "소셜 로그인 · 탈퇴 시 비활성",
+      "tag": "소셜·QA 로그인 · 탈퇴 시 비활성",
       "pos": [
         40,
         330
@@ -345,7 +355,8 @@
       "wraps": [
         "users",
         "user_refresh_token",
-        "apple_provider_token"
+        "apple_provider_token",
+        "qa_account"
       ],
       "pad": 22
     },
@@ -383,6 +394,16 @@
     }
   ],
   "connections": [
+    {
+      "from": "users",
+      "to": "qa_account",
+      "label": "QA 인증",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "right",
+      "via": [[244, 367], [244, 677]],
+      "labelAt": [244, 660]
+    },
     {
       "from": "users",
       "to": "post",
@@ -488,7 +509,8 @@
     {
       "from": "terms",
       "to": "terms_agreement",
-      "label": "버전 수락"
+      "label": "버전 수락",
+      "labelAt": [320, 777]
     }
   ],
   "cards": [

@@ -91,6 +91,8 @@ app:
     refresh-token-validity: P14D
     issuer: pickple
   auth:
+    qa-login:
+      enabled: true
     # 소셜 로그인 성공 후 프런트로 돌려보낼 주소.
     # 액세스 토큰은 쿼리파라미터, 리프레시 토큰은 HttpOnly 쿠키로 전달한다.
     redirect-uri: ${AUTH_REDIRECT_URI:http://localhost:3000/oauth/callback}

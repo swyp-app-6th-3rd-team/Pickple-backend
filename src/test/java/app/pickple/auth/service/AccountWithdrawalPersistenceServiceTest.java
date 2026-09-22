@@ -3,9 +3,10 @@ package app.pickple.auth.service;
 import app.pickple.auth.domain.AppleProviderTokenStore;
 import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.Role;
-import app.pickple.auth.domain.SocialProvider;
+import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
+import app.pickple.auth.domain.QaAccountStore;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -27,17 +28,19 @@ class AccountWithdrawalPersistenceServiceTest {
     private RefreshTokenStore refreshTokenStore;
     @Mock
     private AppleProviderTokenStore appleProviderTokenStore;
+    @Mock
+    private QaAccountStore qaAccountStore;
 
     /** provider 를 가리지 않고 개인정보를 파기한다 (R-27). 이전에는 APPLE 만 식별자를 놓았다. */
     @ParameterizedTest
-    @EnumSource(SocialProvider.class)
-    void erasesPersonalDataMarksUserInactiveAndDeletesBothTokenTypes(SocialProvider provider) {
+    @EnumSource(AuthProvider.class)
+    void erasesPersonalDataMarksUserInactiveAndDeletesBothTokenTypes(AuthProvider provider) {
         User user = User.restore(7L, provider, "provider-sub", "user@example.com", "사용자",
                 Role.ROLE_USER, User.State.ACTIVE, "피클", "https://cdn.example.com/p.png");
         given(userStore.findById(7L)).willReturn(Optional.of(user));
         given(userStore.save(user)).willReturn(user);
         AccountWithdrawalPersistenceService service = new AccountWithdrawalPersistenceService(
-                userStore, refreshTokenStore, appleProviderTokenStore);
+                userStore, refreshTokenStore, appleProviderTokenStore, qaAccountStore);
 
         service.complete(7L);
 
@@ -50,5 +53,6 @@ class AccountWithdrawalPersistenceServiceTest {
         verify(userStore).save(user);
         verify(refreshTokenStore).deleteByUserId(7L);
         verify(appleProviderTokenStore).deleteByUserId(7L);
+        verify(qaAccountStore).deleteByUserId(7L);
     }
 }
