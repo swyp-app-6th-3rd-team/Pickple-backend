@@ -6,6 +6,7 @@ import app.pickple.auth.domain.RefreshTokenStore;
 import app.pickple.auth.domain.Role;
 import app.pickple.auth.domain.AuthProvider;
 import app.pickple.auth.domain.SocialIdentity;
+import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.oauth.OAuth2UserInfo;
@@ -14,6 +15,8 @@ import app.pickple.error.ApiException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -36,7 +39,6 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -68,16 +70,21 @@ class AuthServiceTest {
                 userStore, refreshTokenStore, jwtService, clock, refreshTokenRevocationService);
     }
 
-    @Test
-    void socialLoginCannotCreateOrLinkQaUser() {
+    @ParameterizedTest
+    @CsvSource({"GOOGLE, GOOGLE", "KAKAO, KAKAO", "NAVER, NAVER", "APPLE, APPLE"})
+    void mapsSocialIdentityToUserAuthProvider(SocialProvider socialProvider, AuthProvider expected) {
         SocialIdentity identity = mock(SocialIdentity.class);
-        given(identity.provider()).willReturn(AuthProvider.QA);
+        given(identity.provider()).willReturn(socialProvider);
+        given(identity.providerId()).willReturn("social-sub");
+        given(userStore.findByProviderAndProviderId(expected, "social-sub"))
+                .willReturn(Optional.empty());
+        given(userStore.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
 
-        assertThatThrownBy(() -> authService.loginOrRegister(identity))
-                .isInstanceOf(ApiException.class)
-                .extracting(error -> ((ApiException) error).code())
-                .isEqualTo(ResponseCode.OAUTH2_FAILED);
-        verifyNoInteractions(userStore, refreshTokenStore);
+        User user = authService.loginOrRegister(identity);
+
+        assertThat(user.provider()).isEqualTo(expected);
+        assertThat(user.providerId()).isEqualTo("social-sub");
+        verify(userStore).findByProviderAndProviderId(expected, "social-sub");
     }
 
     private OAuth2UserInfo googleUser(String sub) {

@@ -1,7 +1,7 @@
 package app.pickple.auth.kakao;
 
 import app.pickple.auth.domain.SocialIdentity;
-import app.pickple.auth.domain.AuthProvider;
+import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.service.AuthService;
 import app.pickple.common.ResponseCode;
 import app.pickple.config.KakaoProperties;
@@ -84,7 +84,7 @@ class KakaoAuthServiceTest {
         assertThat(result).isSameAs(expected);
         ArgumentCaptor<SocialIdentity> identity = ArgumentCaptor.forClass(SocialIdentity.class);
         verify(authService).completeLogin(identity.capture());
-        assertThat(identity.getValue().provider()).isEqualTo(AuthProvider.KAKAO);
+        assertThat(identity.getValue().provider()).isEqualTo(SocialProvider.KAKAO);
         assertThat(identity.getValue().providerId()).isEqualTo("kakao-sub");
         assertThat(identity.getValue().email()).isEqualTo("user@kakao.com");
         assertThat(identity.getValue().name()).isEqualTo("카카오유저");

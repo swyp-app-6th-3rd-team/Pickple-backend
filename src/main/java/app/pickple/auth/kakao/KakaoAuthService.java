@@ -1,7 +1,7 @@
 package app.pickple.auth.kakao;
 
 import app.pickple.auth.domain.SocialIdentity;
-import app.pickple.auth.domain.AuthProvider;
+import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.service.AuthService;
 import app.pickple.common.ResponseCode;
 import app.pickple.config.KakaoProperties;
@@ -173,8 +173,8 @@ public class KakaoAuthService {
     private record KakaoIdentity(String providerId, String email, String name) implements SocialIdentity {
 
         @Override
-        public AuthProvider provider() {
-            return AuthProvider.KAKAO;
+        public SocialProvider provider() {
+            return SocialProvider.KAKAO;
         }
     }
 }

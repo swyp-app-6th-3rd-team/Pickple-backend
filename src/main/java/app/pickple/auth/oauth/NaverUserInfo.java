@@ -1,6 +1,6 @@
 package app.pickple.auth.oauth;
 
-import app.pickple.auth.domain.AuthProvider;
+import app.pickple.auth.domain.SocialProvider;
 
 import java.util.Map;
 
@@ -15,8 +15,8 @@ import java.util.Map;
 record NaverUserInfo(Map<String, Object> attributes) implements OAuth2UserInfo {
 
     @Override
-    public AuthProvider provider() {
-        return AuthProvider.NAVER;
+    public SocialProvider provider() {
+        return SocialProvider.NAVER;
     }
 
     @Override

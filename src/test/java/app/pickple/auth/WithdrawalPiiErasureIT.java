@@ -2,6 +2,7 @@ package app.pickple.auth;
 
 import app.pickple.auth.domain.Nickname;
 import app.pickple.auth.domain.AuthProvider;
+import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
 import app.pickple.auth.domain.SocialIdentity;
@@ -173,7 +174,7 @@ class WithdrawalPiiErasureIT {
                 .isEmpty();
 
         User rejoined = authService.loginOrRegister(
-                identity(AuthProvider.KAKAO, sub, "new@example.com", "새이름"));
+                identity(SocialProvider.KAKAO, sub, "new@example.com", "새이름"));
 
         assertThat(rejoined.id()).isNotEqualTo(oldUserId);
         assertThat(rejoined.state()).isEqualTo(User.State.ACTIVE);
@@ -308,10 +309,10 @@ class WithdrawalPiiErasureIT {
      * 가입·로그인 분기다.
      */
     private static SocialIdentity identity(
-            AuthProvider provider, String providerId, String email, String name) {
+            SocialProvider provider, String providerId, String email, String name) {
         return new SocialIdentity() {
             @Override
-            public AuthProvider provider() {
+            public SocialProvider provider() {
                 return provider;
             }
 

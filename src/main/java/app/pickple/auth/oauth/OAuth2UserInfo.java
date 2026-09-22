@@ -1,7 +1,7 @@
 package app.pickple.auth.oauth;
 
 import app.pickple.auth.domain.SocialIdentity;
-import app.pickple.auth.domain.AuthProvider;
+import app.pickple.auth.domain.SocialProvider;
 
 import java.util.Locale;
 import java.util.Map;
@@ -19,7 +19,7 @@ import java.util.Map;
  */
 public interface OAuth2UserInfo extends SocialIdentity {
 
-    AuthProvider provider();
+    SocialProvider provider();
 
     /** 프로바이더가 발급한 고유 식별자. */
     String providerId();

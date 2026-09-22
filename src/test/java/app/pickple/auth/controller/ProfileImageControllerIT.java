@@ -1,6 +1,7 @@
 package app.pickple.auth.controller;
 
 import app.pickple.auth.domain.AuthProvider;
+import app.pickple.auth.domain.SocialProvider;
 import app.pickple.auth.domain.SocialIdentity;
 import app.pickple.auth.domain.User;
 import app.pickple.auth.domain.UserStore;
@@ -123,7 +124,7 @@ class ProfileImageControllerIT {
                 .andExpect(status().isOk());
         // 외부 소셜 신원 검증 이후의 실제 공통 재로그인 경로로 프로필 보존을 확인한다.
         var login = auth.completeLogin(new TestIdentity(
-                user.provider(), user.providerId(), null, "다시로그인"));
+                SocialProvider.GOOGLE, user.providerId(), null, "다시로그인"));
         assertProfile(second, changed, login.tokens().accessToken());
 
         String key = jdbc.queryForObject("SELECT item_key FROM item_resource WHERE access_url = ?",
@@ -257,7 +258,7 @@ class ProfileImageControllerIT {
         return output.toByteArray();
     }
 
-    private record TestIdentity(AuthProvider provider, String providerId, String email, String name)
+    private record TestIdentity(SocialProvider provider, String providerId, String email, String name)
             implements SocialIdentity {
     }
 }

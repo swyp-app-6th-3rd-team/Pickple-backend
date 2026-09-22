@@ -1,6 +1,6 @@
 package app.pickple.auth.oauth;
 
-import app.pickple.auth.domain.AuthProvider;
+import app.pickple.auth.domain.SocialProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -22,7 +22,7 @@ class OAuth2UserInfoTest {
     @ParameterizedTest
     @CsvSource({"GoOgLe, GOOGLE", "KaKaO, KAKAO", "NaVeR, NAVER"})
     @DisplayName("OAuth2 등록 ID는 대소문자와 무관하게 소셜 제공자로 해석한다")
-    void resolvesRegistrationIdIgnoringCase(String registrationId, AuthProvider expected) {
+    void resolvesRegistrationIdIgnoringCase(String registrationId, SocialProvider expected) {
         OAuth2UserInfo info = OAuth2UserInfo.of(registrationId, Map.of());
 
         assertThat(info.provider()).isEqualTo(expected);
@@ -57,7 +57,7 @@ class OAuth2UserInfoTest {
 
         OAuth2UserInfo info = OAuth2UserInfo.of("google", attributes);
 
-        assertThat(info.provider()).isEqualTo(AuthProvider.GOOGLE);
+        assertThat(info.provider()).isEqualTo(SocialProvider.GOOGLE);
         assertThat(info.providerId()).isEqualTo("google-sub-123");
         assertThat(info.email()).isEqualTo("user@gmail.com");
         assertThat(info.name()).isEqualTo("홍길동");
@@ -74,7 +74,7 @@ class OAuth2UserInfoTest {
 
         OAuth2UserInfo info = OAuth2UserInfo.of("kakao", attributes);
 
-        assertThat(info.provider()).isEqualTo(AuthProvider.KAKAO);
+        assertThat(info.provider()).isEqualTo(SocialProvider.KAKAO);
         assertThat(info.providerId()).isEqualTo("1234567890");   // 문자열로 변환
         assertThat(info.email()).isEqualTo("user@kakao.com");
         assertThat(info.name()).isEqualTo("카카오유저");
@@ -117,7 +117,7 @@ class OAuth2UserInfoTest {
 
         OAuth2UserInfo info = OAuth2UserInfo.of("naver", attributes);
 
-        assertThat(info.provider()).isEqualTo(AuthProvider.NAVER);
+        assertThat(info.provider()).isEqualTo(SocialProvider.NAVER);
         assertThat(info.providerId()).isEqualTo("naver-id-abc");
         assertThat(info.email()).isEqualTo("user@naver.com");
         assertThat(info.name()).isEqualTo("네이버유저");

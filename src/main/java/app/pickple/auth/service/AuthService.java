@@ -32,15 +32,17 @@ public class AuthService {
      */
     @Transactional
     public User loginOrRegister(SocialIdentity userInfo) {
-        // QA는 별도 비밀번호 검증 경로를 사용하므로 소셜 가입·로그인에서는 허용하지 않는다.
-        if (userInfo.provider() == AuthProvider.QA) {
-            throw new ApiException(ResponseCode.OAUTH2_FAILED);
-        }
         if (userInfo.providerId() == null || userInfo.providerId().isBlank()) {
             throw new ApiException(ResponseCode.OAUTH2_FAILED, "프로바이더가 식별자를 주지 않았습니다.");
         }
 
-        return userStore.findByProviderAndProviderId(userInfo.provider(), userInfo.providerId())
+        AuthProvider provider = switch (userInfo.provider()) {
+            case GOOGLE -> AuthProvider.GOOGLE;
+            case KAKAO -> AuthProvider.KAKAO;
+            case NAVER -> AuthProvider.NAVER;
+            case APPLE -> AuthProvider.APPLE;
+        };
+        return userStore.findByProviderAndProviderId(provider, userInfo.providerId())
                 .map(existing -> {
                     if (!existing.isActive()) {
                         throw new ApiException(ResponseCode.FORBIDDEN, "탈퇴한 계정입니다.");
@@ -48,7 +50,7 @@ public class AuthService {
                     // 프로바이더 쪽에서 이름·이메일을 바꿨을 수 있으므로 로그인마다 갱신한다.
                     // Apple name은 ID token 클레임이 아니라 앱이 최초 동의 때 전달하는 값이므로
                     // 기존 사용자의 이름을 매 로그인마다 덮어쓰는 근거로 사용하지 않는다.
-                    String nameToSync = userInfo.provider() == AuthProvider.APPLE
+                    String nameToSync = provider == AuthProvider.APPLE
                             ? null
                             : userInfo.name();
                     existing.syncProfile(userInfo.email(), nameToSync);
@@ -56,7 +58,7 @@ public class AuthService {
                 })
                 .orElseGet(() -> {
                     User created = new User(
-                            userInfo.provider(), userInfo.providerId(), userInfo.email(), userInfo.name());
+                            provider, userInfo.providerId(), userInfo.email(), userInfo.name());
                     // providerId(Apple sub 포함)는 안정적인 개인 식별자이므로 로그에 남기지 않는다.
                     log.info("신규 사용자 등록: provider={}", userInfo.provider());
                     return userStore.save(created);
