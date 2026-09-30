@@ -46,6 +46,11 @@ V19는 빈 DB에서는 아무 행도 지우지 않는다. 데이터가 있는 �
 삭제된 사용자가 가진 액세스 토큰은 `ActiveAccountAuthorizationManager`가 401로 막고 refresh 토큰은 users 삭제와 함께
 CASCADE로 지워진다.
 
+중간에 실패하면 트랜잭션 전체가 롤백된다. 다만 Flyway가 V19를 `success = 0`으로 이력에 남긴다.
+이 행이 있으면 validate가 막아서 새 코드와 이전 코드 모두 기동하지 못한다. 이미지만 되돌려서는 복구되지 않는다.
+dev 덤프 리허설(2026-09-30)에서 users를 참조하는 RESTRICT FK를 일부러 넣어 실패시켜 확인했다.
+이 경우 실패 이력 행을 지우고 원인을 고친 뒤 다시 배포한다(런북 3-1).
+
 머지 전에 다른 마이그레이션이 V19를 먼저 차지하면 이 파일의 번호만 바꾼다.
 어느 환경에도 적용되지 않은 파일이라 이름을 바꿔도 안전하다.
 
@@ -56,7 +61,13 @@ CASCADE로 지워진다.
 2. EC2에서 `mysqldump --single-transaction` 전체 백업을 뜬다.
 3. Draft를 해제하고 머지한다. deploy-develop 완료 후 users 집합이 1번에서 본 qa_account.user_id 집합과 같은지,
    도메인 테이블이 비었는지 확인한다.
-4. `scripts/purge-orphan-upload-objects.sh`를 dry-run으로 돌려 목록을 검토한 뒤 `--execute --backup-dir`로 실행한다.
+   1. 헬스 체크가 실패하고 앱 로그에 V19 실패가 있으면, 데이터는 롤백된 상태다.
+      `DELETE FROM flyway_schema_history WHERE version = '19' AND success = 0;`으로 실패 이력을 지운 뒤
+      원인을 고쳐 다시 배포한다. 이전 이미지로 되돌릴 때도 이 행을 먼저 지워야 기동한다.
+4. `SELECT item_key FROM item_resource;` 결과를 한 줄에 하나씩 파일로 받는다. 반드시 V19 적용 후에 받는다.
+   QA가 프로필 사진을 올리지 않았다면 파일이 비므로 `--allow-empty-referenced`를 명시한다.
+5. `scripts/purge-orphan-upload-objects.sh --bucket <버킷> --referenced-keys <파일>`을 dry-run으로 돌려 후보를 검토한 뒤
+   `--execute --backup-dir <경로>`로 실행한다.
 
 ## 대안
 
