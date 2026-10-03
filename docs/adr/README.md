@@ -57,3 +57,4 @@
 | [0049](0049-activity-list-splits-by-type-into-paths-and-response-types.md) | 내 활동 목록은 유형별 경로와 응답 타입으로 갈리고, 커서는 유형을 싣는다 | Accepted (0036·0046 의 응답 형태 항목을 부분 대체) |
 | [0051](0051-recent-vote-card-author-results.md) | 최근 투표 카드는 작성자의 투표 여부와 무관하게 본인 글의 집계를 제공한다 | Accepted (0046 의 집계 노출 정책을 `/users/me/posts/recent` 범위에서 보완) |
 | [0052](0052-profile-image-upload-url-validation.md) | 프로필 사진은 기존 업로드와 URL 계약을 재사용하고 소유자·용도를 검증한다 | Accepted (0019·0027을 PROFILE 업로드·프로필 입력 범위에서 보완) |
+| [0053](0053-release-data-reset-by-merge-timing.md) | 출시 데이터 초기화는 V19 마이그레이션으로 하고, 실행 시점은 머지 시점으로 통제한다 | Accepted |

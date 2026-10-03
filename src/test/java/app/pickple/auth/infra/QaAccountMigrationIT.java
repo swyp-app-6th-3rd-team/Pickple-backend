@@ -9,6 +9,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.MySQLContainer;
 
 import javax.sql.DataSource;
+import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -23,7 +24,9 @@ class QaAccountMigrationIT {
     @Test
     void freshDatabaseRegistersV18AndValidatesJpaSchema() {
         applicationFlyway.validate();
-        assertThat(applicationFlyway.info().current().getVersion().getVersion()).isEqualTo("18");
+        // 현재 버전이 아니라 적용 이력으로 본다 — 뒤에 마이그레이션이 추가돼도 이 테스트의 의도는 같다.
+        assertThat(Arrays.stream(applicationFlyway.info().applied()).map(i -> i.getVersion().getVersion()))
+                .contains("18");
     }
 
     @Test
